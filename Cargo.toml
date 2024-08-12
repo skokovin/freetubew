@@ -31,7 +31,7 @@ truck-topology  = {git="https://github.com/ricosjp/truck.git"}
 truck-meshalgo  = {git="https://github.com/ricosjp/truck.git"}
 truck-shapeops  = {git="https://github.com/ricosjp/truck.git"}
 truck-stepio = {git="https://github.com/ricosjp/truck.git"}
-clap = "4.5.14"
+clap = "4.5.15"
 #bvh = { version = "0.8.0",features = ["serde"] }
 #triangle = "0.2.0"
 smaa = "0.15.0"
@@ -70,12 +70,10 @@ byteorder = "1.5.0"
 cfg-if = "1.0.0"
 zerocopy = { version ="0.7.35" , features = ["derive"]}
 tokio = { version = "1.39.2", features = ["sync", "rt", "macros"] }
-serde_json = "1.0.122"
+serde_json = "1.0.124"
 serde = { version = "1.0.206", features = ["derive"] }
-web-sys = { version = "0.3.69", features = ["Document", "Window", "Element",
-    "HtmlCanvasElement", "CssStyleDeclaration"
-] }
-
+web-sys = { version = "0.3.69", features = ["Document", "Window", "Element","HtmlCanvasElement", "CssStyleDeclaration"] }
+#wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
@@ -84,4 +82,6 @@ console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 #wgpu = { version = "0.20.1", features = ["webgl"]}
 wasm-bindgen = { version = "0.2.92"}
+
+
 wasm-bindgen-futures = "0.4.42"

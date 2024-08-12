@@ -1,14 +1,25 @@
 use std::future::Future;
+use std::iter;
 use std::rc::Rc;
 use log::{info, warn};
 use parking_lot::RwLock;
-use wgpu::{Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration};
+use web_sys::HtmlCanvasElement;
+use wgpu::{Adapter, CommandEncoder, Device, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture, Texture, TextureView, TextureViewDescriptor};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceEvent, DeviceId, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::platform::web::{WindowAttributesExtWebSys, WindowExtWebSys};
 use winit::window::{Window, WindowId};
+use crate::device::camera::Camera;
+use crate::device::mesh_pipeline::MeshPipeLine;
+
+pub const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 1.0,
+};
 const CANVAS_ID: &str = "canvas3dwindow";
 async fn create_primary(rc_window: Rc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
     let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -117,7 +128,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
             }
         };
 
-        let (_device, _queue) = adapter.request_device(&wgpu::DeviceDescriptor {
+        let (_device, _queue): (Device, Queue) = adapter.request_device(&wgpu::DeviceDescriptor {
             label: None,
             required_features: Default::default(),
             required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
@@ -126,13 +137,22 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
         let surface_config: SurfaceConfiguration = surface
             .get_default_config(&adapter, _sw as u32, _sh as u32)
             .unwrap();
+
         info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
         info!("SURFACE ATTRIBS {:?}",surface_config);
         surface.configure(&_device, &surface_config);
+        let mesh_pipeline: MeshPipeLine =MeshPipeLine::new(&_device, surface_config.format.clone());
+
         WState {
+            is_dirty:false,
             instanse: instanse,
             surface: surface,
             adapter: adapter,
+            device:_device,
+            queue:_queue,
+            rc_window:rc_window,
+            camera:Camera::default(),
+            mesh_pipeline:mesh_pipeline,
         }
     }
 }
@@ -162,9 +182,87 @@ impl WStateBuilder {
 
 #[allow(dead_code)]
 pub struct WState {
+    is_dirty:bool,
     instanse: Instance,
     surface: Surface<'static>,
     adapter: Adapter,
+    device:Device,
+    queue: Queue,
+    rc_window: Rc<Window>,
+    camera:Camera,
+    mesh_pipeline: MeshPipeLine
+}
+impl WState{
+    #[inline]
+    pub fn render(&mut self){
+        match self.surface.get_current_texture() {
+            Ok(out) => {
+                let gw = out.texture.width();
+                let gh = out.texture.height();
+                let texture_view_descriptor = TextureViewDescriptor::default();
+                let view: TextureView = out.texture.create_view(&texture_view_descriptor);
+                let depth_texture: Texture =self.device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d {
+                        width: gw,
+                        height: gh,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Depth32Float,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    label: None,
+                    view_formats: &vec![],
+                });
+                let depth_view: TextureView = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let mut encoder: CommandEncoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder D"),
+                });
+                {
+                    let render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass1"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
+                                store: StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                }
+                self.queue.submit(iter::once(encoder.finish()));
+                out.present();
+            }
+            Err(_) => {}
+        }
+    }
+    #[inline]
+    pub fn resize(&mut self){
+        match self.rc_window.clone().canvas() {
+            None => {}
+            Some(canvas) => {
+                let _sw = canvas.client_width().clone() as u32;
+                let _sh = canvas.client_height().clone() as u32;
+                let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap();
+                //info!("SURFACE ATTRIBS {:?}",surface_config);
+                self.surface.configure(&self.device, &surface_config);
+                self.is_dirty=true;
+            }
+        }
+
+    }
 }
 enum MaybeGraphics {
     Builder(WStateBuilder),
@@ -189,6 +287,7 @@ impl ApplicationHandler<WState> for Application {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: WState) {
+        event.is_dirty=true;
         self.graphics = MaybeGraphics::Graphics(event);
 
         match &mut self.graphics {
@@ -198,12 +297,14 @@ impl ApplicationHandler<WState> for Application {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
-        match &self.graphics {
+        match &mut self.graphics {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
                 match event {
                     WindowEvent::ActivationTokenDone { .. } => {}
-                    WindowEvent::Resized(physical_size) => {}
+                    WindowEvent::Resized(physical_size) => {
+                        wstate.resize();
+                    }
                     WindowEvent::Moved(_) => {}
                     WindowEvent::CloseRequested => {}
                     WindowEvent::Destroyed => {}
@@ -230,7 +331,13 @@ impl ApplicationHandler<WState> for Application {
                     WindowEvent::ScaleFactorChanged { .. } => {}
                     WindowEvent::ThemeChanged(_) => {}
                     WindowEvent::Occluded(_) => {}
-                    WindowEvent::RedrawRequested => {}
+                    WindowEvent::RedrawRequested => {
+                        wstate.render();
+                    }
+                }
+                if(wstate.is_dirty){
+                    wstate.is_dirty=false;
+                    wstate.rc_window.clone().request_redraw();
                 }
             }
         }
@@ -257,7 +364,7 @@ impl ApplicationHandler<WState> for Application {
         match &self.graphics {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
-                //wstate.window_state.as_ref().unwrap().write().request_redraw(wstate.device_state.as_ref().unwrap().as_ref());
+
             }
         }
     }
