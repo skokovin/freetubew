@@ -71,8 +71,8 @@ cfg-if = "1.0.0"
 zerocopy = { version ="0.7.35" , features = ["derive"]}
 tokio = { version = "1.39.2", features = ["sync", "rt", "macros"] }
 serde_json = "1.0.124"
-serde = { version = "1.0.206", features = ["derive"] }
-web-sys = { version = "0.3.69", features = ["Document", "Window", "Element","HtmlCanvasElement", "CssStyleDeclaration"] }
+serde = { version = "1.0.207", features = ["derive"] }
+web-sys = { version = "0.3.70", features = ["Document", "Window", "Element","HtmlCanvasElement", "CssStyleDeclaration"] }
 #wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}
 
 [package.metadata.wasm-pack.profile.release]
@@ -81,7 +81,5 @@ wasm-opt = false
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 #wgpu = { version = "0.20.1", features = ["webgl"]}
-wasm-bindgen = { version = "0.2.92"}
-
-
-wasm-bindgen-futures = "0.4.42"
+wasm-bindgen = { version = "0.2.93"}
+wasm-bindgen-futures = "0.4.43"

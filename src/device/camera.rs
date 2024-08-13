@@ -5,6 +5,7 @@ use cgmath::{InnerSpace, Matrix4, Point3, Quaternion, Rad, Rotation, Rotation3, 
 use cgmath::num_traits::abs;
 use parking_lot::RwLock;
 use truck_base::bounding_box::BoundingBox;
+use crate::device::Z_FIGHTING_FACTOR;
 
 pub const SHIP_FORWARD: Vector3<f32> = Vector3::new(1.0, 0.0, 0.0);
 pub const SHIP_RIGHT: Vector3<f32> = Vector3::new(0.0, -1.0, 0.0);
@@ -16,7 +17,7 @@ pub const SHIP_UP64: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0);
 
 const MOUSE_SENSITIVITY_HORIZONTAL: f32 = 0.01;
 const MOUSE_SENSITIVITY_VERTICAL: f32 = 0.01;
-pub const Z_FIGHTING_FACTOR: f32 = 0.001;
+
 pub struct Camera {
     pub is_dirty:bool,
     pub eye: Point3<f32>,

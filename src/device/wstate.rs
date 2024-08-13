@@ -7,12 +7,15 @@ use web_sys::HtmlCanvasElement;
 use wgpu::{Adapter, CommandEncoder, Device, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture, Texture, TextureView, TextureViewDescriptor};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{DeviceEvent, DeviceId, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::web::{WindowAttributesExtWebSys, WindowExtWebSys};
 use winit::window::{Window, WindowId};
 use crate::device::camera::Camera;
 use crate::device::mesh_pipeline::MeshPipeLine;
+use crate::remote::{RemoteCommand, COMMANDS};
+use crate::trialgo::analyzepl::analyze_bin;
 
 pub const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -263,6 +266,47 @@ impl WState{
         }
 
     }
+
+    pub fn check_commands(&mut self){
+        match COMMANDS.try_lock() {
+            Ok(mut s) => {
+                match s.get_first() {
+                    None => {}
+                    Some(command) => {
+                        match command {
+                            RemoteCommand::OnLoadSTPfile(stp) => {
+                                warn!("FILE LOADED {:?}",stp.len());
+                                match analyze_bin(&stp) {
+                                    None => {}
+                                    Some(ops) => {
+                                        let   (buffer,indxes,bbxs,id_hash)=ops.to_render_data();
+                                        let cmds_arr=ops.calculate_lra();
+                                        let obj_file=ops.all_to_one_obj_bin();
+                                        warn!("FILE ANALYZED {:?}",cmds_arr.len());
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => { warn!("CANT_LOCK") }
+        }
+    }
+    fn on_keyboard(&mut self, _d: DeviceId, key: KeyEvent, _is_synth: bool) {
+        match key.physical_key {
+            PhysicalKey::Code(KeyCode::F2) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+                        info!("F2 Released");
+                    }
+                }
+
+            }
+            _ => {}
+        }
+    }
 }
 enum MaybeGraphics {
     Builder(WStateBuilder),
@@ -300,6 +344,7 @@ impl ApplicationHandler<WState> for Application {
         match &mut self.graphics {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
+                wstate.check_commands();
                 match event {
                     WindowEvent::ActivationTokenDone { .. } => {}
                     WindowEvent::Resized(physical_size) => {
@@ -312,7 +357,9 @@ impl ApplicationHandler<WState> for Application {
                     WindowEvent::HoveredFile(_) => {}
                     WindowEvent::HoveredFileCancelled => {}
                     WindowEvent::Focused(_) => {}
-                    WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {}
+                    WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
+                        wstate.on_keyboard(device_id, event, is_synthetic);
+                    }
                     WindowEvent::ModifiersChanged(_) => {}
                     WindowEvent::Ime(_) => {}
                     WindowEvent::CursorMoved { device_id, position } => {}
