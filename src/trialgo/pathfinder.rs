@@ -323,7 +323,7 @@ impl CncOps {
             ),
         );
         let id: i32 = random();
-        //let path = format!("d:\\pipe_project\\cyl_{}.obj", id);
+        //let path = format!("d:\\pipe_project\\pipe.obj");
         //let mut obj_file = std::fs::File::create(path).unwrap();
         let mut file:Vec<u8> = Vec::new();
         obj::write(&polymesh, &mut file).unwrap();
@@ -474,6 +474,7 @@ impl CncOps {
         });
         (buffer, indxes, bbxs, id_hash)
     }
+
     pub fn calculate_lra(&self) -> Vec<i32> {
         let mut cmnds: Vec<LRACMD> = vec![];
         let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));

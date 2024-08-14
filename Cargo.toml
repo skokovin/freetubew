@@ -73,6 +73,7 @@ tokio = { version = "1.39.2", features = ["sync", "rt", "macros"] }
 serde_json = "1.0.124"
 serde = { version = "1.0.207", features = ["derive"] }
 web-sys = { version = "0.3.70", features = ["Document", "Window", "Element","HtmlCanvasElement", "CssStyleDeclaration"] }
+phf = "0.11.2"
 #wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}
 
 [package.metadata.wasm-pack.profile.release]

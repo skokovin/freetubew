@@ -3,7 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::{BindGroupLayout, Device, FrontFace, PipelineLayout, RenderPipeline, TextureFormat};
 
 pub struct MeshPipeLine {
-    mesh_bind_group_layout: BindGroupLayout,
+    pub(crate) mesh_bind_group_layout: BindGroupLayout,
     pub mesh_render_pipeline: RenderPipeline,
 }
 impl MeshPipeLine {
@@ -40,17 +40,6 @@ impl MeshPipeLine {
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                //VertexMetaData
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -117,7 +106,6 @@ impl MeshPipeLine {
 pub struct MeshVertex {
     pub position: [f32; 4],
     pub normal: [f32; 4],
-    pub material_index: i32,
     pub id: i32,
 }
 
@@ -126,7 +114,6 @@ impl MeshVertex {
         Self {
             position: [0.0, 0.0, 0.0, 1.0],
             normal: [1.0, 0.0, 0.0, 1.0],
-            material_index: 0,
             id: 0,
         }
     }
@@ -134,11 +121,10 @@ impl MeshVertex {
         Self {
             position: [vx, vy, vz, 1.0],
             normal: [nx, ny, nz, 1.0],
-            material_index: mi,
             id: id,
         }
     }
-    const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![0=>Float32x4, 1=>Float32x4, 2=>Sint32, 3=>Sint32];
+    const ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0=>Float32x4, 1=>Float32x4, 2=>Sint32];
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<MeshVertex>() as wgpu::BufferAddress,

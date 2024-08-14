@@ -1,14 +1,25 @@
 use log::{info, warn, Level};
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::js_sys::Uint8Array;
+#[cfg(target_arch = "wasm32")]
 use web_sys::wasm_bindgen::prelude::wasm_bindgen;
+#[cfg(target_arch = "wasm32")]
 use winit::event_loop::EventLoop;
+#[cfg(target_arch = "wasm32")]
 use crate::device::wstate::Application;
+#[cfg(target_arch = "wasm32")]
 use crate::device::wstate::WState;
+
+#[cfg(target_arch = "wasm32")]
 use crate::remote::{RemoteCommand, COMMANDS};
 
+#[cfg(target_arch = "wasm32")]
 mod device;
+#[cfg(target_arch = "wasm32")]
 mod pipesbend;
+#[cfg(target_arch = "wasm32")]
 mod trialgo;
+#[cfg(target_arch = "wasm32")]
 mod remote;
 
 #[wasm_bindgen]

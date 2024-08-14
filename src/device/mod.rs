@@ -4,11 +4,13 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::{Point3, Vector3};
 use serde::{Deserialize, Serialize};
 use truck_base::bounding_box::BoundingBox;
-
+#[cfg(target_arch = "wasm32")]
 pub mod wstate;
 mod camera;
 mod mesh_pipeline;
-
+mod materials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod pcstate;
 
 pub const Z_FIGHTING_FACTOR: f32 = 0.001;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -97,7 +99,6 @@ pub struct MeshVertex {
     pub normal: [f32; 4],
     pub id: i32,
 }
-
 impl MeshVertex {
     pub fn default() -> Self {
         Self {
@@ -120,5 +121,32 @@ impl MeshVertex {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBUTES,
         }
+    }
+}
+
+
+pub struct StepVertexBuffer {
+    pub buffer: Vec<MeshVertex>,
+    pub indxes: Vec<u32>,
+    pub id_hash: Vec<u32>,
+}
+
+impl StepVertexBuffer {
+    pub fn update(&mut self, buffer: Vec<MeshVertex>, indxes: Vec<u32>, id_hash: Vec<u32>) {
+        self.buffer = buffer;
+        self.indxes = indxes;
+        self.id_hash = id_hash;
+    }
+    pub fn default() -> Self {
+        StepVertexBuffer {
+            buffer: vec![],
+            indxes: vec![],
+            id_hash: vec![],
+        }
+    }
+    pub fn clean(&mut self) {
+        self.buffer = vec![];
+        self.indxes = vec![];
+        self.id_hash = vec![];
     }
 }

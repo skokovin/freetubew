@@ -1,18 +1,17 @@
-use std::future::Future;
 use std::{iter, mem};
+use std::future::Future;
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 use log::{info, warn};
-use parking_lot::RwLock;
-use web_sys::HtmlCanvasElement;
-use wgpu::{Adapter, BindGroup, Buffer, BufferAddress, CommandEncoder, Device, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture, Texture, TextureView, TextureViewDescriptor};
+use wgpu::{Adapter, BindGroup, Buffer, BufferAddress, CommandEncoder, Device, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureView, TextureViewDescriptor};
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
-use winit::dpi::PhysicalSize;
+use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::platform::web::{WindowAttributesExtWebSys, WindowExtWebSys};
+
 use winit::window::{Window, WindowId};
 use crate::device::camera::Camera;
 use crate::device::materials::Material;
@@ -27,9 +26,8 @@ const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     b: 0.0,
     a: 1.0,
 };
-const CANVAS_ID: &str = "canvas3dwindow";
 const MATERIALS_COUNT: usize = 140;
-async fn create_primary(rc_window: Rc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
+async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
     let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         flags: Default::default(),
@@ -52,84 +50,20 @@ async fn create_primary(rc_window: Rc<Window>) -> Option<(Instance, Surface<'sta
     }
 }
 
-async fn create_secondary(rc_window: Rc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
-    let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::SECONDARY,
-        flags: Default::default(),
-        dx12_shader_compiler: Default::default(),
-        gles_minor_version: Default::default(),
-    });
-    let surface: Surface = instance.create_surface(rc_window.clone()).unwrap();
-    let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-        compatible_surface: Some(&surface), // Some(&surface)
-        power_preference: wgpu::PowerPreference::None,
-        force_fallback_adapter: false,
-    }).await;
-    match adapter {
-        None => { None }
-        Some(adapt) => { Some((instance, surface, adapt)) }
-    }
-}
+fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=PcState> + 'static {
 
-fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> + 'static {
-    let (window, canvas) = match web_sys::window() {
-        None => { panic!("Cant WWASM WINDOW") }
-        Some(win) => {
-            match win.document() {
-                None => { panic!("Cant GET DOC") }
-                Some(doc) => {
-                    match doc.get_element_by_id("wasm3dwindow") {
-                        None => { panic!("NO ID wasm3dwindow") }
-                        Some(dst) => {
-                            let sw = dst.client_width();
-                            let sh = dst.client_height();
-                            info!("HTML ROOM SIZE IS {} {}",sw,sh);
-                            let ws: PhysicalSize<u32> = PhysicalSize::new(sw as u32, sh as u32);
-                            let attr = Window::default_attributes().with_append(true).with_inner_size(ws);
-                            match event_loop.create_window(attr) {
-                                Ok(window) => {
-                                    let _scale_factor = window.scale_factor() as f32;
-                                    match window.canvas() {
-                                        None => { panic!("CANT GET CANVAS") }
-                                        Some(canvas) => {
-                                            canvas.set_id("cws_main_p");
-                                            let canvas_style = canvas.style();
-                                            let _ = canvas_style.set_property_with_priority("width", "99%", "");
-                                            let _ = canvas_style.set_property_with_priority("height", "99%", "");
-                                            match dst.append_child(&canvas).ok() {
-                                                None => { panic!("CANT ATTACH CANVAS") }
-                                                Some(_n) => {
-                                                    warn! {"ATTACHED CANVAS SIZE is :{} {}",canvas.client_width(),canvas.client_height()}
-                                                    let _sw = &canvas.client_width();
-                                                    let _sh = &canvas.client_height();
-                                                    (window, canvas)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => { panic!("CANT BUILD WINDOWS {:?}", e) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
-    let _sw = canvas.client_width().clone() as u32;
-    let _sh = canvas.client_height().clone() as u32;
-    let rc_window: Rc<Window> = Rc::new(window);
+
+    let wsize: LogicalSize<f64> =winit::dpi::LogicalSize::new(800.0, 600.0);
+    let mut window_attrs = Window::default_attributes().with_inner_size( wsize.clone());
+
+
+
+    let rc_window = Arc::new(event_loop.create_window(window_attrs).unwrap());
+
     async move {
         let (instanse, surface, adapter): (Instance, Surface, Adapter) = {
             match create_primary(rc_window.clone()).await {
-                None => {
-                    match create_secondary(rc_window.clone()).await {
-                        None => { panic!("NOT POSSIBLE TO FOUND SUITABLE GPU") }
-                        Some((instanse, surface, adapter)) => {
-                            (instanse, surface, adapter)
-                        }
-                    }
-                }
+                None => { panic!("NOT POSSIBLE TO FOUND SUITABLE GPU") }
                 Some((instanse, surface, adapter)) => {
                     (instanse, surface, adapter)
                 }
@@ -143,7 +77,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
             memory_hints: Default::default(),
         }, None, ).await.unwrap();
         let surface_config: SurfaceConfiguration = surface
-            .get_default_config(&adapter, _sw as u32, _sh as u32)
+            .get_default_config(&adapter, wsize.width as u32, wsize.height as u32)
             .unwrap();
 
         info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
@@ -184,10 +118,10 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
 
 
         let scale_factor = rc_window.clone().scale_factor() as f32;
-        let w = _sw as f32 / scale_factor;
-        let h = _sh as f32 / scale_factor;
+        let w = wsize.width as f32 / scale_factor;
+        let h = wsize.height as f32 / scale_factor;
 
-        WState {
+        PcState {
             is_dirty: false,
             materials: Material::generate_materials(),
             instanse: instanse,
@@ -211,32 +145,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
     }
 }
 
-struct WStateBuilder {
-    event_loop_proxy: Option<EventLoopProxy<WState>>,
-}
-impl WStateBuilder {
-    fn new(event_loop_proxy: EventLoopProxy<WState>) -> Self {
-        Self {
-            event_loop_proxy: Some(event_loop_proxy),
-        }
-    }
 
-    fn build_and_send(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(event_loop_proxy) = self.event_loop_proxy.take() else {
-            // event_loop_proxy is already spent - we already constructed Graphics
-            return;
-        };
-        let gfx_fut = create_graphics(event_loop);
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            let gfx = gfx_fut.await;
-            assert!(event_loop_proxy.send_event(gfx).is_ok());
-        });
-    }
-}
-
-#[allow(dead_code)]
-pub struct WState {
+pub struct PcState {
     is_dirty: bool,
     materials: Vec<Material>,
     instanse: Instance,
@@ -244,7 +154,7 @@ pub struct WState {
     adapter: Adapter,
     device: Device,
     queue: Queue,
-    rc_window: Rc<Window>,
+    rc_window: Arc<Window>,
     scale_factor: f32,
     w: f32,
     h: f32,
@@ -257,7 +167,7 @@ pub struct WState {
     pub v_buffer: Buffer,
     pub i_buffer: Buffer,
 }
-impl WState {
+impl PcState {
     #[inline]
     fn render(&mut self) {
         match self.surface.get_current_texture() {
@@ -353,22 +263,15 @@ impl WState {
     }
     #[inline]
     fn resize(&mut self) {
-        match self.rc_window.clone().canvas() {
-            None => {}
-            Some(canvas) => {
-                let scale_factor = self.rc_window.clone().scale_factor();
-                let _sw = canvas.client_width().clone() as u32;
-                let _sh = canvas.client_height().clone() as u32;
-                let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
-                self.surface.configure(&self.device, &surface_config);
-                self.scale_factor = self.rc_window.clone().scale_factor() as f32;
-                self.w = _sw as f32 / self.scale_factor;
-                self.h = _sh as f32 / self.scale_factor;
-                self.is_dirty = true;
-            }
-        }
+        let _sw = self.rc_window.clone().inner_size().width;
+        let _sh = self.rc_window.clone().inner_size().height;
+        let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
+        self.surface.configure(&self.device, &surface_config);
+        self.scale_factor = self.rc_window.clone().scale_factor() as f32;
+        self.w = _sw as f32 / self.scale_factor;
+        self.h = _sh as f32 / self.scale_factor;
+        self.is_dirty = true;
     }
-
     fn check_commands(&mut self) {
         match COMMANDS.try_lock() {
             Ok(mut s) => {
@@ -405,7 +308,26 @@ impl WState {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
-                        info!("F2 Released");
+                        let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/Dapper_6_truba.stp")).as_slice());
+
+                        match analyze_bin(&stp) {
+                            None => {}
+                            Some(ops) => {
+                                let (buffer, indxes, bbxs, id_hash): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) = ops.to_render_data();
+                                self.step_vertex_buffer.update(buffer, indxes, id_hash);
+                                self.update_vertexes();
+                                self.camera.calculate_tot_bbx(bbxs);
+                                self.camera.move_camera_to_bbx_limits();
+                                let cmds_arr = ops.calculate_lra();
+                                let obj_file = ops.all_to_one_obj_bin();
+                                warn!("FILE ANALYZED {:?}",cmds_arr.len());
+
+                                warn!("CAMERA {:?}", self.camera.eye);
+                            }
+                        };
+
+
+                        warn!("F2 Released");
                     }
                 }
             }
@@ -462,29 +384,54 @@ impl WState {
         mesh_uniform_bind_group
     }
 }
+
+struct PcStateBuilder {
+    event_loop_proxy: Option<EventLoopProxy<PcState>>,
+}
+impl PcStateBuilder {
+    fn new(event_loop_proxy: EventLoopProxy<PcState>) -> Self {
+        Self {
+            event_loop_proxy: Some(event_loop_proxy),
+        }
+    }
+
+    fn build_and_send(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(event_loop_proxy) = self.event_loop_proxy.take() else {
+            // event_loop_proxy is already spent - we already constructed Graphics
+            return;
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]{
+            let gfx = pollster::block_on(create_graphics(event_loop));
+            assert!(event_loop_proxy.send_event(gfx).is_ok());
+        }
+
+    }
+}
+
 enum MaybeGraphics {
-    Builder(WStateBuilder),
-    Graphics(WState),
+    Builder(PcStateBuilder),
+    Graphics(PcState),
 }
 pub struct Application {
     graphics: MaybeGraphics,
 }
 impl Application {
-    pub fn new(event_loop: &EventLoop<WState>) -> Self {
+    pub fn new(event_loop: &EventLoop<PcState>) -> Self {
         Self {
-            graphics: MaybeGraphics::Builder(WStateBuilder::new(event_loop.create_proxy())),
+            graphics: MaybeGraphics::Builder(PcStateBuilder::new(event_loop.create_proxy())),
         }
     }
 }
 
-impl ApplicationHandler<WState> for Application {
+impl ApplicationHandler<PcState> for Application {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let MaybeGraphics::Builder(builder) = &mut self.graphics {
             builder.build_and_send(event_loop);
         }
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: WState) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: PcState) {
         event.is_dirty = true;
         self.graphics = MaybeGraphics::Graphics(event);
 
@@ -508,7 +455,9 @@ impl ApplicationHandler<WState> for Application {
                         wstate.resize();
                     }
                     WindowEvent::Moved(_) => {}
-                    WindowEvent::CloseRequested => {}
+                    WindowEvent::CloseRequested => {
+                        event_loop.exit();
+                    }
                     WindowEvent::Destroyed => {}
                     WindowEvent::DroppedFile(_) => {}
                     WindowEvent::HoveredFile(_) => {}
@@ -567,7 +516,9 @@ impl ApplicationHandler<WState> for Application {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         match &self.graphics {
             MaybeGraphics::Builder(_) => {}
-            MaybeGraphics::Graphics(wstate) => {}
+            MaybeGraphics::Graphics(wstate) => {
+                wstate.rc_window.clone().request_redraw();
+            }
         }
     }
 }

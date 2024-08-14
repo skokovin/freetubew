@@ -16,8 +16,7 @@ const def_color =vec4<f32>(0.1,0.1,0.1,1.0);
 struct VertexInput {
     @location(0) position: vec4<f32>,
     @location(1) normal: vec4<f32>,
-    @location(2) material_index: i32,
-    @location(3) id: i32,
+    @location(2) id: i32,
 };
 
 struct Camera {
@@ -44,11 +43,7 @@ struct LightUniforms {
 };
 @binding(2) @group(0)   var<uniform> light_uniformsArray: array<LightUniforms, 140>;
 
-@binding(3) @group(0) var<uniform> vertex_meta_data0 : array<vec4<i32>, 1>;
-
-
-
-
+//@binding(3) @group(0) var<uniform> vertex_meta_data0 : array<vec4<i32>, 1>;
 
 
 struct Output {
@@ -61,14 +56,8 @@ struct Output {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
-    let raw_id=in.material_index;
-    let pack_id:i32=raw_id%100;
-    let mat_id:i32=(raw_id-pack_id)/100;
-    var hull_meta_data=37;
-/*    if(pack_id==0){
-        hull_meta_data=vertex_meta_data0[vertex_index].x;
-    }*/
 
+    var hull_meta_data=37;
     var output: Output;
     output.originalpos= in.position;
     output.mat_id=hull_meta_data;
@@ -82,7 +71,6 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
 @fragment
 fn fs_main(in:Output) ->  @location(0) vec4<f32> {
 
-   if(in.mat_id!=0){
       let material:LightUniforms=light_uniformsArray[in.mat_id];
       let kd:f32=material.diffuse_intensity;
       let ks:f32=material.specular_intensity;
@@ -106,13 +94,11 @@ fn fs_main(in:Output) ->  @location(0) vec4<f32> {
            }else{
                return vec4<f32>(head_light_contribution);
            }
-   }
-   else{discard;}
 
 
 
     //FOR WASM
-   return vec4<f32>(1.0,1.0,1.0,0.0);
+   //return vec4<f32>(1.0,1.0,1.0,0.0);
 }
 
 
