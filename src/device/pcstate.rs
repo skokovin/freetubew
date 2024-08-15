@@ -497,13 +497,15 @@ impl ApplicationHandler<PcState> for Application {
     }
 
     fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
-        match &self.graphics {
+        match &mut self.graphics {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
                 match event {
                     DeviceEvent::Added => {}
                     DeviceEvent::Removed => {}
-                    DeviceEvent::MouseMotion { delta } => {}
+                    DeviceEvent::MouseMotion { delta } => {
+                        let is_dirty = wstate.camera.update_mouse(delta.0 as f32, delta.1 as f32);
+                    }
                     DeviceEvent::MouseWheel { .. } => {}
                     DeviceEvent::Motion { .. } => {}
                     DeviceEvent::Button { .. } => {}
