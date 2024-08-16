@@ -356,14 +356,14 @@ impl WState {
         match self.rc_window.clone().canvas() {
             None => {}
             Some(canvas) => {
-                let scale_factor = self.rc_window.clone().scale_factor();
+                self.scale_factor = self.rc_window.clone().scale_factor() as f32;
                 let _sw = canvas.client_width().clone() as u32;
                 let _sh = canvas.client_height().clone() as u32;
                 let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
                 self.surface.configure(&self.device, &surface_config);
-                self.scale_factor = self.rc_window.clone().scale_factor() as f32;
                 self.w = _sw as f32 / self.scale_factor;
                 self.h = _sh as f32 / self.scale_factor;
+                self.camera.resize(self.w,self.h);
                 self.is_dirty = true;
             }
         }
@@ -492,6 +492,7 @@ impl ApplicationHandler<WState> for Application {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
                 wstate.update_materials();
+                wstate.resize();
                 wstate.rc_window.clone().request_redraw();
             }
         }
@@ -548,13 +549,15 @@ impl ApplicationHandler<WState> for Application {
     }
 
     fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
-        match &self.graphics {
+        match &mut self.graphics {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
                 match event {
                     DeviceEvent::Added => {}
                     DeviceEvent::Removed => {}
-                    DeviceEvent::MouseMotion { delta } => {}
+                    DeviceEvent::MouseMotion { delta } => {
+                        wstate.camera.update_mouse(delta.0 as f32, delta.1 as f32);
+                    }
                     DeviceEvent::MouseWheel { .. } => {}
                     DeviceEvent::Motion { .. } => {}
                     DeviceEvent::Button { .. } => {}
@@ -567,7 +570,9 @@ impl ApplicationHandler<WState> for Application {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         match &self.graphics {
             MaybeGraphics::Builder(_) => {}
-            MaybeGraphics::Graphics(wstate) => {}
+            MaybeGraphics::Graphics(wstate) => {
+                wstate.rc_window.clone().request_redraw();
+            }
         }
     }
 }

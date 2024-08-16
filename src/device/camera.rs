@@ -12,7 +12,6 @@ use crate::device::Z_FIGHTING_FACTOR;
 pub const SHIP_FORWARD: Vector3<f32> = Vector3::new(1.0, 0.0, 0.0);
 pub const SHIP_RIGHT: Vector3<f32> = Vector3::new(0.0, -1.0, 0.0);
 pub const SHIP_UP: Vector3<f32> = Vector3::new(0.0, 0.0, 1.0);
-
 pub const SHIP_FORWARD64: Vector3<f64> = Vector3::new(1.0, 0.0, 0.0);
 pub const SHIP_RIGHT64: Vector3<f64> = Vector3::new(0.0, -1.0, 0.0);
 pub const SHIP_UP64: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0);
@@ -23,6 +22,7 @@ const MOUSE_SENSITIVITY_VERTICAL: f32 = 0.01;
 const ZOOM_SENSITIVITY: f32 = 10.0;
 const CAMERA_FOCUS: f32 = 3000.0;
 
+const OFFSET_MULTIPLIER: f32 = 10.0;
 pub struct Camera {
     pub is_dirty: bool,
     pub eye: Point3<f32>,
@@ -74,7 +74,7 @@ impl Camera {
 
     pub fn default() -> Self {
         let cam = Camera::new(
-            Rad(std::f32::consts::PI / 2.0),
+            Rad(0.1),
             1.0,
             0.001,
             200000.0,
@@ -82,36 +82,14 @@ impl Camera {
         cam
     }
 
-    pub fn resize(&mut self, w: u32, h: u32) {
-        if w > 0 && h > 0 {
-            self.aspect = w as f32 / h as f32;
+    pub fn resize(&mut self, w: f32, h:f32) {
+        if w > 0.0 && h > 0.0 {
+            self.aspect = w  / h;
         }
     }
     fn calculate_focus(&mut self) {
-        let diag = self.tot_bbx.diagonal().magnitude() as f32;
-        self.focus = diag ;
+        self.focus = self.tot_bbx.diameter() as f32 *OFFSET_MULTIPLIER;
     }
-    pub fn update_ort(&mut self) {
-        self.calculate_focus();
-        let min = self.tot_bbx.min();
-        let max = self.tot_bbx.max();
-        let center = self.tot_bbx.center();
-        self.view = Matrix4::look_to_rh(Point3::new(center.x as f32, center.y as f32, center.z as f32), self.head_forward, self.head_up);
-        //self.view = Matrix4::look_to_rh(self.eye, self.head_forward, self.head_up);
-
-        let minx = min.x.min(max.x) as f32;
-        let maxx = min.x.max(max.x) as f32;
-
-        self.proj = ortho(
-            center.y as f32 - self.focus / 2.0, center.y as f32 + self.focus / 2.0,
-            center.z as f32 - self.focus / 2.0, center.z as f32 + self.focus / 2.0,
-            center.x as f32 - self.focus, center.x as f32 + self.focus/3.0 , );
-
-        self.vp_matrix = self.proj * self.view;
-        self.n_matrix = self.view.transpose();
-        //warn!("{:?}",self.focus);
-    }
-
     pub fn update(&mut self) {
         self.calculate_focus();
         let center = self.tot_bbx.center();
@@ -119,7 +97,7 @@ impl Camera {
         self.view = Matrix4::look_to_rh(self.eye, self.head_forward, self.head_up);
 
         //self.proj = perspective(self.fovy, self.aspect, self.near, self.far);
-        self.proj = perspective(Rad(0.1), self.aspect, self.near, self.far);
+        self.proj = perspective(self.fovy, self.aspect, self.near, self.far);
         self.vp_matrix = self.proj * self.view;
         self.n_matrix = self.view.transpose();
         //self.focus=diag;
@@ -148,29 +126,6 @@ impl Camera {
         let new_up: Vector3<f32> = new_right.cross(new_forward);
 
         let center: Point3<f32> = Point3::new(center_p.x as f32,center_p.y as f32,center_p.z as f32,);
-        let new_eye: Point3<f32> = center - new_forward * 10.2;
-
-        self.head_forward = new_forward;
-        self.head_right = new_right;
-        self.head_up = new_up;
-        self.eye = new_eye;
-        self.update();
-    }
-    fn rotate_old(&mut self) {
-        let _up: Vector3<f32> = self.head_up.clone();
-        let forward: Vector3<f32> = self.head_forward.clone();
-        let _right: Vector3<f32> = self.head_right.clone();
-        let eye: Point3<f32> = self.eye.clone();
-
-        let new_forward_rot = Quaternion::from_axis_angle(SHIP_UP, Rad(self.yaw)).normalize();
-        let new_forward_lr: Vector3<f32> = new_forward_rot.rotate_vector(SHIP_FORWARD);
-        let new_right: Vector3<f32> = new_forward_lr.cross(SHIP_UP);
-
-        let new_right_rot = Quaternion::from_axis_angle(new_right, Rad(self.pitch)).normalize();
-        let new_forward: Vector3<f32> = new_right_rot.rotate_vector(new_forward_lr);
-        let new_up: Vector3<f32> = new_right.cross(new_forward);
-
-        let center: Point3<f32> = eye.clone() + forward * self.focus;
         let new_eye: Point3<f32> = center - new_forward * self.focus;
 
         self.head_forward = new_forward;
@@ -180,18 +135,6 @@ impl Camera {
         self.update();
     }
 
-    pub fn move_and_look_at(&mut self, new_eye_pos: Point3<f32>, look_at_point: Point3<f32>) {
-        let dir_raw = look_at_point.sub(new_eye_pos);
-        let d = dir_raw.magnitude();
-        self.yaw = 0.0;
-        self.pitch = 0.0;
-        self.head_forward = SHIP_FORWARD;
-        self.head_right = SHIP_RIGHT;
-        self.head_up = SHIP_UP;
-        self.eye = new_eye_pos;
-        //self.focus = d;
-        self.update();
-    }
     pub fn get_mvp_buffer(&mut self) -> &[f32; 16] {
         self.is_dirty = false;
         let view_projection_ref: &[f32; 16] = self.vp_matrix.as_ref();
@@ -230,10 +173,12 @@ impl Camera {
             bbxes.push(bbx);
         });
         self.calculate_focus();
-        self.update();
+        //self.update();
     }
-
     pub fn move_camera_to_bbx_limits(&mut self) {
+        warn!("diameter {:?}", self.tot_bbx.diameter());
+        let center_p = self.tot_bbx.center();
+        self.reset_pos();
         let cp = self.tot_bbx.center();
         let ep = self.tot_bbx.max();
 
@@ -248,16 +193,20 @@ impl Camera {
 
         let new_up32: Vector3<f32> = Vector3::new(new_up.x as f32, new_up.y as f32, new_up.z as f32);
         let new_right32: Vector3<f32> = Vector3::new(new_right.x as f32, new_right.y as f32, new_right.z as f32);
-        let p: Point3<f32> = Point3::new(ep.x as f32, ep.y as f32, ep.z as f32);
-        self.eye.clone_from(&p);
+        //let p: Point3<f32> = Point3::new(ep.x as f32, ep.y as f32, ep.z as f32);
+
+
+        let new_eye: Point3<f64> = center_p - head_forward * self.focus as f64;
+        self.eye=Point3::new(new_eye.x as f32, new_eye.y as f32,new_eye.z as f32 );
+        //self.eye.clone_from(&p);
         self.head_forward.clone_from(&head_forward32);
         self.head_up.clone().clone_from(&new_up32);
         self.head_right.clone().clone_from(&new_right32);
-        self.set_start_pos();
+
         self.is_dirty = true;
         self.update();
     }
-    pub fn set_start_pos(&mut self) {
+    pub fn reset_pos(&mut self) {
         self.yaw = 0.0;
         self.pitch = 0.0;
         self.update();

@@ -263,13 +263,16 @@ impl PcState {
     }
     #[inline]
     fn resize(&mut self) {
+        self.scale_factor = self.rc_window.clone().scale_factor() as f32;
         let _sw = self.rc_window.clone().inner_size().width;
         let _sh = self.rc_window.clone().inner_size().height;
         let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
         self.surface.configure(&self.device, &surface_config);
-        self.scale_factor = self.rc_window.clone().scale_factor() as f32;
+
         self.w = _sw as f32 / self.scale_factor;
         self.h = _sh as f32 / self.scale_factor;
+
+        self.camera.resize(self.w,self.h);
         self.is_dirty = true;
     }
     fn check_commands(&mut self) {
@@ -439,6 +442,7 @@ impl ApplicationHandler<PcState> for Application {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
                 wstate.update_materials();
+                wstate.resize();
                 wstate.rc_window.clone().request_redraw();
             }
         }
