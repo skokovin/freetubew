@@ -43,7 +43,7 @@ struct LightUniforms {
 };
 @binding(2) @group(0)   var<uniform> light_uniformsArray: array<LightUniforms, 140>;
 
-//@binding(3) @group(0) var<uniform> vertex_meta_data0 : array<vec4<i32>, 1024>;
+@binding(3) @group(0) var<uniform> vertex_meta_data0 : array<vec4<i32>, 256>;
 
 
 struct Output {
@@ -60,7 +60,7 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
     var hull_meta_data=37;
     var output: Output;
     output.originalpos= in.position;
-    output.mat_id=hull_meta_data;
+    output.mat_id=in.id;
 
     output.position = camera.mvp  * in.position;
     output.world_position = in.position;
@@ -70,8 +70,8 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
 
 @fragment
 fn fs_main(in:Output) ->  @location(0) vec4<f32> {
-
-      let material:LightUniforms=light_uniformsArray[in.mat_id];
+      let metadata:vec4<i32>=vertex_meta_data0[in.mat_id];
+      let material:LightUniforms=light_uniformsArray[metadata.x];
       let kd:f32=material.diffuse_intensity;
       let ks:f32=material.specular_intensity;
       let specular_factor:f32=material.specular_shininess;

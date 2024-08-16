@@ -344,7 +344,7 @@ impl WState {
                                         self.camera.move_camera_to_bbx_limits();
                                         let cmds_arr = ops.calculate_lra();
                                         let obj_file = ops.all_to_one_obj_bin();
-                                        warn!("FILE ANALYZED {:?}",cmds_arr.len());
+                                        warn!("FILE ANALYZED A {:?}",cmds_arr.len());
                                     }
                                 };
                             }

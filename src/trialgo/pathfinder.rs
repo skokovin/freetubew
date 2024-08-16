@@ -406,6 +406,7 @@ impl CncOps {
     pub fn to_render_data(&self) -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) {
         let mut cyl_color_id: i32 = 74;
         let mut toro_color_id: i32 = 84;
+        let mut id_count:u32=0;
         let mut meshes_all: Vec<RawMesh> = vec![];
         self.ops.iter().for_each(|op| {
             match op {
@@ -449,7 +450,8 @@ impl CncOps {
         let mut currmat: i32 = 0;
         let mut index: u32 = 0;
         meshes_all.iter().for_each(|mesh| {
-            curid = mesh.id as u32;
+            //curid = mesh.id as u32;
+            curid = id_count;
             id_hash.push(curid.clone() as u32);
             id_hash.push(index.clone());
             let bbx: &BoundingBox<Point3> = &mesh.bbx;
@@ -471,6 +473,7 @@ impl CncOps {
                 index = index + 1;
             });
             id_hash.push(index.clone() - 1);
+            id_count=id_count+1;
         });
         (buffer, indxes, bbxs, id_hash)
     }

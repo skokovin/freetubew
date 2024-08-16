@@ -1,11 +1,19 @@
 use std::mem;
 use bytemuck::{Pod, Zeroable};
+use is_odd::IsOdd;
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, FrontFace, PipelineLayout, RenderPipeline, TextureFormat};
 use wgpu::util::DeviceExt;
 use crate::device::materials::{Material, MATERIALS_COUNT};
 use crate::device::StepVertexBuffer;
 
+const METADATA_COUNT:u32=256;
+const STRIGHT_COLOR:u32=76;
+const BEND_COLOR:u32=37;
+const SELECT_COLOR:u32=1;
+
 pub struct MeshPipeLine {
+    pub metadata:Vec<[i32;4]>,
+    pub metadata_buffer:Buffer,
     pub step_vertex_buffer: StepVertexBuffer,
     pub camera_buffer: Buffer,
     pub material_buffer: Buffer,
@@ -46,8 +54,20 @@ impl MeshPipeLine {
             contents: bytemuck::cast_slice(&step_vertex_buffer.buffer),
             usage: wgpu::BufferUsages::VERTEX,
         });
+        let mut metadata_default:Vec<[i32;4]>=vec![];
+        for i in 0..METADATA_COUNT {
+            if(i.is_odd()){
+                metadata_default.push([BEND_COLOR as i32, 0,0,0]);
+            }else{
+                metadata_default.push([STRIGHT_COLOR as i32, 0,0,0]);
+            }
 
-
+        };
+        let metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Vertex Mesh Buffer").as_str()),
+            contents: bytemuck::cast_slice(&metadata_default),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/mesh_shader.wgsl").into()),
@@ -79,6 +99,18 @@ impl MeshPipeLine {
                 //LightUniforms
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+
+                //MetaData
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -135,7 +167,10 @@ impl MeshPipeLine {
             multiview: None,
             cache: None,
         });
+
         Self {
+            metadata:metadata_default,
+            metadata_buffer:metadata_buffer,
             step_vertex_buffer: step_vertex_buffer,
             camera_buffer: camera_buffer,
             material_buffer: material_buffer,
@@ -162,6 +197,10 @@ impl MeshPipeLine {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: self.material_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.metadata_buffer.as_entire_binding(),
                 },
             ],
             label: Some("Mesh Bind Group"),

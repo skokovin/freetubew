@@ -248,13 +248,15 @@ impl PcState {
                                     None => {}
                                     Some(ops) => {
                                         let (buffer, indxes, bbxs, id_hash): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) = ops.to_render_data();
+
+
                                         self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes, id_hash);
                                         self.mesh_pipeline.update_vertexes(&self.device);
                                         self.camera.calculate_tot_bbx(bbxs);
                                         self.camera.move_camera_to_bbx_limits();
                                         let cmds_arr = ops.calculate_lra();
                                         let obj_file = ops.all_to_one_obj_bin();
-                                        warn!("FILE ANALYZED {:?}",cmds_arr.len());
+                                        warn!("FILE ANALYZED B{:?}",cmds_arr.len());
                                     }
                                 };
                             }
@@ -283,13 +285,9 @@ impl PcState {
                                 self.camera.move_camera_to_bbx_limits();
                                 let cmds_arr = ops.calculate_lra();
                                 let obj_file = ops.all_to_one_obj_bin();
-                                warn!("FILE ANALYZED {:?}",cmds_arr.len());
-
-                                warn!("CAMERA {:?}", self.camera.eye);
+                                warn!("FILE ANALYZED C {:?}",cmds_arr.len());
                             }
                         };
-
-
                         warn!("F2 Released");
                     }
                 }

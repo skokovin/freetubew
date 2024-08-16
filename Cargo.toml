@@ -45,7 +45,7 @@ glyphon={git = "https://github.com/grovesNL/glyphon.git"}
 #https://stackoverflow.com/questions/77373416/the-trait-raw-window-handlehasrawdisplayhandle-is-not-implemented-for-windo
 
 winit = { version = "0.30.5"}
-
+is-odd = "1.1.0"
 palette = { version = "0.7.6",default-features = true,features = ["named","named_from_str","bytemuck"] }
 #wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}
 #wgpu = { version = "22.1.0", default-features = false,features = ["webgl","wgsl"]}

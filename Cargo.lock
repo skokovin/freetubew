@@ -891,6 +891,7 @@ dependencies = [
  "env_logger",
  "glob",
  "glyphon",
+ "is-odd",
  "itertools 0.13.0",
  "kurbo",
  "log",
@@ -1130,6 +1131,12 @@ dependencies = [
  "equivalent",
  "hashbrown",
 ]
+
+[[package]]
+name = "is-odd"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "774d9618121c276cc7a8d08e30bef03dda2c39708773fd937aa2452ba8ed9243"
 
 [[package]]
 name = "is_terminal_polyfill"

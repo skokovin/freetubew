@@ -174,7 +174,6 @@ impl Camera {
         //self.update();
     }
     pub fn move_camera_to_bbx_limits(&mut self) {
-        warn!("diameter {:?}", self.tot_bbx.diameter());
         let center_p = self.tot_bbx.center();
         self.reset_pos();
         let cp = self.tot_bbx.center();
