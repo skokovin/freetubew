@@ -102,7 +102,6 @@ impl Camera {
         self.n_matrix = self.view.transpose();
         //self.focus=diag;
     }
-
     pub fn update_mouse(&mut self, dx_in: f32, dy_in: f32) {
         self.yaw += dx_in * MOUSE_SENSITIVITY_HORIZONTAL;
         self.pitch += dy_in * MOUSE_SENSITIVITY_VERTICAL;
@@ -134,7 +133,6 @@ impl Camera {
         self.eye = new_eye;
         self.update();
     }
-
     pub fn get_mvp_buffer(&mut self) -> &[f32; 16] {
         self.is_dirty = false;
         let view_projection_ref: &[f32; 16] = self.vp_matrix.as_ref();

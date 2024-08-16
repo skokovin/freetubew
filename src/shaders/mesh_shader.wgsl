@@ -43,7 +43,7 @@ struct LightUniforms {
 };
 @binding(2) @group(0)   var<uniform> light_uniformsArray: array<LightUniforms, 140>;
 
-//@binding(3) @group(0) var<uniform> vertex_meta_data0 : array<vec4<i32>, 1>;
+//@binding(3) @group(0) var<uniform> vertex_meta_data0 : array<vec4<i32>, 1024>;
 
 
 struct Output {

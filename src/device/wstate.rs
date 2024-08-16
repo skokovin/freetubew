@@ -150,38 +150,6 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
         info!("SURFACE ATTRIBS {:?}",surface_config);
         surface.configure(&_device, &surface_config);
         let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone());
-        let camera_buffer: Buffer = _device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Camera Uniform Buffer"),
-            size: 144,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let material_buffer: Buffer = _device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Material Uniform Buffer"),
-            size: (size_of::<Material>() * MATERIALS_COUNT) as BufferAddress,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let light_buffer: Buffer = _device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Light Uniform Buffer"),
-            size: 48,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let step_vertex_buffer: StepVertexBuffer = StepVertexBuffer::default();
-
-        let index_buffer = _device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Index Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&step_vertex_buffer.indxes),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let vertex_buffer = _device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Vertex Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&step_vertex_buffer.buffer),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
 
         let scale_factor = rc_window.clone().scale_factor() as f32;
         let w = _sw as f32 / scale_factor;
@@ -201,12 +169,6 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
             h: h,
             camera: Camera::default(),
             mesh_pipeline: mesh_pipeline,
-            step_vertex_buffer: step_vertex_buffer,
-            camera_buffer: camera_buffer,
-            material_buffer: material_buffer,
-            light_buffer: light_buffer,
-            v_buffer: vertex_buffer,
-            i_buffer: index_buffer,
         }
     }
 }
@@ -250,12 +212,6 @@ pub struct WState {
     h: f32,
     camera: Camera,
     mesh_pipeline: MeshPipeLine,
-    pub step_vertex_buffer: StepVertexBuffer,
-    pub camera_buffer: Buffer,
-    pub material_buffer: Buffer,
-    pub light_buffer: Buffer,
-    pub v_buffer: Buffer,
-    pub i_buffer: Buffer,
 }
 impl WState {
     #[inline]
@@ -267,7 +223,7 @@ impl WState {
                 let gw = out.texture.width();
                 let gh = out.texture.height();
 
-                let bg = self.create_bind_group();
+                let bg = self.mesh_pipeline.create_bind_group(&self.device);
 
                 let texture_view_descriptor = TextureViewDescriptor::default();
                 let view: TextureView = out.texture.create_view(&texture_view_descriptor);
@@ -314,7 +270,7 @@ impl WState {
                 }
 
                 {
-                    let indx_count = (self.i_buffer.size() / mem::size_of::<i32>() as u64) as u32;
+                    let indx_count = (self.mesh_pipeline.i_buffer.size() / mem::size_of::<i32>() as u64) as u32;
                     if (indx_count > 0) {
                         let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Render Pass 2"),
@@ -339,8 +295,8 @@ impl WState {
                         });
                         render_pass.set_pipeline(&self.mesh_pipeline.mesh_render_pipeline);
                         render_pass.set_bind_group(0, &bg, &[]);
-                        render_pass.set_vertex_buffer(0, self.v_buffer.slice(..));
-                        render_pass.set_index_buffer(self.i_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.set_vertex_buffer(0, self.mesh_pipeline.v_buffer.slice(..));
+                        render_pass.set_index_buffer(self.mesh_pipeline.i_buffer.slice(..), wgpu::IndexFormat::Uint32);
                         render_pass.draw_indexed(Range { start: 0, end: indx_count }, 0, Range { start: 0, end: 1 });
                     }
                 }
@@ -382,8 +338,8 @@ impl WState {
                                     None => {}
                                     Some(ops) => {
                                         let (buffer, indxes, bbxs, id_hash): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) = ops.to_render_data();
-                                        self.step_vertex_buffer.update(buffer, indxes, id_hash);
-                                        self.update_vertexes();
+                                        self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes, id_hash);
+                                        self.mesh_pipeline.update_vertexes(&self.device);
                                         self.camera.calculate_tot_bbx(bbxs);
                                         self.camera.move_camera_to_bbx_limits();
                                         let cmds_arr = ops.calculate_lra();
@@ -413,54 +369,23 @@ impl WState {
         }
     }
     fn update_camera(&mut self) {
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(self.camera.get_mvp_buffer()));
-        self.queue.write_buffer(&self.camera_buffer, 64, bytemuck::cast_slice(self.camera.get_norm_buffer()));
-        self.queue.write_buffer(&self.camera_buffer, 128, bytemuck::cast_slice(self.camera.get_forward_dir_buffer()));
+        self.queue.write_buffer(&self.mesh_pipeline.camera_buffer, 0, bytemuck::cast_slice(self.camera.get_mvp_buffer()));
+        self.queue.write_buffer(&self.mesh_pipeline.camera_buffer, 64, bytemuck::cast_slice(self.camera.get_norm_buffer()));
+        self.queue.write_buffer(&self.mesh_pipeline.camera_buffer, 128, bytemuck::cast_slice(self.camera.get_forward_dir_buffer()));
     }
     fn update_materials(&self) {
-        self.queue.write_buffer(&self.material_buffer, 0, bytemuck::cast_slice(&self.materials));
+        self.queue.write_buffer(&self.mesh_pipeline.material_buffer, 0, bytemuck::cast_slice(&self.materials));
     }
     fn update_lights(&mut self) {
         let resolution: [f32; 4] = [self.w, self.h, 0.0, 0.0];
         let light_position: &[f32; 3] = self.camera.eye.as_ref();
         let eye_position: &[f32; 3] = self.camera.eye.as_ref();
-        self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(light_position));
-        self.queue.write_buffer(&self.light_buffer, 16, bytemuck::cast_slice(eye_position));
-        self.queue.write_buffer(&self.light_buffer, 32, bytemuck::cast_slice(&resolution));
+        self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 0, bytemuck::cast_slice(light_position));
+        self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 16, bytemuck::cast_slice(eye_position));
+        self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 32, bytemuck::cast_slice(&resolution));
     }
-    fn update_vertexes(&mut self) {
-        self.i_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Index Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&self.step_vertex_buffer.indxes),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        self.v_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Vertex Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&self.step_vertex_buffer.buffer),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-    }
-    fn create_bind_group(&self) -> BindGroup {
-        let mesh_uniform_bind_group: BindGroup = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.mesh_pipeline.mesh_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.light_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.material_buffer.as_entire_binding(),
-                },
-            ],
-            label: Some("Mesh Bind Group"),
-        });
-        mesh_uniform_bind_group
-    }
+
+
 }
 enum MaybeGraphics {
     Builder(WStateBuilder),

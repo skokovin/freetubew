@@ -1,13 +1,53 @@
 use std::mem;
 use bytemuck::{Pod, Zeroable};
-use wgpu::{BindGroupLayout, Device, FrontFace, PipelineLayout, RenderPipeline, TextureFormat};
+use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, FrontFace, PipelineLayout, RenderPipeline, TextureFormat};
+use wgpu::util::DeviceExt;
+use crate::device::materials::{Material, MATERIALS_COUNT};
+use crate::device::StepVertexBuffer;
 
 pub struct MeshPipeLine {
-    pub(crate) mesh_bind_group_layout: BindGroupLayout,
+    pub step_vertex_buffer: StepVertexBuffer,
+    pub camera_buffer: Buffer,
+    pub material_buffer: Buffer,
+    pub light_buffer: Buffer,
+    pub v_buffer: Buffer,
+    pub i_buffer: Buffer,
+    pub mesh_bind_group_layout: BindGroupLayout,
     pub mesh_render_pipeline: RenderPipeline,
 }
 impl MeshPipeLine {
     pub fn new(device: &Device, format: TextureFormat) -> Self {
+        let camera_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Camera Uniform Buffer"),
+            size: 144,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let material_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Material Uniform Buffer"),
+            size: (size_of::<Material>() * MATERIALS_COUNT) as BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let light_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Light Uniform Buffer"),
+            size: 48,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let step_vertex_buffer: StepVertexBuffer = StepVertexBuffer::default();
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Index Mesh Buffer").as_str()),
+            contents: bytemuck::cast_slice(&step_vertex_buffer.indxes),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Vertex Mesh Buffer").as_str()),
+            contents: bytemuck::cast_slice(&step_vertex_buffer.buffer),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/mesh_shader.wgsl").into()),
@@ -47,6 +87,7 @@ impl MeshPipeLine {
                     },
                     count: None,
                 },
+
             ],
             label: Some("mesh Bind Group Layout"),
         });
@@ -95,9 +136,50 @@ impl MeshPipeLine {
             cache: None,
         });
         Self {
-            mesh_bind_group_layout:mesh_bind_group_layout,
+            step_vertex_buffer: step_vertex_buffer,
+            camera_buffer: camera_buffer,
+            material_buffer: material_buffer,
+            light_buffer: light_buffer,
+            v_buffer: vertex_buffer,
+            i_buffer: index_buffer,
+            mesh_bind_group_layout: mesh_bind_group_layout,
             mesh_render_pipeline: mesh_render_pipeline,
         }
+    }
+
+    pub fn create_bind_group(&self,device: &Device) -> BindGroup {
+        let mesh_uniform_bind_group: BindGroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.mesh_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.material_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("Mesh Bind Group"),
+        });
+        mesh_uniform_bind_group
+    }
+
+    pub fn update_vertexes(&mut self,device: &Device) {
+        self.i_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Index Mesh Buffer").as_str()),
+            contents: bytemuck::cast_slice(&self.step_vertex_buffer.indxes),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        self.v_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Vertex Mesh Buffer").as_str()),
+            contents: bytemuck::cast_slice(&self.step_vertex_buffer.buffer),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
     }
 }
 
@@ -132,5 +214,4 @@ impl MeshVertex {
             attributes: &Self::ATTRIBUTES,
         }
     }
-
 }
