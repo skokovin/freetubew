@@ -84,7 +84,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=PcState> 
         info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
         info!("SURFACE ATTRIBS {:?}",surface_config);
         surface.configure(&_device, &surface_config);
-        let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone());
+        let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone(), wsize.width as i32, wsize.height as i32);
 
 
 
@@ -189,6 +189,28 @@ impl PcState {
                 }
 
                 {
+                        let background_bind = self.mesh_pipeline.back_ground_pipe_line.create_bind_group(&self.device);
+                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass 2"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
+                        render_pass.set_pipeline(&self.mesh_pipeline.back_ground_pipe_line.render_pipeline);
+                        render_pass.set_bind_group(0, &background_bind, &[]);
+                        render_pass.draw(0..6, 0..1);
+
+                }
+
+                {
                     let indx_count = (self.mesh_pipeline.i_buffer.size() / mem::size_of::<i32>() as u64) as u32;
                     if (indx_count > 0) {
                         let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -238,6 +260,7 @@ impl PcState {
         self.h = _sh as f32 / self.scale_factor;
 
         self.camera.resize(self.w,self.h);
+        self.mesh_pipeline.back_ground_pipe_line.resize(&self.device, self.w as i32, self.h as i32);
         self.is_dirty = true;
     }
     fn check_commands(&mut self) {

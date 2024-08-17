@@ -3,6 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use is_odd::IsOdd;
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, FrontFace, PipelineLayout, RenderPipeline, TextureFormat};
 use wgpu::util::DeviceExt;
+use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::materials::{Material, MATERIALS_COUNT};
 use crate::device::StepVertexBuffer;
 
@@ -22,9 +23,12 @@ pub struct MeshPipeLine {
     pub i_buffer: Buffer,
     pub mesh_bind_group_layout: BindGroupLayout,
     pub mesh_render_pipeline: RenderPipeline,
+    pub back_ground_pipe_line: BackGroundPipeLine,
 }
 impl MeshPipeLine {
-    pub fn new(device: &Device, format: TextureFormat) -> Self {
+    pub fn new(device: &Device, format: TextureFormat,w:i32,h:i32) -> Self {
+        let back_ground_pipe_line=BackGroundPipeLine::new(device,format.clone(),w,h);
+
         let camera_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Camera Uniform Buffer"),
             size: 144,
@@ -168,6 +172,8 @@ impl MeshPipeLine {
             cache: None,
         });
 
+
+
         Self {
             metadata:metadata_default,
             metadata_buffer:metadata_buffer,
@@ -179,6 +185,7 @@ impl MeshPipeLine {
             i_buffer: index_buffer,
             mesh_bind_group_layout: mesh_bind_group_layout,
             mesh_render_pipeline: mesh_render_pipeline,
+            back_ground_pipe_line:back_ground_pipe_line,
         }
     }
     pub fn create_bind_group(&self,device: &Device) -> BindGroup {

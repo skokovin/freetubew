@@ -12,6 +12,7 @@ mod materials;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pcstate;
 pub mod aux_state;
+mod background_pipleine;
 
 pub const Z_FIGHTING_FACTOR: f32 = 0.001;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
