@@ -1,7 +1,7 @@
 use env_logger::{Builder, Target};
 use log::LevelFilter;
 use winit::event_loop::EventLoop;
-use crate::device::pcstate::{Application, PcState};
+use crate::device::gstate::{Application, GState};
 
 mod libw;
 mod device;
@@ -14,7 +14,7 @@ fn main(){
     builder.filter(None, LevelFilter::Warn).init();
 
     #[cfg(not(target_arch = "wasm32"))]
-    let event_loop: EventLoop<PcState> = EventLoop::with_user_event().build().unwrap();
+    let event_loop: EventLoop<GState> = EventLoop::with_user_event().build().unwrap();
     #[cfg(not(target_arch = "wasm32"))]
     let mut app = Application::new(&event_loop);
     #[cfg(not(target_arch = "wasm32"))]

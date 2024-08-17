@@ -1,14 +1,13 @@
 use log::{info, warn, Level};
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::js_sys::Uint8Array;
 #[cfg(target_arch = "wasm32")]
 use web_sys::wasm_bindgen::prelude::wasm_bindgen;
-#[cfg(target_arch = "wasm32")]
+
 use winit::event_loop::EventLoop;
-#[cfg(target_arch = "wasm32")]
-use crate::device::wstate::Application;
-#[cfg(target_arch = "wasm32")]
-use crate::device::wstate::WState;
+use crate::device::gstate::Application;
+use crate::device::gstate::GState;
 
 #[cfg(target_arch = "wasm32")]
 use crate::remote::{RemoteCommand, COMMANDS};
@@ -27,7 +26,7 @@ mod remote;
 pub async  fn runrust() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     let _ = console_log::init_with_level(Level::Info);
-    let event_loop: EventLoop<WState> = EventLoop::with_user_event().build().unwrap();
+    let event_loop: EventLoop<GState> = EventLoop::with_user_event().build().unwrap();
     let mut app = Application::new(&event_loop);
     let _ = event_loop.run_app(&mut app);
 }

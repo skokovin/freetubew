@@ -1,11 +1,10 @@
-use std::{iter, mem};
 use std::future::Future;
+use std::{iter, mem};
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 use log::{info, warn};
-use wgpu::{Adapter, BindGroup, Buffer, BufferAddress, CommandEncoder, Device, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureView, TextureViewDescriptor};
-use wgpu::util::DeviceExt;
+use wgpu::{Adapter, CommandEncoder, Device, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureView, TextureViewDescriptor};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, WindowEvent};
@@ -13,11 +12,11 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 use winit::window::{Window, WindowId};
+use crate::device::aux_state::AuxState;
 use crate::device::camera::Camera;
 use crate::device::materials::Material;
-use crate::device::mesh_pipeline::{MeshPipeLine, SELECT_COLOR};
-use crate::device::{MeshVertex, StepVertexBuffer};
-use crate::device::aux_state::AuxState;
+use crate::device::mesh_pipeline::MeshPipeLine;
+use crate::device::MeshVertex;
 use crate::remote::{RemoteCommand, COMMANDS};
 use crate::trialgo::analyzepl::analyze_bin;
 
@@ -28,6 +27,10 @@ const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 const MATERIALS_COUNT: usize = 140;
+const CANVAS_ID: &str = "canvas3dwindow";
+
+//#[cfg(target_arch = "wasm32")]
+#[cfg(not(target_arch = "wasm32"))]
 async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
     let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
@@ -50,17 +53,11 @@ async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'st
         }
     }
 }
-
-fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=PcState> + 'static {
-
-
+#[cfg(not(target_arch = "wasm32"))]
+fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> + 'static {
     let wsize: LogicalSize<f64> =winit::dpi::LogicalSize::new(800.0, 600.0);
     let mut window_attrs = Window::default_attributes().with_inner_size( wsize.clone());
-
-
-
     let rc_window = Arc::new(event_loop.create_window(window_attrs).unwrap());
-
     async move {
         let (instanse, surface, adapter): (Instance, Surface, Adapter) = {
             match create_primary(rc_window.clone()).await {
@@ -92,7 +89,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=PcState> 
         let w = wsize.width as f32 / scale_factor;
         let h = wsize.height as f32 / scale_factor;
 
-        PcState {
+        GState {
             test_counter:0,
             aux_state:AuxState::new(),
             is_dirty: false,
@@ -112,9 +109,164 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=PcState> 
         }
     }
 }
+#[cfg(target_arch = "wasm32")]
+async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
+    use winit::platform::web::WindowAttributesExtWebSys;
+    use winit::platform::web::WindowExtWebSys;
+    let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        flags: Default::default(),
+        dx12_shader_compiler: Default::default(),
+        gles_minor_version: Default::default(),
+    });
+    let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
+        compatible_surface: None, // Some(&surface)
+        power_preference: wgpu::PowerPreference::None,
+        force_fallback_adapter: false,
+    }).await;
+    match adapter {
+        None => {
+            None
+        }
+        Some(adapt) => {
+            let surface: Surface = instance.create_surface(rc_window.clone()).unwrap();
+            Some((instance, surface, adapt))
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+async fn create_secondary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
+    use winit::platform::web::WindowAttributesExtWebSys;
+    use winit::platform::web::WindowExtWebSys;
+    let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::SECONDARY,
+        flags: Default::default(),
+        dx12_shader_compiler: Default::default(),
+        gles_minor_version: Default::default(),
+    });
+    let surface: Surface = instance.create_surface(rc_window.clone()).unwrap();
+    let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
+        compatible_surface: Some(&surface), // Some(&surface)
+        power_preference: wgpu::PowerPreference::None,
+        force_fallback_adapter: false,
+    }).await;
+    match adapter {
+        None => { None }
+        Some(adapt) => { Some((instance, surface, adapt)) }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> + 'static {
+    use winit::platform::web::WindowAttributesExtWebSys;
+    use winit::platform::web::WindowExtWebSys;
+    let (window, canvas) = match web_sys::window() {
+        None => { panic!("Cant WWASM WINDOW") }
+        Some(win) => {
+            match win.document() {
+                None => { panic!("Cant GET DOC") }
+                Some(doc) => {
+                    match doc.get_element_by_id("wasm3dwindow") {
+                        None => { panic!("NO ID wasm3dwindow") }
+                        Some(dst) => {
+                            let sw = dst.client_width();
+                            let sh = dst.client_height();
+                            info!("HTML ROOM SIZE IS {} {}",sw,sh);
+                            let ws: PhysicalSize<u32> = PhysicalSize::new(sw as u32, sh as u32);
+                            let attr = Window::default_attributes().with_append(true).with_inner_size(ws);
+                            match event_loop.create_window(attr) {
+                                Ok(window) => {
+                                    let _scale_factor = window.scale_factor() as f32;
+                                    match window.canvas() {
+                                        None => { panic!("CANT GET CANVAS") }
+                                        Some(canvas) => {
+                                            canvas.set_id("cws_main_p");
+                                            let canvas_style = canvas.style();
+                                            let _ = canvas_style.set_property_with_priority("width", "99%", "");
+                                            let _ = canvas_style.set_property_with_priority("height", "99%", "");
+                                            match dst.append_child(&canvas).ok() {
+                                                None => { panic!("CANT ATTACH CANVAS") }
+                                                Some(_n) => {
+                                                    warn! {"ATTACHED CANVAS SIZE is :{} {}",canvas.client_width(),canvas.client_height()}
+                                                    let _sw = &canvas.client_width();
+                                                    let _sh = &canvas.client_height();
+                                                    (window, canvas)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => { panic!("CANT BUILD WINDOWS {:?}", e) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let _sw = canvas.client_width().clone() as u32;
+    let _sh = canvas.client_height().clone() as u32;
+    let rc_window: Arc<Window> = Arc::new(window);
+    async move {
+        let (instanse, surface, adapter): (Instance, Surface, Adapter) = {
+            match create_primary(rc_window.clone()).await {
+                None => {
+                    match create_secondary(rc_window.clone()).await {
+                        None => { panic!("NOT POSSIBLE TO FOUND SUITABLE GPU") }
+                        Some((instanse, surface, adapter)) => {
+                            (instanse, surface, adapter)
+                        }
+                    }
+                }
+                Some((instanse, surface, adapter)) => {
+                    (instanse, surface, adapter)
+                }
+            }
+        };
 
+        let (_device, _queue): (Device, Queue) = adapter.request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: Default::default(),
+            required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+            memory_hints: Default::default(),
+        }, None, ).await.unwrap();
+        let surface_config: SurfaceConfiguration = surface
+            .get_default_config(&adapter, _sw as u32, _sh as u32)
+            .unwrap();
 
-pub struct PcState {
+        info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
+        info!("SURFACE ATTRIBS {:?}",surface_config);
+        surface.configure(&_device, &surface_config);
+        let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone(),_sw as i32, _sh as i32);
+
+        let scale_factor = rc_window.clone().scale_factor() as f32;
+        let w = _sw as f32 / scale_factor;
+        let h = _sh as f32 / scale_factor;
+
+        GState {
+            test_counter:0,
+            is_dirty: false,
+            aux_state:AuxState::new(),
+            materials: Material::generate_materials(),
+            instanse: instanse,
+            surface: surface,
+            adapter: adapter,
+            device: _device,
+            queue: _queue,
+            rc_window: rc_window,
+            scale_factor: scale_factor,
+            w: w,
+            h: h,
+            camera: Camera::default(),
+            mesh_pipeline: mesh_pipeline,
+        }
+    }
+}
+
+enum MaybeGraphics {
+    Builder(StateBuilder),
+    Graphics(GState),
+}
+pub struct GState {
     test_counter:i32,
     aux_state:AuxState,
     is_dirty: bool,
@@ -130,9 +282,9 @@ pub struct PcState {
     h: f32,
     camera: Camera,
     mesh_pipeline: MeshPipeLine,
-
 }
-impl PcState {
+
+impl GState {
     #[inline]
     fn render(&mut self) {
         match self.surface.get_current_texture() {
@@ -189,24 +341,24 @@ impl PcState {
                 }
 
                 {
-                        let background_bind = self.mesh_pipeline.back_ground_pipe_line.create_bind_group(&self.device);
-                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("Render Pass 2"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Load,
-                                    store: StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            timestamp_writes: None,
-                            occlusion_query_set: None,
-                        });
-                        render_pass.set_pipeline(&self.mesh_pipeline.back_ground_pipe_line.render_pipeline);
-                        render_pass.set_bind_group(0, &background_bind, &[]);
-                        render_pass.draw(0..6, 0..1);
+                    let background_bind = self.mesh_pipeline.back_ground_pipe_line.create_bind_group(&self.device);
+                    let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass 2"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    render_pass.set_pipeline(&self.mesh_pipeline.back_ground_pipe_line.render_pipeline);
+                    render_pass.set_bind_group(0, &background_bind, &[]);
+                    render_pass.draw(0..6, 0..1);
 
                 }
 
@@ -258,7 +410,6 @@ impl PcState {
 
         self.w = _sw as f32 / self.scale_factor;
         self.h = _sh as f32 / self.scale_factor;
-
         self.camera.resize(self.w,self.h);
         self.mesh_pipeline.back_ground_pipe_line.resize(&self.device, self.w as i32, self.h as i32);
         self.is_dirty = true;
@@ -276,8 +427,6 @@ impl PcState {
                                     None => {}
                                     Some(ops) => {
                                         let (buffer, indxes, bbxs, id_hash): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) = ops.to_render_data();
-
-
                                         self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes, id_hash);
                                         self.mesh_pipeline.update_vertexes(&self.device);
                                         self.camera.calculate_tot_bbx(bbxs);
@@ -311,8 +460,8 @@ impl PcState {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
-                        let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/Dapper_6_truba.stp")).as_slice());
-
+                        //let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/Dapper_6_truba.stp")).as_slice());
+                        let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/ypm_e71042.stp")).as_slice());
                         match analyze_bin(&stp) {
                             None => {}
                             Some(ops) => {
@@ -349,15 +498,13 @@ impl PcState {
         self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 16, bytemuck::cast_slice(eye_position));
         self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 32, bytemuck::cast_slice(&resolution));
     }
-
-
 }
 
-struct PcStateBuilder {
-    event_loop_proxy: Option<EventLoopProxy<PcState>>,
+struct StateBuilder {
+    event_loop_proxy: Option<EventLoopProxy<GState>>,
 }
-impl PcStateBuilder {
-    fn new(event_loop_proxy: EventLoopProxy<PcState>) -> Self {
+impl StateBuilder {
+    fn new(event_loop_proxy: EventLoopProxy<GState>) -> Self {
         Self {
             event_loop_proxy: Some(event_loop_proxy),
         }
@@ -369,37 +516,42 @@ impl PcStateBuilder {
             return;
         };
 
-        #[cfg(not(target_arch = "wasm32"))]{
+        #[cfg(not(target_arch = "wasm32"))]
+        {
             let gfx = pollster::block_on(create_graphics(event_loop));
             assert!(event_loop_proxy.send_event(gfx).is_ok());
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let gfx_fut = create_graphics(event_loop);
+            wasm_bindgen_futures::spawn_local(async move {
+                let gfx = gfx_fut.await;
+                assert!(event_loop_proxy.send_event(gfx).is_ok());
+            });
         }
 
     }
 }
 
-enum MaybeGraphics {
-    Builder(PcStateBuilder),
-    Graphics(PcState),
-}
 pub struct Application {
     graphics: MaybeGraphics,
 }
 impl Application {
-    pub fn new(event_loop: &EventLoop<PcState>) -> Self {
+    pub fn new(event_loop: &EventLoop<GState>) -> Self {
         Self {
-            graphics: MaybeGraphics::Builder(PcStateBuilder::new(event_loop.create_proxy())),
+            graphics: MaybeGraphics::Builder(StateBuilder::new(event_loop.create_proxy())),
         }
     }
 }
 
-impl ApplicationHandler<PcState> for Application {
+impl ApplicationHandler<GState> for Application {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let MaybeGraphics::Builder(builder) = &mut self.graphics {
             builder.build_and_send(event_loop);
         }
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: PcState) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: GState) {
         event.is_dirty = true;
         self.graphics = MaybeGraphics::Graphics(event);
 
@@ -445,14 +597,14 @@ impl ApplicationHandler<PcState> for Application {
                     WindowEvent::MouseInput { device_id, state, button } => {
                         match button {
                             MouseButton::Left => {
-                               match state {
-                                   ElementState::Pressed => {
-                                       wstate.aux_state.mouse_state.is_left_pressed = true;
-                                   }
-                                   ElementState::Released => {
-                                       wstate.aux_state.mouse_state.is_left_pressed = false;
-                                   }
-                               }
+                                match state {
+                                    ElementState::Pressed => {
+                                        wstate.aux_state.mouse_state.is_left_pressed = true;
+                                    }
+                                    ElementState::Released => {
+                                        wstate.aux_state.mouse_state.is_left_pressed = false;
+                                    }
+                                }
                             }
                             MouseButton::Right => {
                                 match state {

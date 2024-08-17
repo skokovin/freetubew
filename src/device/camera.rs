@@ -75,32 +75,28 @@ impl Camera {
     pub fn default() -> Self {
         let cam = Camera::new(
             Rad(0.1),
-            1.0,
+            800.0 / 600.0,
             0.001,
             200000.0,
         );
         cam
     }
 
-    pub fn resize(&mut self, w: f32, h:f32) {
+    pub fn resize(&mut self, w: f32, h: f32) {
         if w > 0.0 && h > 0.0 {
-            self.aspect = w  / h;
+            self.aspect = w / h;
+            self.update();
         }
     }
     fn calculate_focus(&mut self) {
-        self.focus = self.tot_bbx.diameter() as f32 *OFFSET_MULTIPLIER;
+        self.focus = self.tot_bbx.diameter() as f32 * OFFSET_MULTIPLIER;
     }
     pub fn update(&mut self) {
         self.calculate_focus();
-        let center = self.tot_bbx.center();
-        //self.view = Matrix4::look_to_rh(Point3::new(center.x as f32, center.y as f32, center.z as f32), self.head_forward, self.head_up);
         self.view = Matrix4::look_to_rh(self.eye, self.head_forward, self.head_up);
-
-        //self.proj = perspective(self.fovy, self.aspect, self.near, self.far);
         self.proj = perspective(self.fovy, self.aspect, self.near, self.far);
         self.vp_matrix = self.proj * self.view;
         self.n_matrix = self.view.transpose();
-        //self.focus=diag;
     }
     pub fn update_mouse(&mut self, dx_in: f32, dy_in: f32) {
         self.yaw += -dx_in * MOUSE_SENSITIVITY_HORIZONTAL;
@@ -124,7 +120,7 @@ impl Camera {
         let new_forward: Vector3<f32> = new_right_rot.rotate_vector(new_forward_lr);
         let new_up: Vector3<f32> = new_right.cross(new_forward);
 
-        let center: Point3<f32> = Point3::new(center_p.x as f32,center_p.y as f32,center_p.z as f32,);
+        let center: Point3<f32> = Point3::new(center_p.x as f32, center_p.y as f32, center_p.z as f32);
         let new_eye: Point3<f32> = center - new_forward * self.focus;
 
         self.head_forward = new_forward;
@@ -194,7 +190,7 @@ impl Camera {
 
 
         let new_eye: Point3<f64> = center_p - head_forward * self.focus as f64;
-        self.eye=Point3::new(new_eye.x as f32, new_eye.y as f32,new_eye.z as f32 );
+        self.eye = Point3::new(new_eye.x as f32, new_eye.y as f32, new_eye.z as f32);
         //self.eye.clone_from(&p);
         self.head_forward.clone_from(&head_forward32);
         self.head_up.clone().clone_from(&new_up32);

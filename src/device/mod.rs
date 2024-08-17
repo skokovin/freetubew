@@ -4,17 +4,15 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::{Point3, Vector3};
 use serde::{Deserialize, Serialize};
 use truck_base::bounding_box::BoundingBox;
-#[cfg(target_arch = "wasm32")]
-pub mod wstate;
+
 mod camera;
 mod mesh_pipeline;
 mod materials;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod pcstate;
 pub mod aux_state;
-mod background_pipleine;
+pub mod background_pipleine;
+pub mod gstate;
 
-pub const Z_FIGHTING_FACTOR: f32 = 0.001;
+pub const Z_FIGHTING_FACTOR: f32 = 0.0001;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Triangle {
     pub p: [Point3<f32>; 3],
