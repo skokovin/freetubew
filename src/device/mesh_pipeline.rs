@@ -9,7 +9,7 @@ use crate::device::StepVertexBuffer;
 const METADATA_COUNT:u32=256;
 const STRIGHT_COLOR:u32=76;
 const BEND_COLOR:u32=37;
-const SELECT_COLOR:u32=1;
+pub const SELECT_COLOR:u32=1;
 
 pub struct MeshPipeLine {
     pub metadata:Vec<[i32;4]>,
@@ -181,7 +181,6 @@ impl MeshPipeLine {
             mesh_render_pipeline: mesh_render_pipeline,
         }
     }
-
     pub fn create_bind_group(&self,device: &Device) -> BindGroup {
         let mesh_uniform_bind_group: BindGroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.mesh_bind_group_layout,
@@ -207,7 +206,6 @@ impl MeshPipeLine {
         });
         mesh_uniform_bind_group
     }
-
     pub fn update_vertexes(&mut self,device: &Device) {
         self.i_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(format!("Index Mesh Buffer").as_str()),
@@ -220,6 +218,24 @@ impl MeshPipeLine {
             usage: wgpu::BufferUsages::VERTEX,
         });
     }
+    pub fn select_by_id(&mut self,device: &Device, id:i32){
+        self.unselect_all();
+        self.metadata[id as usize ][1 as usize]= SELECT_COLOR as i32;
+        self.update_meta_data(device);
+    }
+    pub fn unselect_all(&mut self){
+        self.metadata.iter_mut().for_each(|md|{
+            md[1]=0;
+        });
+    }
+    fn update_meta_data(&mut self,device: &Device){
+        self.metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Vertex Mesh Buffer").as_str()),
+            contents: bytemuck::cast_slice(&self.metadata),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+    }
+
 }
 
 #[repr(C)]

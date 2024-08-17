@@ -18,8 +18,10 @@ use crate::device::camera::Camera;
 use crate::device::materials::Material;
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::{MeshVertex, StepVertexBuffer};
+use crate::device::aux_state::AuxState;
 use crate::remote::{RemoteCommand, COMMANDS};
 use crate::trialgo::analyzepl::analyze_bin;
+use winit::event::MouseButton;
 
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -157,6 +159,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=WState> +
 
         WState {
             is_dirty: false,
+            aux_state:AuxState::new(),
             materials: Material::generate_materials(),
             instanse: instanse,
             surface: surface,
@@ -200,6 +203,7 @@ impl WStateBuilder {
 #[allow(dead_code)]
 pub struct WState {
     is_dirty: bool,
+    aux_state:AuxState,
     materials: Vec<Material>,
     instanse: Instance,
     surface: Surface<'static>,
@@ -450,7 +454,53 @@ impl ApplicationHandler<WState> for Application {
                     WindowEvent::CursorLeft { device_id } => {}
 
                     WindowEvent::MouseWheel { device_id, delta, phase } => {}
-                    WindowEvent::MouseInput { device_id, state, button } => {}
+                    WindowEvent::MouseInput { device_id, state, button } => {
+                        match button {
+                            MouseButton::Left => {
+                                match state {
+                                    ElementState::Pressed => {
+                                        wstate.aux_state.mouse_state.is_left_pressed = true;
+                                    }
+                                    ElementState::Released => {
+                                        wstate.aux_state.mouse_state.is_left_pressed = false;
+                                    }
+                                }
+                            }
+                            MouseButton::Right => {
+                                match state {
+                                    ElementState::Pressed => {
+                                        wstate.aux_state.mouse_state.is_right_pressed = true;
+                                    }
+                                    ElementState::Released => {
+                                        wstate.aux_state.mouse_state.is_right_pressed = false;
+                                    }
+                                }
+                            }
+                            MouseButton::Middle => {
+                                match state {
+                                    ElementState::Pressed => {
+                                        wstate.aux_state.mouse_state.is_middle_pressed = true;
+                                    }
+                                    ElementState::Released => {
+                                        wstate.aux_state.mouse_state.is_middle_pressed = false;
+                                    }
+                                }
+                            }
+                            MouseButton::Back => {
+                                match state {
+                                    ElementState::Pressed => {}
+                                    ElementState::Released => {}
+                                }
+                            }
+                            MouseButton::Forward => {
+                                match state {
+                                    ElementState::Pressed => {}
+                                    ElementState::Released => {}
+                                }
+                            }
+                            MouseButton::Other(_) => {}
+                        }
+                    }
                     WindowEvent::PinchGesture { .. } => {}
                     WindowEvent::PanGesture { .. } => {}
                     WindowEvent::DoubleTapGesture { .. } => {}
@@ -481,7 +531,9 @@ impl ApplicationHandler<WState> for Application {
                     DeviceEvent::Added => {}
                     DeviceEvent::Removed => {}
                     DeviceEvent::MouseMotion { delta } => {
-                        wstate.camera.update_mouse(delta.0 as f32, delta.1 as f32);
+                        if(wstate.aux_state.mouse_state.is_right_pressed){
+                            wstate.camera.update_mouse(delta.0 as f32, delta.1 as f32);
+                        }
                     }
                     DeviceEvent::MouseWheel { .. } => {}
                     DeviceEvent::Motion { .. } => {}

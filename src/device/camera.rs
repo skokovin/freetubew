@@ -103,8 +103,8 @@ impl Camera {
         //self.focus=diag;
     }
     pub fn update_mouse(&mut self, dx_in: f32, dy_in: f32) {
-        self.yaw += dx_in * MOUSE_SENSITIVITY_HORIZONTAL;
-        self.pitch += dy_in * MOUSE_SENSITIVITY_VERTICAL;
+        self.yaw += -dx_in * MOUSE_SENSITIVITY_HORIZONTAL;
+        self.pitch += -dy_in * MOUSE_SENSITIVITY_VERTICAL;
         if abs(self.yaw) > PI * 2.0 { self.yaw = 0.0 }
         if abs(self.pitch) > PI * 2.0 { self.pitch = 0.0 }
         self.rotate();

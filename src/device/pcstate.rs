@@ -8,15 +8,16 @@ use wgpu::{Adapter, BindGroup, Buffer, BufferAddress, CommandEncoder, Device, In
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
-use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 use winit::window::{Window, WindowId};
 use crate::device::camera::Camera;
 use crate::device::materials::Material;
-use crate::device::mesh_pipeline::MeshPipeLine;
+use crate::device::mesh_pipeline::{MeshPipeLine, SELECT_COLOR};
 use crate::device::{MeshVertex, StepVertexBuffer};
+use crate::device::aux_state::AuxState;
 use crate::remote::{RemoteCommand, COMMANDS};
 use crate::trialgo::analyzepl::analyze_bin;
 
@@ -92,6 +93,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=PcState> 
         let h = wsize.height as f32 / scale_factor;
 
         PcState {
+            test_counter:0,
+            aux_state:AuxState::new(),
             is_dirty: false,
             materials: Material::generate_materials(),
             instanse: instanse,
@@ -112,6 +115,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=PcState> 
 
 
 pub struct PcState {
+    test_counter:i32,
+    aux_state:AuxState,
     is_dirty: bool,
     materials: Vec<Material>,
     instanse: Instance,
@@ -269,6 +274,16 @@ impl PcState {
     }
     fn on_keyboard(&mut self, _d: DeviceId, key: KeyEvent, _is_synth: bool) {
         match key.physical_key {
+            PhysicalKey::Code(KeyCode::F3) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+                        self.mesh_pipeline.select_by_id(&self.device, self.test_counter);
+                        self.test_counter=self.test_counter+1;
+                    }
+                }
+            }
+
             PhysicalKey::Code(KeyCode::F2) => {
                 match key.state {
                     ElementState::Pressed => {}
@@ -404,7 +419,53 @@ impl ApplicationHandler<PcState> for Application {
                     WindowEvent::CursorLeft { device_id } => {}
 
                     WindowEvent::MouseWheel { device_id, delta, phase } => {}
-                    WindowEvent::MouseInput { device_id, state, button } => {}
+                    WindowEvent::MouseInput { device_id, state, button } => {
+                        match button {
+                            MouseButton::Left => {
+                               match state {
+                                   ElementState::Pressed => {
+                                       wstate.aux_state.mouse_state.is_left_pressed = true;
+                                   }
+                                   ElementState::Released => {
+                                       wstate.aux_state.mouse_state.is_left_pressed = false;
+                                   }
+                               }
+                            }
+                            MouseButton::Right => {
+                                match state {
+                                    ElementState::Pressed => {
+                                        wstate.aux_state.mouse_state.is_right_pressed = true;
+                                    }
+                                    ElementState::Released => {
+                                        wstate.aux_state.mouse_state.is_right_pressed = false;
+                                    }
+                                }
+                            }
+                            MouseButton::Middle => {
+                                match state {
+                                    ElementState::Pressed => {
+                                        wstate.aux_state.mouse_state.is_middle_pressed = true;
+                                    }
+                                    ElementState::Released => {
+                                        wstate.aux_state.mouse_state.is_middle_pressed = false;
+                                    }
+                                }
+                            }
+                            MouseButton::Back => {
+                                match state {
+                                    ElementState::Pressed => {}
+                                    ElementState::Released => {}
+                                }
+                            }
+                            MouseButton::Forward => {
+                                match state {
+                                    ElementState::Pressed => {}
+                                    ElementState::Released => {}
+                                }
+                            }
+                            MouseButton::Other(_) => {}
+                        }
+                    }
                     WindowEvent::PinchGesture { .. } => {}
                     WindowEvent::PanGesture { .. } => {}
                     WindowEvent::DoubleTapGesture { .. } => {}
@@ -435,7 +496,9 @@ impl ApplicationHandler<PcState> for Application {
                     DeviceEvent::Added => {}
                     DeviceEvent::Removed => {}
                     DeviceEvent::MouseMotion { delta } => {
-                        let is_dirty = wstate.camera.update_mouse(delta.0 as f32, delta.1 as f32);
+                        if(wstate.aux_state.mouse_state.is_right_pressed){
+                            wstate.camera.update_mouse(delta.0 as f32, delta.1 as f32);
+                        }
                     }
                     DeviceEvent::MouseWheel { .. } => {}
                     DeviceEvent::Motion { .. } => {}

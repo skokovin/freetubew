@@ -11,6 +11,7 @@ mod mesh_pipeline;
 mod materials;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pcstate;
+pub mod aux_state;
 
 pub const Z_FIGHTING_FACTOR: f32 = 0.001;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -150,3 +151,4 @@ impl StepVertexBuffer {
         self.id_hash = vec![];
     }
 }
+

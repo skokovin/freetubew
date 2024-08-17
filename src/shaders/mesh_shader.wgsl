@@ -71,7 +71,14 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
 @fragment
 fn fs_main(in:Output) ->  @location(0) vec4<f32> {
       let metadata:vec4<i32>=vertex_meta_data0[in.mat_id];
-      let material:LightUniforms=light_uniformsArray[metadata.x];
+
+
+      var material:LightUniforms=light_uniformsArray[metadata.x];
+      if(metadata.y!=0){
+        material=light_uniformsArray[metadata.y];
+      }
+
+
       let kd:f32=material.diffuse_intensity;
       let ks:f32=material.specular_intensity;
       let specular_factor:f32=material.specular_shininess;
