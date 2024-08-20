@@ -82,9 +82,9 @@ impl Camera {
         cam
     }
 
-    pub fn resize(&mut self, w: f32, h: f32) {
-        if w > 0.0 && h > 0.0 {
-            self.aspect = w / h;
+    pub fn resize(&mut self, w: u32, h: u32) {
+        if w > 0 && h > 0 {
+            self.aspect = w as f32 / h as f32;
             self.update();
         }
     }

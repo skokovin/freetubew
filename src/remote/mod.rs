@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use wgpu::BufferSlice;
+
+pub static IS_OFFSCREEN_READY: Lazy<Mutex<bool> >= Lazy::new(|| Mutex::new(false));
 
 pub static COMMANDS: Lazy<Mutex<CommandState>> = Lazy::new(|| Mutex::new(CommandState::new()));
 

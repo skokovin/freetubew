@@ -1,10 +1,11 @@
 use std::future::Future;
 use std::{iter, mem};
+use std::io::Write;
 use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, MutexGuard, TryLockResult};
 use log::{info, warn};
-use wgpu::{Adapter, CommandEncoder, Device, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureView, TextureViewDescriptor};
+use wgpu::{Adapter, BufferSlice, CommandEncoder, Device, Extent3d, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView, TextureViewDescriptor, COPY_BYTES_PER_ROW_ALIGNMENT};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, WindowEvent};
@@ -15,9 +16,10 @@ use winit::window::{Window, WindowId};
 use crate::device::aux_state::AuxState;
 use crate::device::camera::Camera;
 use crate::device::materials::Material;
-use crate::device::mesh_pipeline::MeshPipeLine;
+use crate::device::mesh_pipeline::{MeshPipeLine, OFFSCREEN_TEXEL_SIZE};
 use crate::device::MeshVertex;
-use crate::remote::{RemoteCommand, COMMANDS};
+use crate::device::scene::Scene;
+use crate::remote::{RemoteCommand, COMMANDS, IS_OFFSCREEN_READY};
 use crate::trialgo::analyzepl::analyze_bin;
 
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
@@ -55,8 +57,8 @@ async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'st
 }
 #[cfg(not(target_arch = "wasm32"))]
 fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> + 'static {
-    let wsize: LogicalSize<f64> =winit::dpi::LogicalSize::new(800.0, 600.0);
-    let mut window_attrs = Window::default_attributes().with_inner_size( wsize.clone());
+    let wsize: LogicalSize<u32> = winit::dpi::LogicalSize::new(800, 600);
+    let mut window_attrs = Window::default_attributes().with_inner_size(wsize.clone());
     let rc_window = Arc::new(event_loop.create_window(window_attrs).unwrap());
     async move {
         let (instanse, surface, adapter): (Instance, Surface, Adapter) = {
@@ -84,14 +86,13 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
         let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone(), wsize.width as i32, wsize.height as i32);
 
 
-
         let scale_factor = rc_window.clone().scale_factor() as f32;
-        let w = wsize.width as f32 / scale_factor;
-        let h = wsize.height as f32 / scale_factor;
+        let w = wsize.width;
+        let h = wsize.height;
 
         GState {
-            test_counter:0,
-            aux_state:AuxState::new(),
+            test_counter: 0,
+            aux_state: AuxState::new(),
             is_dirty: false,
             materials: Material::generate_materials(),
             instanse: instanse,
@@ -105,7 +106,10 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             h: h,
             camera: Camera::default(),
             mesh_pipeline: mesh_pipeline,
-
+            is_offscreen_mapped: false,
+            mouse_click_x: 0,
+            mouse_click_y: 0,
+            scene: Scene::default(),
         }
     }
 }
@@ -236,16 +240,16 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
         info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
         info!("SURFACE ATTRIBS {:?}",surface_config);
         surface.configure(&_device, &surface_config);
-        let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone(),_sw as i32, _sh as i32);
+        let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone(), _sw as i32, _sh as i32);
 
         let scale_factor = rc_window.clone().scale_factor() as f32;
-        let w = _sw as f32 / scale_factor;
-        let h = _sh as f32 / scale_factor;
+        let w = _sw as f32;
+        let h = _sh as f32;
 
         GState {
-            test_counter:0,
+            test_counter: 0,
             is_dirty: false,
-            aux_state:AuxState::new(),
+            aux_state: AuxState::new(),
             materials: Material::generate_materials(),
             instanse: instanse,
             surface: surface,
@@ -254,10 +258,14 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             queue: _queue,
             rc_window: rc_window,
             scale_factor: scale_factor,
-            w: w,
-            h: h,
+            w: w as u32,
+            h: h as u32,
             camera: Camera::default(),
             mesh_pipeline: mesh_pipeline,
+            is_offscreen_mapped: false,
+            mouse_click_x: 0,
+            mouse_click_y: 0,
+            scene: Scene::default(),
         }
     }
 }
@@ -266,9 +274,14 @@ enum MaybeGraphics {
     Builder(StateBuilder),
     Graphics(GState),
 }
+
+pub enum GEvent {
+    State(GState),
+    SthngElse(),
+}
 pub struct GState {
-    test_counter:i32,
-    aux_state:AuxState,
+    test_counter: i32,
+    aux_state: AuxState,
     is_dirty: bool,
     materials: Vec<Material>,
     instanse: Instance,
@@ -278,10 +291,14 @@ pub struct GState {
     queue: Queue,
     rc_window: Arc<Window>,
     scale_factor: f32,
-    w: f32,
-    h: f32,
+    w: u32,
+    h: u32,
     camera: Camera,
     mesh_pipeline: MeshPipeLine,
+    is_offscreen_mapped: bool,
+    mouse_click_x: usize,
+    mouse_click_y: usize,
+    scene: Scene,
 }
 
 impl GState {
@@ -339,7 +356,7 @@ impl GState {
                         occlusion_query_set: None,
                     });
                 }
-
+                //BACKGROUND
                 {
                     let background_bind = self.mesh_pipeline.back_ground_pipe_line.create_bind_group(&self.device);
                     let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -359,9 +376,8 @@ impl GState {
                     render_pass.set_pipeline(&self.mesh_pipeline.back_ground_pipe_line.render_pipeline);
                     render_pass.set_bind_group(0, &background_bind, &[]);
                     render_pass.draw(0..6, 0..1);
-
                 }
-
+                //MESH
                 {
                     let indx_count = (self.mesh_pipeline.i_buffer.size() / mem::size_of::<i32>() as u64) as u32;
                     if (indx_count > 0) {
@@ -399,7 +415,196 @@ impl GState {
             }
             Err(_) => {}
         }
+
+        if (self.is_offscreen_mapped) {
+            self.render_to_texture()
+        }
     }
+    #[inline]
+    fn render_to_texture(&mut self) {
+        if (!self.is_offscreen_mapped)
+        {
+            let sel_texture_desc = wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: self.mesh_pipeline.offscreen_width,
+                    height: self.h as u32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TextureFormat::Rgba32Sint,
+                usage: wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                label: None,
+                view_formats: &[],
+            };
+            let sel_texture: Texture = self.device.create_texture(&sel_texture_desc);
+
+            let sel_texture_view: TextureView = sel_texture.create_view(&Default::default());
+            let sel_depth_texture: Texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                size: Extent3d {
+                    width: self.mesh_pipeline.offscreen_width,
+                    height: self.h as u32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                label: None,
+                view_formats: &[],
+            });
+            let sel_depth_view: TextureView = sel_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut encoder: CommandEncoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Sel Encoder D"),
+            });
+            {
+                let render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass1"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &sel_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &sel_depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+            }
+            //MESH
+            {
+                let indx_count = (self.mesh_pipeline.i_buffer.size() / mem::size_of::<i32>() as u64) as u32;
+                if (indx_count > 0) {
+                    let bg = self.mesh_pipeline.create_bind_group(&self.device);
+                    let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Selection RP1"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &sel_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &sel_depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    render_pass.set_pipeline(&self.mesh_pipeline.selection_render_pipeline);
+                    render_pass.set_bind_group(0, &bg, &[]);
+                    render_pass.set_vertex_buffer(0, self.mesh_pipeline.v_buffer.slice(..));
+                    render_pass.set_index_buffer(self.mesh_pipeline.i_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(Range { start: 0, end: indx_count }, 0, Range { start: 0, end: 1 });
+                }
+            }
+
+
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &sel_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &self.mesh_pipeline.offscreen_buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        // This needs to be a multiple of 256. Normally we would need to pad
+                        // it but we here know it will work out anyways.
+                        //bytes_per_row: Some((self.mesh_pipeline.offscreen_width * OFFSCREEN_TEXEL_SIZE)),
+                        bytes_per_row: Some(self.mesh_pipeline.offscreen_width * OFFSCREEN_TEXEL_SIZE),
+
+                        rows_per_image: Some(self.h),
+                    },
+                },
+                wgpu::Extent3d {
+                    //width: self.mesh_pipeline.offscreen_width,
+
+                    width: self.mesh_pipeline.offscreen_width,
+                    height: self.h,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.queue.submit(iter::once(encoder.finish()));
+
+            let host_offscreen: BufferSlice = self.mesh_pipeline.offscreen_buffer.slice(..);
+            self.is_offscreen_mapped = true;
+
+            host_offscreen.map_async(wgpu::MapMode::Read, move |result| {
+                match result {
+                    Ok(_) => {
+                        match IS_OFFSCREEN_READY.try_lock() {
+                            Ok(mut is_offscreen_ready) => {
+                                *is_offscreen_ready = true;
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                    Err(_) => {}
+                }
+            });
+        } else {
+            let is_ready: bool = {
+                match IS_OFFSCREEN_READY.try_lock() {
+                    Ok(mut is_offscreen_ready) => {
+                        let ret: bool = is_offscreen_ready.clone();
+                        *is_offscreen_ready = false;
+                        ret
+                    }
+                    Err(_) => { false }
+                }
+            };
+            if (is_ready) {
+                let mut result: Vec<[i32; 4]> = vec![];
+                {
+                    let slice: BufferSlice = self.mesh_pipeline.offscreen_buffer.slice(..);
+                    let view = slice.get_mapped_range();
+                    result.extend_from_slice(bytemuck::cast_slice(&view[..]));
+                }
+                self.mesh_pipeline.offscreen_buffer.unmap();
+                let mut rows: Vec<Vec<[i32; 4]>> = vec![];
+                let row_len = self.mesh_pipeline.offscreen_width as usize;
+                let click_aspect_ratio = self.mouse_click_x as f32 / self.w as f32;
+                let click_x_compensated = (click_aspect_ratio * row_len as f32) as usize;
+                result.chunks(row_len).for_each(|row| {
+                    rows.push(Vec::from(row));
+                });
+                let selected = &rows[self.mouse_click_y][click_x_compensated];
+                if (selected[0] != self.scene.selected_id) {
+                    self.scene.selected_id=selected[0];
+                    warn!("RESULT SELECTED {:?}",selected);
+                    self.mesh_pipeline.select_by_id(&self.device, selected[0]);
+
+                }else{
+                    self.mesh_pipeline.unselect_all();
+                    self.mesh_pipeline.update_meta_data(&self.device);
+                    self.scene.selected_id=0;
+                }
+                self.is_offscreen_mapped = false;
+            }
+        }
+    }
+
     #[inline]
     fn resize(&mut self) {
         self.scale_factor = self.rc_window.clone().scale_factor() as f32;
@@ -408,12 +613,18 @@ impl GState {
         let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
         self.surface.configure(&self.device, &surface_config);
 
-        self.w = _sw as f32 / self.scale_factor;
-        self.h = _sh as f32 / self.scale_factor;
-        self.camera.resize(self.w,self.h);
+        /*      self.w = _sw as f32 / self.scale_factor;
+              self.h = _sh as f32 / self.scale_factor;*/
+
+        self.w = _sw;
+        self.h = _sh;
+        self.camera.resize(self.w, self.h);
         self.mesh_pipeline.back_ground_pipe_line.resize(&self.device, self.w as i32, self.h as i32);
+        self.mesh_pipeline.resize(&self.device, self.w as i32, self.h as i32);
         self.is_dirty = true;
     }
+
+
     fn check_commands(&mut self) {
         match COMMANDS.try_lock() {
             Ok(mut s) => {
@@ -444,24 +655,26 @@ impl GState {
             Err(_) => { warn!("CANT_LOCK") }
         }
     }
-    fn on_keyboard(&mut self, _d: DeviceId, key: KeyEvent, _is_synth: bool) {
+    fn on_keyboard(&mut self, _d: DeviceId, key: KeyEvent, _is_synth: bool, proxy: &EventLoopProxy<GEvent>) {
         match key.physical_key {
             PhysicalKey::Code(KeyCode::F3) => {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
                         self.mesh_pipeline.select_by_id(&self.device, self.test_counter);
-                        self.test_counter=self.test_counter+1;
+                        self.test_counter = self.test_counter + 1;
                     }
                 }
             }
-
             PhysicalKey::Code(KeyCode::F2) => {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
                         //let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/Dapper_6_truba.stp")).as_slice());
+                        #[cfg(not(target_arch = "wasm32"))]
                         let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/ypm_e71042.stp")).as_slice());
+                        #[cfg(target_arch = "wasm32")]
+                        let stp: Vec<u8> = vec![];
                         match analyze_bin(&stp) {
                             None => {}
                             Some(ops) => {
@@ -479,6 +692,20 @@ impl GState {
                     }
                 }
             }
+            PhysicalKey::Code(KeyCode::F4) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    assert!(proxy.send_event(GEvent::SthngElse()).is_ok());
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+
+                    //wasm_bindgen_futures::spawn_local(async move {
+                    assert!(proxy.send_event(GEvent::SthngElse()).is_ok());
+                    //});
+                }
+            }
+
             _ => {}
         }
     }
@@ -491,25 +718,49 @@ impl GState {
         self.queue.write_buffer(&self.mesh_pipeline.material_buffer, 0, bytemuck::cast_slice(&self.materials));
     }
     fn update_lights(&mut self) {
-        let resolution: [f32; 4] = [self.w, self.h, 0.0, 0.0];
+        let resolution: [f32; 4] = [self.w as f32, self.h as f32, 0.0, 0.0];
         let light_position: &[f32; 3] = self.camera.eye.as_ref();
         let eye_position: &[f32; 3] = self.camera.eye.as_ref();
         self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 0, bytemuck::cast_slice(light_position));
         self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 16, bytemuck::cast_slice(eye_position));
         self.queue.write_buffer(&self.mesh_pipeline.light_buffer, 32, bytemuck::cast_slice(&resolution));
     }
+    fn select_by_mouse(&mut self, x: f64, y: f64) {
+        self.render_to_texture();
+        self.mouse_click_x = x as usize;
+        self.mouse_click_y = y as usize;
+    }
+
+
+    pub fn output_image_native(&mut self, image_data: Vec<u8>, texture_dims: (usize, usize)) {
+        let path: String = String::from("d:/pipe_project/test.png");
+        let mut png_data = Vec::<u8>::with_capacity(image_data.len());
+        let mut encoder = png::Encoder::new(
+            std::io::Cursor::new(&mut png_data),
+            texture_dims.0 as u32,
+            texture_dims.1 as u32,
+        );
+        encoder.set_color(png::ColorType::Rgba);
+        let mut png_writer = encoder.write_header().unwrap();
+        png_writer.write_image_data(&image_data[..]).unwrap();
+        png_writer.finish().unwrap();
+        log::info!("PNG file encoded in memory.");
+
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&png_data[..]).unwrap();
+        log::info!("PNG file written to disc as \"{}\".", path);
+    }
 }
 
 struct StateBuilder {
-    event_loop_proxy: Option<EventLoopProxy<GState>>,
+    pub event_loop_proxy: Option<EventLoopProxy<GEvent>>,
 }
 impl StateBuilder {
-    fn new(event_loop_proxy: EventLoopProxy<GState>) -> Self {
+    fn new(event_loop_proxy: EventLoopProxy<GEvent>) -> Self {
         Self {
             event_loop_proxy: Some(event_loop_proxy),
         }
     }
-
     fn build_and_send(&mut self, event_loop: &ActiveEventLoop) {
         let Some(event_loop_proxy) = self.event_loop_proxy.take() else {
             // event_loop_proxy is already spent - we already constructed Graphics
@@ -519,48 +770,62 @@ impl StateBuilder {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let gfx = pollster::block_on(create_graphics(event_loop));
-            assert!(event_loop_proxy.send_event(gfx).is_ok());
+            assert!(event_loop_proxy.send_event(GEvent::State(gfx)).is_ok());
         }
         #[cfg(target_arch = "wasm32")]
         {
             let gfx_fut = create_graphics(event_loop);
             wasm_bindgen_futures::spawn_local(async move {
                 let gfx = gfx_fut.await;
-                assert!(event_loop_proxy.send_event(gfx).is_ok());
+                assert!(event_loop_proxy.send_event(GEvent::State(gfx)).is_ok());
             });
         }
-
     }
 }
 
 pub struct Application {
+    pub sb: StateBuilder,
     graphics: MaybeGraphics,
+    pub x: f64,
+    pub y: f64,
 }
 impl Application {
-    pub fn new(event_loop: &EventLoop<GState>) -> Self {
+    pub fn new(event_loop: &EventLoop<GEvent>) -> Self {
+        let sb: StateBuilder = StateBuilder::new(event_loop.create_proxy());
         Self {
+            sb: sb,
             graphics: MaybeGraphics::Builder(StateBuilder::new(event_loop.create_proxy())),
+            x: 0.0,
+            y: 0.0,
         }
     }
 }
 
-impl ApplicationHandler<GState> for Application {
+impl ApplicationHandler<GEvent> for Application {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let MaybeGraphics::Builder(builder) = &mut self.graphics {
             builder.build_and_send(event_loop);
         }
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: GState) {
-        event.is_dirty = true;
-        self.graphics = MaybeGraphics::Graphics(event);
-
-        match &mut self.graphics {
-            MaybeGraphics::Builder(_) => {}
-            MaybeGraphics::Graphics(wstate) => {
-                wstate.update_materials();
-                wstate.resize();
-                wstate.rc_window.clone().request_redraw();
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, mut _event: GEvent) {
+        if let GEvent::State(mut event) = _event {
+            event.is_dirty = true;
+            self.graphics = MaybeGraphics::Graphics(event);
+            match &mut self.graphics {
+                MaybeGraphics::Builder(_) => {}
+                MaybeGraphics::Graphics(wstate) => {
+                    wstate.update_materials();
+                    wstate.resize();
+                    wstate.rc_window.clone().request_redraw();
+                }
+            }
+        } else {
+            match _event {
+                GEvent::State(_) => {}
+                GEvent::SthngElse() => {
+                    warn!("SthngElse");
+                }
             }
         }
     }
@@ -585,11 +850,19 @@ impl ApplicationHandler<GState> for Application {
                     WindowEvent::HoveredFileCancelled => {}
                     WindowEvent::Focused(_) => {}
                     WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
-                        wstate.on_keyboard(device_id, event, is_synthetic);
+                        match &self.sb.event_loop_proxy {
+                            None => {}
+                            Some(proxy) => {
+                                wstate.on_keyboard(device_id, event, is_synthetic, proxy);
+                            }
+                        }
                     }
                     WindowEvent::ModifiersChanged(_) => {}
                     WindowEvent::Ime(_) => {}
-                    WindowEvent::CursorMoved { device_id, position } => {}
+                    WindowEvent::CursorMoved { device_id, position } => {
+                        self.x = position.x;
+                        self.y = position.y;
+                    }
                     WindowEvent::CursorEntered { .. } => {}
                     WindowEvent::CursorLeft { device_id } => {}
 
@@ -600,6 +873,7 @@ impl ApplicationHandler<GState> for Application {
                                 match state {
                                     ElementState::Pressed => {
                                         wstate.aux_state.mouse_state.is_left_pressed = true;
+                                        wstate.select_by_mouse(self.x, self.y);
                                     }
                                     ElementState::Released => {
                                         wstate.aux_state.mouse_state.is_left_pressed = false;
@@ -653,6 +927,7 @@ impl ApplicationHandler<GState> for Application {
                     WindowEvent::Occluded(_) => {}
                     WindowEvent::RedrawRequested => {
                         wstate.render();
+                        //wstate.render_to_texture();
                     }
                 }
                 if (wstate.is_dirty) {
@@ -671,7 +946,7 @@ impl ApplicationHandler<GState> for Application {
                     DeviceEvent::Added => {}
                     DeviceEvent::Removed => {}
                     DeviceEvent::MouseMotion { delta } => {
-                        if(wstate.aux_state.mouse_state.is_right_pressed){
+                        if (wstate.aux_state.mouse_state.is_right_pressed) {
                             wstate.camera.update_mouse(delta.0 as f32, delta.1 as f32);
                         }
                     }

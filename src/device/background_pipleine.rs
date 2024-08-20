@@ -19,7 +19,6 @@ impl BackGroundPipeLine {
             contents: bytemuck::cast_slice(&arr),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-
         let background_bind_group_layout: BindGroupLayout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -36,7 +35,6 @@ impl BackGroundPipeLine {
             ],
             label: Some("mesh Bind Group Layout"),
         });
-
         let pipeline_layout: PipelineLayout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&background_bind_group_layout],

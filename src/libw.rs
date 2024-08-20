@@ -7,7 +7,7 @@ use web_sys::wasm_bindgen::prelude::wasm_bindgen;
 
 use winit::event_loop::EventLoop;
 use crate::device::gstate::Application;
-use crate::device::gstate::GState;
+use crate::device::gstate::GEvent;
 
 #[cfg(target_arch = "wasm32")]
 use crate::remote::{RemoteCommand, COMMANDS};
@@ -26,7 +26,7 @@ mod remote;
 pub async  fn runrust() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     let _ = console_log::init_with_level(Level::Info);
-    let event_loop: EventLoop<GState> = EventLoop::with_user_event().build().unwrap();
+    let event_loop: EventLoop<GEvent> = EventLoop::with_user_event().build().unwrap();
     let mut app = Application::new(&event_loop);
     let _ = event_loop.run_app(&mut app);
 }

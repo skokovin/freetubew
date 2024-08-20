@@ -4,6 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::{Point3, Vector3};
 use serde::{Deserialize, Serialize};
 use truck_base::bounding_box::BoundingBox;
+use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
 mod camera;
 mod mesh_pipeline;
@@ -11,6 +12,8 @@ mod materials;
 pub mod aux_state;
 pub mod background_pipleine;
 pub mod gstate;
+mod selection_pipeline;
+mod scene;
 
 pub const Z_FIGHTING_FACTOR: f32 = 0.0001;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -148,6 +151,20 @@ impl StepVertexBuffer {
         self.buffer = vec![];
         self.indxes = vec![];
         self.id_hash = vec![];
+    }
+}
+
+
+pub fn calculate_offset_pad(curr_mem:u32)->u32{
+    if(curr_mem<COPY_BYTES_PER_ROW_ALIGNMENT){
+        COPY_BYTES_PER_ROW_ALIGNMENT
+    }else{
+        let mut count=curr_mem/COPY_BYTES_PER_ROW_ALIGNMENT;
+        if(curr_mem%COPY_BYTES_PER_ROW_ALIGNMENT !=0){
+            count=count+1;
+        }
+        let memcount=count*COPY_BYTES_PER_ROW_ALIGNMENT;
+        memcount
     }
 }
 
