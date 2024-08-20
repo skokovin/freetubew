@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::{Arc, MutexGuard, TryLockResult};
 use log::{info, warn};
+use smaa::{SmaaMode, SmaaTarget};
 use wgpu::{Adapter, BufferSlice, CommandEncoder, Device, Extent3d, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView, TextureViewDescriptor, COPY_BYTES_PER_ROW_ALIGNMENT};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -89,6 +90,14 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
         let scale_factor = rc_window.clone().scale_factor() as f32;
         let w = wsize.width;
         let h = wsize.height;
+        let smaa_target: SmaaTarget = SmaaTarget::new(
+            &_device,
+            &_queue,
+            w,
+            h,
+            surface_config.format.clone(),
+            SmaaMode::Smaa1X,
+        );
 
         GState {
             test_counter: 0,
@@ -110,6 +119,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             mouse_click_x: 0,
             mouse_click_y: 0,
             scene: Scene::default(),
+            smaa_target: smaa_target,
         }
     }
 }
@@ -243,9 +253,16 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
         let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone(), _sw as i32, _sh as i32);
 
         let scale_factor = rc_window.clone().scale_factor() as f32;
-        let w = _sw as f32;
-        let h = _sh as f32;
-
+        let w = _sw as u32;
+        let h = _sh as u32;
+        let smaa_target: SmaaTarget = SmaaTarget::new(
+            &_device,
+            &_queue,
+            w,
+            h,
+            surface_config.format.clone(),
+            SmaaMode::Smaa1X,
+        );
         GState {
             test_counter: 0,
             is_dirty: false,
@@ -266,6 +283,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             mouse_click_x: 0,
             mouse_click_y: 0,
             scene: Scene::default(),
+            smaa_target: smaa_target,
         }
     }
 }
@@ -299,6 +317,7 @@ pub struct GState {
     mouse_click_x: usize,
     mouse_click_y: usize,
     scene: Scene,
+    smaa_target: SmaaTarget,
 }
 
 impl GState {
@@ -330,6 +349,8 @@ impl GState {
                     view_formats: &vec![],
                 });
                 let depth_view: TextureView = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let smaa_frame =self.smaa_target.start_frame(&self.device, &self.queue, &view);
+
                 let mut encoder: CommandEncoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Render Encoder D"),
                 });
@@ -337,7 +358,7 @@ impl GState {
                     let render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Render Pass1"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
+                            view: &smaa_frame,
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
@@ -362,7 +383,7 @@ impl GState {
                     let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Render Pass 2"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
+                            view: &smaa_frame,
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
@@ -384,7 +405,7 @@ impl GState {
                         let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Render Pass 2"),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
+                                view: &smaa_frame,
                                 resolve_target: None,
                                 ops: wgpu::Operations {
                                     load: wgpu::LoadOp::Load,
@@ -411,6 +432,7 @@ impl GState {
                 }
 
                 self.queue.submit(iter::once(encoder.finish()));
+                smaa_frame.resolve();
                 out.present();
             }
             Err(_) => {}
@@ -591,14 +613,13 @@ impl GState {
                 });
                 let selected = &rows[self.mouse_click_y][click_x_compensated];
                 if (selected[0] != self.scene.selected_id) {
-                    self.scene.selected_id=selected[0];
+                    self.scene.selected_id = selected[0];
                     warn!("RESULT SELECTED {:?}",selected);
                     self.mesh_pipeline.select_by_id(&self.device, selected[0]);
-
-                }else{
+                } else {
                     self.mesh_pipeline.unselect_all();
                     self.mesh_pipeline.update_meta_data(&self.device);
-                    self.scene.selected_id=0;
+                    self.scene.selected_id = 0;
                 }
                 self.is_offscreen_mapped = false;
             }
@@ -612,18 +633,14 @@ impl GState {
         let _sh = self.rc_window.clone().inner_size().height;
         let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
         self.surface.configure(&self.device, &surface_config);
-
-        /*      self.w = _sw as f32 / self.scale_factor;
-              self.h = _sh as f32 / self.scale_factor;*/
-
         self.w = _sw;
         self.h = _sh;
         self.camera.resize(self.w, self.h);
         self.mesh_pipeline.back_ground_pipe_line.resize(&self.device, self.w as i32, self.h as i32);
         self.mesh_pipeline.resize(&self.device, self.w as i32, self.h as i32);
+        self.smaa_target.resize(&self.device, self.w, self.h);
         self.is_dirty = true;
     }
-
 
     fn check_commands(&mut self) {
         match COMMANDS.try_lock() {
