@@ -6,6 +6,7 @@ use wgpu::util::DeviceExt;
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::materials::{Material, MATERIALS_COUNT};
 use crate::device::{calculate_offset_pad, StepVertexBuffer};
+use crate::remote::selected_by_id;
 
 pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
 const METADATA_COUNT: u32 = 256;
@@ -289,11 +290,13 @@ impl MeshPipeLine {
         self.unselect_all();
         self.metadata[id as usize][1 as usize] = SELECT_COLOR as i32;
         self.update_meta_data(device);
+        selected_by_id(id);
     }
     pub fn unselect_all(&mut self) {
         self.metadata.iter_mut().for_each(|md| {
             md[1] = 0;
         });
+        selected_by_id(0);
     }
     pub(crate) fn update_meta_data(&mut self, device: &Device) {
         self.metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -20,8 +20,13 @@ use crate::device::materials::Material;
 use crate::device::mesh_pipeline::{MeshPipeLine, OFFSCREEN_TEXEL_SIZE};
 use crate::device::MeshVertex;
 use crate::device::scene::Scene;
+
 use crate::remote::{RemoteCommand, COMMANDS, IS_OFFSCREEN_READY};
+#[cfg(target_arch = "wasm32")]
+use crate::remote::{pipe_bend_ops, pipe_obj_file};
+
 use crate::trialgo::analyzepl::analyze_bin;
+use crate::trialgo::pathfinder::LRACLR;
 
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -614,7 +619,7 @@ impl GState {
                 let selected = &rows[self.mouse_click_y][click_x_compensated];
                 if (selected[0] != self.scene.selected_id) {
                     self.scene.selected_id = selected[0];
-                    warn!("RESULT SELECTED {:?}",selected);
+                    //warn!("RESULT SELECTED {:?}",selected);
                     self.mesh_pipeline.select_by_id(&self.device, selected[0]);
                 } else {
                     self.mesh_pipeline.unselect_all();
@@ -660,10 +665,19 @@ impl GState {
                                         self.camera.calculate_tot_bbx(bbxs);
                                         self.camera.move_camera_to_bbx_limits();
                                         let cmds_arr = ops.calculate_lra();
+                                        let lraclr_arr: Vec<LRACLR> =ops.calculate_lraclr();
+                                        let lraclr_arr_i32 =LRACLR::to_array(&lraclr_arr);
                                         let obj_file = ops.all_to_one_obj_bin();
+                                        #[cfg(target_arch = "wasm32")]
+                                        pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(lraclr_arr_i32.as_slice()));
+                                        #[cfg(target_arch = "wasm32")]
+                                        pipe_obj_file(wasm_bindgen_futures::js_sys::Uint8Array::from(obj_file.as_slice()));
                                         warn!("FILE ANALYZED B{:?}",cmds_arr.len());
                                     }
                                 };
+                            }
+                            RemoteCommand::OnSelectById(id) => {
+                                self.mesh_pipeline.select_by_id(&self.device, id);
                             }
                         }
                     }
@@ -701,6 +715,10 @@ impl GState {
                                 self.camera.calculate_tot_bbx(bbxs);
                                 self.camera.move_camera_to_bbx_limits();
                                 let cmds_arr = ops.calculate_lra();
+                                let lraclr_arr: Vec<LRACLR> =ops.calculate_lraclr();
+                                lraclr_arr.iter().for_each(|cnc|{
+                                    warn!("{:?}",cnc);
+                                });
                                 let obj_file = ops.all_to_one_obj_bin();
                                 warn!("FILE ANALYZED C {:?}",cmds_arr.len());
                             }

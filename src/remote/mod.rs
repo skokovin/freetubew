@@ -1,9 +1,13 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-use wgpu::BufferSlice;
 
-pub static IS_OFFSCREEN_READY: Lazy<Mutex<bool> >= Lazy::new(|| Mutex::new(false));
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::wasm_bindgen;
+#[cfg(target_arch = "wasm32")]
+use web_sys::js_sys::{Int32Array, Uint8Array};
+
+pub static IS_OFFSCREEN_READY: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
 pub static COMMANDS: Lazy<Mutex<CommandState>> = Lazy::new(|| Mutex::new(CommandState::new()));
 
@@ -25,4 +29,29 @@ impl CommandState {
 #[derive(Debug, Clone, PartialEq, )]
 pub enum RemoteCommand {
     OnLoadSTPfile((Vec<u8>)),
+    OnSelectById(i32),
+}
+
+/*#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn pipe_bend_ops(ids: Int32Array);
+}*/
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn pipe_obj_file(ids: Uint8Array);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn pipe_bend_ops(ids: Int32Array);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn selected_by_id(id: i32);
 }

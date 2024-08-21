@@ -47,3 +47,18 @@ pub async unsafe fn read_step_file(arr: Uint8Array) {
         Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async unsafe fn select_by_id(id: i32) {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let _ = console_log::init_with_level(Level::Error);
+    match COMMANDS.lock() {
+        Ok(mut m) => {
+            info!("SELECT BY ID {:?}",id);
+            m.values.push_back(RemoteCommand::OnSelectById(id));
+        }
+        Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
+    }
+}
+

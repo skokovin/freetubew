@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
+use std::fmt::{Display, Formatter};
 use std::ops::{Mul, Sub};
 use cgmath::{Deg, InnerSpace, MetricSpace, Rad};
+use is_odd::IsOdd;
 use itertools::Itertools;
 use rand::random;
 use truck_base::bounding_box::BoundingBox;
@@ -18,7 +20,60 @@ const L: i32 = 0;
 const R: i32 = 1;
 const A: i32 = 2;
 const K: i32 = 3;
+#[derive(Debug)]
+pub struct LRACLR {
+    pub id1:i32,
+    pub id2:i32,
+    pub l: f64,
+    pub lt: f64,
+    pub r: f64,
+    pub a: f64,
+    pub clr: f64,
+    pub outd: f64,
+}
+impl LRACLR {
+    pub fn default() -> Self {
+        Self {
+            id1:0,
+            id2:0,
+            l: 0.0,
+            lt: 0.0,
+            r: 0.0,
+            a: 0.0,
+            clr: 0.0,
+            outd: 0.0,
+        }
+    }
 
+    pub fn to_array(cmnd: &Vec<LRACLR>) -> Vec<i32> {
+        let mut arr: Vec<i32> = vec![];
+        cmnd.iter().for_each(|cmd| {
+
+            let rounded0: i32 = (round_by_dec(cmd.l, 3) * 1000.0) as i32;
+            let rounded1: i32 = (round_by_dec(cmd.lt, 3) * 1000.0) as i32;
+            let rounded2: i32 = (round_by_dec(cmd.r, 3) * 1000.0) as i32;
+            let rounded3: i32 = (round_by_dec(cmd.a, 3) * 1000.0) as i32;
+            let rounded4: i32 = (round_by_dec(cmd.clr, 3) * 1000.0) as i32;
+            let rounded5: i32 = (round_by_dec(cmd.outd, 3) * 1000.0) as i32;
+
+            arr.push(cmd.id1);
+            arr.push(cmd.id2);
+            arr.push(rounded0);
+            arr.push(rounded1);
+            arr.push(rounded2);
+            arr.push(rounded3);
+            arr.push(rounded4);
+            arr.push(rounded5);
+        });
+        arr
+    }
+}
+
+impl Display for LRACLR{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "L {} R {} A {} CLR {}", self.l, self.r, self.a, self.clr)
+    }
+}
 
 pub struct LRACMD {
     pub id: i32,
@@ -26,6 +81,8 @@ pub struct LRACMD {
     pub value0: f64,
     pub value1: f64,
 }
+
+
 impl LRACMD {
     pub fn to_array(cmnd: &Vec<LRACMD>) -> Vec<i32> {
         let mut arr: Vec<i32> = vec![];
@@ -55,7 +112,7 @@ pub struct CncOps {
 impl CncOps {
     pub fn new(cyls: &Vec<MainCylinder>, bends: &Vec<BendToro>) -> Self {
         let mut tot_ops: Vec<OpElem> = vec![];
-        if(!cyls.is_empty() && !bends.is_empty()){
+        if (!cyls.is_empty() && !bends.is_empty()) {
             let mut tot_ops_cyls: Vec<OpElem> = vec![];
             let mut bends_db: HashMap<u64, BendToro> = HashMap::new();
             bends.iter().for_each(|b| {
@@ -325,7 +382,7 @@ impl CncOps {
         let id: i32 = random();
         //let path = format!("d:\\pipe_project\\pipe.obj");
         //let mut obj_file = std::fs::File::create(path).unwrap();
-        let mut file:Vec<u8> = Vec::new();
+        let mut file: Vec<u8> = Vec::new();
         obj::write(&polymesh, &mut file).unwrap();
         file
     }
@@ -368,7 +425,7 @@ impl CncOps {
                 let i2 = tri[2];
                 let v2 = vs[i2 as usize];
                 let n2 = nms[i2 as usize];
-                let triangle:Triangle = Triangle::new(
+                let triangle: Triangle = Triangle::new(
                     cgmath::Point3::<f32>::new((v0[0] * Z_FIGHTING_FACTOR) as f32, (v0[1] * Z_FIGHTING_FACTOR) as f32, (v0[2] * Z_FIGHTING_FACTOR) as f32),
                     cgmath::Point3::<f32>::new((v1[0] * Z_FIGHTING_FACTOR) as f32, (v1[1] * Z_FIGHTING_FACTOR) as f32, (v1[2] * Z_FIGHTING_FACTOR) as f32),
                     cgmath::Point3::<f32>::new((v2[0] * Z_FIGHTING_FACTOR) as f32, (v2[1] * Z_FIGHTING_FACTOR) as f32, (v2[2] * Z_FIGHTING_FACTOR) as f32),
@@ -406,7 +463,7 @@ impl CncOps {
     pub fn to_render_data(&self) -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) {
         let mut cyl_color_id: i32 = 74;
         let mut toro_color_id: i32 = 84;
-        let mut id_count:u32=1;
+        let mut id_count: u32 = 1;
         let mut meshes_all: Vec<RawMesh> = vec![];
         self.ops.iter().for_each(|op| {
             match op {
@@ -473,15 +530,115 @@ impl CncOps {
                 index = index + 1;
             });
             id_hash.push(index.clone() - 1);
-            id_count=id_count+1;
+            id_count = id_count + 1;
         });
         (buffer, indxes, bbxs, id_hash)
+    }
+
+    pub fn calculate_lraclr(&self) -> Vec<LRACLR> {
+
+        let mut cncs:Vec<LRACLR>=vec![];
+        if (self.ops.len() > 1 && self.ops.len().is_odd()) {
+            let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));
+            let last_op: OpElem =self.ops.last().unwrap().clone();
+            let mut pair_arr:Vec<OpElem>=vec![];
+            for i in 0..self.ops.len()-1 {
+                pair_arr.push(self.ops[i].clone());
+            }
+            let mut it_first=true;
+            let mut outd:f64=0.0;
+            let mut counter=1;
+            pair_arr.chunks(2).for_each(|ops|{
+                let op1=&ops[0];
+                let op2=&ops[1];
+                let mut cnc: LRACLR =LRACLR::default();
+                match op1 {
+                    OpElem::CYL(c) => {
+                        cnc.id1= counter;
+                        counter=counter+1;
+                        cnc.l=c.h;
+                        outd=c.r*2.0;
+                        cnc.outd=outd;
+                    }
+                    OpElem::TOR(t) => {}
+                    OpElem::Nothing => {}
+                }
+                match op2 {
+                    OpElem::CYL(c) => {}
+                    OpElem::TOR(t) => {
+                        let mut r_rad=0.0;
+                        match op1 {
+                            OpElem::CYL(c) => {
+                                let r: Rad<f64> = if (it_first) {
+                                    let new_plane = Plane::new(t.bend_center_point, t.ca.loc, t.cb.loc);
+                                    plane = new_plane;
+                                    it_first=false;
+                                    Rad(0.0)
+                                }
+                                else
+                                {
+                                    let new_plane = Plane::new(t.bend_center_point, t.ca.loc, t.cb.loc);
+                                    let rot_axe: Vector3 = c.cb.loc.sub(c.ca.loc);
+                                    let prev_vec = plane.normal();
+                                    let prev_right = rot_axe.cross(prev_vec);
+                                    let curr_vec = new_plane.normal();
+                                    let cp = c.cb.loc.clone();
+                                    let prev_p = cp.clone() + prev_vec * c.r;
+                                    let curr_p = cp.clone() + curr_vec * c.r;
+                                    let ccw_vec = curr_p.sub(prev_p);
+                                    let rot_angle = prev_vec.angle(curr_vec);
+                                    let k: f64 = {
+                                        if (rot_angle == Rad(PI) || rot_angle == Rad(2.0 * PI)) {
+                                            -1.0
+                                        } else if (prev_right.dot(ccw_vec) < 0.0) {
+                                            1.0
+                                        } else {
+                                            1.0
+                                        }
+                                    };
+                                    plane = new_plane;
+                                    rot_angle * k
+                                };
+                                r_rad=r.0;
+                                cnc.r=Deg::from(r).0;
+                            }
+                            OpElem::TOR(t) => {}
+                            OpElem::Nothing => {}
+                        }
+
+                        cnc.clr=t.bend_radius;
+                        cnc.id2= counter;
+                        counter=counter+1;
+                        let ba = t.ca.loc.sub(t.bend_center_point);
+                        let bb = t.cb.loc.sub(t.bend_center_point);
+                        let bend_angle = ba.angle(bb);
+                        cnc.lt=r_rad*t.bend_radius;
+                        cnc.a= Deg::from(bend_angle).0;
+                    }
+                    OpElem::Nothing => {}
+                }
+                cnc.outd=outd;
+                cncs.push(cnc);
+            });
+            match last_op {
+                OpElem::CYL(c) => {
+                    let mut cnc: LRACLR =LRACLR::default();
+                    cnc.id1= counter;
+                    cnc.l=c.h;
+                    cnc.outd=outd;
+                    cncs.push(cnc);
+                }
+                OpElem::TOR(_) => {}
+                OpElem::Nothing => {}
+            }
+        }
+        cncs
     }
 
     pub fn calculate_lra(&self) -> Vec<i32> {
         let mut cmnds: Vec<LRACMD> = vec![];
         let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));
-        if(self.ops.len()>0){
+        if (self.ops.len() > 0) {
             for i in 0..self.ops.len() - 1 {
                 match &self.ops[i] {
                     OpElem::CYL(c) => {
