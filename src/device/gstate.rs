@@ -6,14 +6,17 @@ use std::rc::Rc;
 use std::sync::{Arc, MutexGuard, TryLockResult};
 use log::{info, warn};
 use smaa::{SmaaMode, SmaaTarget};
+use wasm_bindgen::{JsCast, JsValue};
+use web_sys::{Element, HtmlCanvasElement};
 use wgpu::{Adapter, BufferSlice, CommandEncoder, Device, Extent3d, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView, TextureViewDescriptor, COPY_BYTES_PER_ROW_ALIGNMENT};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
+use winit::error::OsError;
 use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
-
-use winit::window::{Window, WindowId};
+use winit::platform::web::WindowExtWebSys;
+use winit::window::{Window, WindowAttributes, WindowId};
 use crate::device::aux_state::AuxState;
 use crate::device::camera::Camera;
 use crate::device::materials::Material;
@@ -130,6 +133,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
 }
 #[cfg(target_arch = "wasm32")]
 async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
+    warn!("CREATE PRIMARY");
     use winit::platform::web::WindowAttributesExtWebSys;
     use winit::platform::web::WindowExtWebSys;
     let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -155,6 +159,7 @@ async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'st
 }
 #[cfg(target_arch = "wasm32")]
 async fn create_secondary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
+    warn!("CREATE secondary");
     use winit::platform::web::WindowAttributesExtWebSys;
     use winit::platform::web::WindowExtWebSys;
     let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -163,6 +168,11 @@ async fn create_secondary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'
         dx12_shader_compiler: Default::default(),
         gles_minor_version: Default::default(),
     });
+    let w = rc_window.clone().inner_size().width;
+    let h = rc_window.clone().inner_size().height;
+
+    //warn!("CREATE secondary {:?} {:?}", w,h);
+    //instance.poll_all(true);
     let surface: Surface = instance.create_surface(rc_window.clone()).unwrap();
     let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
         compatible_surface: Some(&surface), // Some(&surface)
@@ -174,6 +184,224 @@ async fn create_secondary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'
         Some(adapt) => { Some((instance, surface, adapt)) }
     }
 }
+/*#[cfg(target_arch = "wasm32")]
+fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> + 'static {
+    use winit::platform::web::WindowAttributesExtWebSys;
+    use winit::platform::web::WindowExtWebSys;
+
+    /*let window: Window ={
+        match web_sys::window() {
+            None => { panic!("Cant HTML WINDOW") }
+            Some(html_window) => {
+                match html_window.document() {
+                    None => { panic!("Cant GET DOC") }
+                    Some(document) => {
+                        match document.create_element("canvas") {
+                            Err(e) => { panic!("Cant create canvas {:?}", e) }
+                            Ok(canvas) => {
+                                canvas.set_id("cws_main_p");
+                                canvas.set_attribute("width", "100%");
+                                canvas.set_attribute("height", "100%");
+                                match document.get_element_by_id("wasm3dwindow") {
+                                    None => { panic!("NO ID wasm3dwindow") }
+                                    Some(dst) => {
+                                        match dst.append_with_node_1(canvas.unchecked_ref()) {
+                                            Err(e) => { panic!("CANT APPEND CANVAS DST {:?}", e) }
+                                            Ok(_) => {
+                                                let window_attrs = Window::default_attributes().with_canvas(Some(canvas.unchecked_into()));
+                                                match event_loop.create_window(window_attrs) {
+                                                    Err(e) => { panic!("CANT CREATE WINDOW {:?}", e) }
+                                                    Ok(window) => { window }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };*/
+
+
+    /*let window: Window ={
+        match web_sys::window() {
+            None => { panic!("Cant HTML WINDOW") }
+            Some(html_window) => {
+                match html_window.document() {
+                    None => { panic!("Cant GET DOC") }
+                    Some(document) => {
+                        match document.get_element_by_id("wasm3dwindow") {
+                            None => { panic!("NO ID wasm3dwindow") }
+                            Some(dst) => {
+                                let sw = dst.client_width();
+                                let sh = dst.client_height();
+                                info!("HTML ROOM SIZE IS {} {}",sw,sh);
+
+
+
+                                match document.create_element("canvas") {
+                                    Err(e) => { panic!("Cant create canvas {:?}", e) }
+                                    Ok(canvas) => {
+                                        canvas.set_id("cws_main_p");
+                                        canvas.set_attribute("width", sw.to_string().as_str());
+                                        canvas.set_attribute("height", sh.to_string().as_str());
+                                        match dst.append_with_node_1(canvas.unchecked_ref()) {
+                                            Err(e) => { panic!("CANT APPEND CANVAS DST {:?}", e) }
+                                            Ok(_) => {
+                                                let ws: PhysicalSize<u32> = PhysicalSize::new(sw as u32, sh as u32);
+                                                let window_attrs = Window::default_attributes().with_canvas(Some(canvas.unchecked_into())).with_inner_size(ws);
+                                                match event_loop.create_window(window_attrs) {
+                                                    Err(e) => { panic!("CANT CREATE WINDOW {:?}", e) }
+                                                    Ok(window) => {
+                                                        warn!("WINDOW_SIZE {:?} {:?}", window.inner_size().width,window.inner_size().height);
+                                                        window
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };*/
+
+    let window: Window ={
+        match web_sys::window() {
+            None => { panic!("Cant HTML WINDOW") }
+            Some(html_window) => {
+                match html_window.document() {
+                    None => { panic!("Cant GET DOC") }
+                    Some(document) => {
+                        match document.get_element_by_id("cws_main_p") {
+                            None => { panic!("NO ID cws_main_p") }
+                            Some(c) => {
+
+                                let canvas: web_sys::HtmlCanvasElement = c
+                                    .dyn_into::<web_sys::HtmlCanvasElement>()
+                                    .map_err(|_| ())
+                                    .unwrap();
+
+
+                                let sw = canvas.client_width();
+                                let sh = canvas.client_height();
+                                info!("HTML ROOM SIZE IS {} {}",sw,sh);
+                                let window_attrs: WindowAttributes = Window::default_attributes().with_canvas(Some(canvas));
+                                //let ws: PhysicalSize<u32> = PhysicalSize::new(100 as u32, 100 as u32);
+                                //let window_attrs = Window::default_attributes().with_inner_size(ws).with_active(true);
+
+                                match event_loop.create_window(window_attrs) {
+                                    Err(e) => { panic!("CANT CREATE WINDOW {:?}", e) }
+                                    Ok(window) => {
+                                        warn!("WINDOW_SIZE2 {:?} {:?}", window.inner_size().width,window.inner_size().height);
+                                        window
+                                    }
+                                }
+
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+
+    let canvas={
+        match window.canvas() {
+            None => {panic!("NO CANVAS")}
+            Some(canvas) => {canvas}
+        }
+    };
+
+    let _sw = canvas.client_width().clone() as u32;
+    let _sh = canvas.client_height().clone() as u32;
+
+    let _winw = window.inner_size().width;
+    let _winh = window.inner_size().height;
+
+    if(_winh==0 || _winw==0){
+        //panic!("WINDOW SIZE 0");
+    }
+
+    let rc_window: Arc<Window> = Arc::new(window);
+    async move {
+        let (instanse, surface, adapter): (Instance, Surface, Adapter) = {
+            match create_primary(rc_window.clone()).await {
+                None => {
+                    match create_secondary(rc_window.clone()).await {
+                        None => { panic!("NOT POSSIBLE TO FOUND SUITABLE GPU") }
+                        Some((instanse, surface, adapter)) => {
+                            (instanse, surface, adapter)
+                        }
+                    }
+                }
+                Some((instanse, surface, adapter)) => {
+                    (instanse, surface, adapter)
+                }
+            }
+        };
+
+        let (_device, _queue): (Device, Queue) = adapter.request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: Default::default(),
+            required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+            memory_hints: Default::default(),
+        }, None, ).await.unwrap();
+        let mut surface_config: SurfaceConfiguration = surface
+            .get_default_config(&adapter, _sw as u32, _sh as u32)
+            .unwrap();
+        surface_config.width=_sw;
+        surface_config.height=_sh;
+        info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
+        info!("SURFACE ATTRIBS {:?}",surface_config);
+        surface.configure(&_device, &surface_config);
+        info!("SURFACE CONFIGURED");
+        let mesh_pipeline: MeshPipeLine = MeshPipeLine::new(&_device, surface_config.format.clone(), _sw as i32, _sh as i32);
+
+        let scale_factor = rc_window.clone().scale_factor() as f32;
+        let w = _sw as u32;
+        let h = _sh as u32;
+        let smaa_target: SmaaTarget = SmaaTarget::new(
+            &_device,
+            &_queue,
+            w,
+            h,
+            surface_config.format.clone(),
+            SmaaMode::Smaa1X,
+        );
+        GState {
+            test_counter: 0,
+            is_dirty: false,
+            aux_state: AuxState::new(),
+            materials: Material::generate_materials(),
+            instanse: instanse,
+            surface: surface,
+            adapter: adapter,
+            device: _device,
+            queue: _queue,
+            rc_window: rc_window,
+            scale_factor: scale_factor,
+            w: w as u32,
+            h: h as u32,
+            camera: Camera::default(),
+            mesh_pipeline: mesh_pipeline,
+            is_offscreen_mapped: false,
+            mouse_click_x: 0,
+            mouse_click_y: 0,
+            scene: Scene::default(),
+            smaa_target: smaa_target,
+        }
+    }
+}
+*/
 #[cfg(target_arch = "wasm32")]
 fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> + 'static {
     use winit::platform::web::WindowAttributesExtWebSys;
@@ -191,7 +419,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
                             let sh = dst.client_height();
                             info!("HTML ROOM SIZE IS {} {}",sw,sh);
                             let ws: PhysicalSize<u32> = PhysicalSize::new(sw as u32, sh as u32);
-                            let attr = Window::default_attributes().with_append(true).with_inner_size(ws);
+                            let attr = Window::default_attributes().with_inner_size(ws);
                             match event_loop.create_window(attr) {
                                 Ok(window) => {
                                     let _scale_factor = window.scale_factor() as f32;
@@ -208,6 +436,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
                                                     warn! {"ATTACHED CANVAS SIZE is :{} {}",canvas.client_width(),canvas.client_height()}
                                                     let _sw = &canvas.client_width();
                                                     let _sh = &canvas.client_height();
+
+                                                    warn! {"Window SIZE is :{:?} {:?}",window.inner_size().width,window.inner_size().height}
                                                     (window, canvas)
                                                 }
                                             }
@@ -293,6 +523,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
     }
 }
 
+
 enum MaybeGraphics {
     Builder(StateBuilder),
     Graphics(GState),
@@ -354,7 +585,7 @@ impl GState {
                     view_formats: &vec![],
                 });
                 let depth_view: TextureView = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let smaa_frame =self.smaa_target.start_frame(&self.device, &self.queue, &view);
+                let smaa_frame = self.smaa_target.start_frame(&self.device, &self.queue, &view);
 
                 let mut encoder: CommandEncoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Render Encoder D"),
@@ -634,10 +865,21 @@ impl GState {
     #[inline]
     fn resize(&mut self) {
         self.scale_factor = self.rc_window.clone().scale_factor() as f32;
+
+        #[cfg(not(target_arch = "wasm32"))]
         let _sw = self.rc_window.clone().inner_size().width;
+        #[cfg(target_arch = "wasm32")]
+        let _sw = self.rc_window.clone().canvas().unwrap().client_width() as u32;
+
+        #[cfg(not(target_arch = "wasm32"))]
         let _sh = self.rc_window.clone().inner_size().height;
+        #[cfg(target_arch = "wasm32")]
+        let _sh = self.rc_window.clone().canvas().unwrap().client_height() as u32;
+
+        warn!("BEFORE");
         let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
         self.surface.configure(&self.device, &surface_config);
+        warn!("AFTER");
         self.w = _sw;
         self.h = _sh;
         self.camera.resize(self.w, self.h);
@@ -665,13 +907,15 @@ impl GState {
                                         self.camera.calculate_tot_bbx(bbxs);
                                         self.camera.move_camera_to_bbx_limits();
                                         let cmds_arr = ops.calculate_lra();
-                                        let lraclr_arr: Vec<LRACLR> =ops.calculate_lraclr();
-                                        let lraclr_arr_i32 =LRACLR::to_array(&lraclr_arr);
-                                        let obj_file = ops.all_to_one_obj_bin();
-                                        #[cfg(target_arch = "wasm32")]
-                                        pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(lraclr_arr_i32.as_slice()));
-                                        #[cfg(target_arch = "wasm32")]
-                                        pipe_obj_file(wasm_bindgen_futures::js_sys::Uint8Array::from(obj_file.as_slice()));
+                                        let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
+                                        let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
+
+                                        #[cfg(target_arch = "wasm32")]{
+                                            pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(lraclr_arr_i32.as_slice()));
+                                            let obj_file = ops.all_to_one_obj_bin();
+                                            pipe_obj_file(wasm_bindgen_futures::js_sys::Uint8Array::from(obj_file.as_slice()));
+                                        }
+
                                         warn!("FILE ANALYZED B{:?}",cmds_arr.len());
                                     }
                                 };
@@ -715,8 +959,8 @@ impl GState {
                                 self.camera.calculate_tot_bbx(bbxs);
                                 self.camera.move_camera_to_bbx_limits();
                                 let cmds_arr = ops.calculate_lra();
-                                let lraclr_arr: Vec<LRACLR> =ops.calculate_lraclr();
-                                lraclr_arr.iter().for_each(|cnc|{
+                                let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
+                                lraclr_arr.iter().for_each(|cnc| {
                                     warn!("{:?}",cnc);
                                 });
                                 let obj_file = ops.all_to_one_obj_bin();

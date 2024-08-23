@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name="main"
-path="src/libw.rs"
-crate_type=["cdylib"]
+name = "main"
+path = "src/libw.rs"
+crate_type = ["cdylib"]
 
 [[bin]]
-name="freetubew"
-path="src/main.rs"
+name = "freetubew"
+path = "src/main.rs"
 
 [dependencies]
 nanoid = "0.4.0"
@@ -21,16 +21,16 @@ env_logger = "0.11.5"
 parking_lot = "0.12.3"
 itertools = "0.13.0"
 
-truck-base =  {git="https://github.com/ricosjp/truck.git"}
+truck-base = { git = "https://github.com/ricosjp/truck.git" }
 ruststep = { git = "https://github.com/ricosjp/ruststep.git" }
-truck-geometry = {git="https://github.com/ricosjp/truck.git"}
-truck-geotrait = {git="https://github.com/ricosjp/truck.git"}
-truck-modeling = {git="https://github.com/ricosjp/truck.git"}
-truck-polymesh = {git="https://github.com/ricosjp/truck.git"}
-truck-topology  = {git="https://github.com/ricosjp/truck.git"}
-truck-meshalgo  = {git="https://github.com/ricosjp/truck.git"}
-truck-shapeops  = {git="https://github.com/ricosjp/truck.git"}
-truck-stepio = {git="https://github.com/ricosjp/truck.git"}
+truck-geometry = { git = "https://github.com/ricosjp/truck.git" }
+truck-geotrait = { git = "https://github.com/ricosjp/truck.git" }
+truck-modeling = { git = "https://github.com/ricosjp/truck.git" }
+truck-polymesh = { git = "https://github.com/ricosjp/truck.git" }
+truck-topology = { git = "https://github.com/ricosjp/truck.git" }
+truck-meshalgo = { git = "https://github.com/ricosjp/truck.git" }
+truck-shapeops = { git = "https://github.com/ricosjp/truck.git" }
+truck-stepio = { git = "https://github.com/ricosjp/truck.git" }
 clap = "4.5.15"
 #bvh = { version = "0.8.0",features = ["serde"] }
 #triangle = "0.2.0"
@@ -40,16 +40,17 @@ log = "0.4.22"
 pollster = "0.3.0"
 kurbo = "0.11.0"
 #glyphon = "0.5.0"
-glyphon={git = "https://github.com/grovesNL/glyphon.git"}
+glyphon = { git = "https://github.com/grovesNL/glyphon.git" }
 #HasRawWindowHandle
 #https://stackoverflow.com/questions/77373416/the-trait-raw-window-handlehasrawdisplayhandle-is-not-implemented-for-windo
 
-winit = { version = "0.30.5"}
+#winit = { git="https://github.com/rust-windowing/winit.git"}
+winit = { version = "0.30.5" }
 is-odd = "1.1.0"
-palette = { version = "0.7.6",default-features = true,features = ["named","named_from_str","bytemuck"] }
+palette = { version = "0.7.6", default-features = true, features = ["named", "named_from_str", "bytemuck"] }
 #wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}
 #wgpu = { version = "22.1.0", default-features = false,features = ["webgl","wgsl"]}
-wgpu = { version = "22.1.0",features = ["webgl"]}
+wgpu = { version = "22.1.0", features = ["webgl"] }
 
 #wgpu = { version = "22.1.0"}
 
@@ -68,11 +69,11 @@ png = "0.17.13"
 
 #web wasm-pack build --target web
 cfg-if = "1.0.0"
-zerocopy = { version ="0.7.35" , features = ["derive"]}
+zerocopy = { version = "0.7.35", features = ["derive"] }
 tokio = { version = "1.39.3", features = ["sync", "rt", "macros"] }
 serde_json = "1.0.125"
 serde = { version = "1.0.208", features = ["derive"] }
-web-sys = { version = "0.3.70", features = ["Document", "Window", "Element","HtmlCanvasElement", "CssStyleDeclaration"] }
+web-sys = { version = "0.3.70", features = ["Document", "Window", "Element", "HtmlCanvasElement", "CssStyleDeclaration", "console", "HtmlCollection"] }
 phf = "0.11.2"
 #wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}
 
@@ -82,5 +83,5 @@ wasm-opt = false
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 #wgpu = { version = "0.20.1", features = ["webgl"]}
-wasm-bindgen = { version = "0.2.93"}
+wasm-bindgen = { version = "0.2.93" }
 wasm-bindgen-futures = "0.4.43"
