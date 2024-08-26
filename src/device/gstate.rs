@@ -865,21 +865,22 @@ impl GState {
     #[inline]
     fn resize(&mut self) {
         self.scale_factor = self.rc_window.clone().scale_factor() as f32;
-
+        let _sw_test = self.rc_window.clone().inner_size().width;
         #[cfg(not(target_arch = "wasm32"))]
         let _sw = self.rc_window.clone().inner_size().width;
         #[cfg(target_arch = "wasm32")]
-        let _sw = self.rc_window.clone().canvas().unwrap().client_width() as u32;
+        let _sw = (self.rc_window.clone().canvas().unwrap().client_width() as f32 *self.scale_factor) as u32;
 
         #[cfg(not(target_arch = "wasm32"))]
         let _sh = self.rc_window.clone().inner_size().height;
         #[cfg(target_arch = "wasm32")]
-        let _sh = self.rc_window.clone().canvas().unwrap().client_height() as u32;
+        let _sh = (self.rc_window.clone().canvas().unwrap().client_height() as f32 *self.scale_factor) as u32;
 
-        warn!("BEFORE");
+        //warn!("CURR {:?} {:?} SF{:?}",_sw_test,_sw, self.rc_window.clone().scale_factor());
+
         let surface_config: SurfaceConfiguration = self.surface.get_default_config(&self.adapter, _sw as u32, _sh as u32).unwrap(); //info!("SURFACE ATTRIBS {:?}",surface_config);
         self.surface.configure(&self.device, &surface_config);
-        warn!("AFTER");
+
         self.w = _sw;
         self.h = _sh;
         self.camera.resize(self.w, self.h);

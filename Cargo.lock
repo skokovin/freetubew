@@ -329,7 +329,7 @@ checksum = "0cc8b54b395f2fcfbb3d90c47b01c7f444d94d05bdeb775811dec868ac3bbc26"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -372,9 +372,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.1.13"
+version = "1.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72db2f7947ecee9b03b510377e8bb9077afa27176fdbff55c51027e976fdcc48"
+checksum = "50d2eb3cd3d1bf4529e31c215ee6f93ec5a3d536d9f578f93d9d33ee19562932"
 dependencies = [
  "jobserver",
  "libc",
@@ -684,7 +684,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -822,9 +822,9 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.0.32"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c0596c1eac1f9e04ed902702e9878208b336edc9d6fddc8a48387349bab3666"
+checksum = "324a1be68054ef05ad64b861cc9eaf1d623d2d8cb25b4bf2cb9cdd902b4bf253"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.8.0",
@@ -880,7 +880,7 @@ checksum = "1a5c6c585bc94aaf2c7b51dd4c2ba22680844aba4c687be581871a6f518c5742"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1492,7 +1492,7 @@ checksum = "254a5372af8fc138e36684761d3c0cdb758a4410e938babcff1c860ce14ddbfc"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1639,7 +1639,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1909,7 +1909,7 @@ dependencies = [
  "by_address",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1977,7 +1977,7 @@ dependencies = [
  "phf_shared",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2006,7 +2006,7 @@ checksum = "2f38a4412a78282e09a2cf38d195ea5420d15ba0602cb375210efbc877243965"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2388,7 +2388,7 @@ dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2471,29 +2471,29 @@ checksum = "61697e0a1c7e512e84a621326239844a24d8207b4669b41bc18b32ea5cbf988b"
 
 [[package]]
 name = "serde"
-version = "1.0.208"
+version = "1.0.209"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff085d2cb684faa248efb494c39b68e522822ac0de72ccf08109abde717cfb2"
+checksum = "99fce0ffe7310761ca6bf9faf5115afbc19688edd00171d81b1bb1b116c63e09"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.208"
+version = "1.0.209"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24008e81ff7613ed8e5ba0cfaf24e2c2f1e5b8a0495711e44fcd4882fca62bcf"
+checksum = "a5831b979fd7b5439637af1752d535ff49f4860c0f341d1baeb6faf0f4242170"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.125"
+version = "1.0.127"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83c8e735a073ccf5be70aa8066aa984eaf2fa000db6c8d0100ae605b366d31ed"
+checksum = "8043c06d9f82bd7271361ed64f415fe5e12a77fdb52e573e7f06a516dea329ad"
 dependencies = [
  "itoa",
  "memchr 2.7.4",
@@ -2678,9 +2678,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.75"
+version = "2.0.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6af063034fc1935ede7be0122941bafa9bacb949334d090b77ca98b5817c7d9"
+checksum = "578e081a14e0cefc3279b0472138c513f37b41a08d5a3cca9b6e4e8ceb6cd525"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2722,7 +2722,7 @@ checksum = "a4558b58466b9ad7ca0f102865eccc95938dca1a74a856f2b57b6629050da261"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2784,7 +2784,7 @@ checksum = "693d596312e88961bc67d7f1f97af8a70227d9f90c31bba5806eec004978d752"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2834,7 +2834,7 @@ checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
 [[package]]
 name = "truck-base"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "cgmath",
  "matext4cgmath",
@@ -2845,18 +2845,18 @@ dependencies = [
 [[package]]
 name = "truck-derivers"
 version = "0.1.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
 name = "truck-geometry"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "serde",
  "thiserror",
@@ -2867,7 +2867,7 @@ dependencies = [
 [[package]]
 name = "truck-geotrait"
 version = "0.3.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "getrandom",
  "rand",
@@ -2879,7 +2879,7 @@ dependencies = [
 [[package]]
 name = "truck-meshalgo"
 version = "0.3.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "array-macro",
  "derive_more",
@@ -2897,7 +2897,7 @@ dependencies = [
 [[package]]
 name = "truck-modeling"
 version = "0.5.1"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "derive_more",
  "rustc-hash 2.0.0",
@@ -2913,7 +2913,7 @@ dependencies = [
 [[package]]
 name = "truck-polymesh"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "array-macro",
  "bytemuck",
@@ -2928,7 +2928,7 @@ dependencies = [
 [[package]]
 name = "truck-shapeops"
 version = "0.3.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "derive_more",
  "itertools 0.13.0",
@@ -2944,7 +2944,7 @@ dependencies = [
 [[package]]
 name = "truck-stepio"
 version = "0.2.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "chrono",
  "derive_more",
@@ -2961,7 +2961,7 @@ dependencies = [
 [[package]]
 name = "truck-topology"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#e87b686fe3b758c4cb34ce3069f0237ea828d9a6"
+source = "git+https://github.com/ricosjp/truck.git#e29d223186f0c2666a90fa3ecf7a40dfbd678d78"
 dependencies = [
  "parking_lot",
  "rayon",
@@ -3126,7 +3126,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
  "wasm-bindgen-shared",
 ]
 
@@ -3160,7 +3160,7 @@ checksum = "afc340c74d9005395cf9dd098506f7f44e38f2b4a21c6aaacf9a105ea5e1e836"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -3840,5 +3840,5 @@ checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
