@@ -18,7 +18,6 @@ pub const TOLE: f64 = 0.01;
 pub const MAX_BEND_RADIUS: f64 = 500.0;
 pub const TESS_TOL_ANGLE: f64 = 180.0;
 pub const TESS_TOR_STEP: u64 = 20;
-
 pub const EXTRA_LEN_CALC: f64 = 3.0;
 pub const EXTRA_R_CALC: f64 = 1.2;
 pub static mut STPSCALE: f64 = 1.0;

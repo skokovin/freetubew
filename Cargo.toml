@@ -13,6 +13,7 @@ name = "freetubew"
 path = "src/main.rs"
 
 [dependencies]
+web-time = "1.1.0"
 nanoid = "0.4.0"
 encoding_rs = "0.8.34"
 encoding_rs_io = "0.1.7"
@@ -31,7 +32,7 @@ truck-topology = { git = "https://github.com/ricosjp/truck.git" }
 truck-meshalgo = { git = "https://github.com/ricosjp/truck.git" }
 truck-shapeops = { git = "https://github.com/ricosjp/truck.git" }
 truck-stepio = { git = "https://github.com/ricosjp/truck.git" }
-clap = "4.5.15"
+clap = "4.5.16"
 #bvh = { version = "0.8.0",features = ["serde"] }
 #triangle = "0.2.0"
 smaa = "0.15.0"
@@ -56,7 +57,7 @@ wgpu = { version = "22.1.0", features = ["webgl"] }
 
 
 rand = "0.8.5"
-bytemuck = { version = "1.17.0", features = ["derive"] }
+bytemuck = { version = "1.17.1", features = ["derive"] }
 #array-bytes = "6.2.2"
 
 #glam = { version = "0.25.0", features = ["bytemuck"] }
@@ -70,7 +71,7 @@ png = "0.17.13"
 #web wasm-pack build --target web
 cfg-if = "1.0.0"
 zerocopy = { version = "0.7.35", features = ["derive"] }
-tokio = { version = "1.39.3", features = ["sync", "rt", "macros"] }
+tokio = { version = "1.40.0", features = ["sync", "rt", "macros"] }
 serde_json = "1.0.127"
 serde = { version = "1.0.209", features = ["derive"] }
 web-sys = { version = "0.3.70", features = ["Document", "Window", "Element", "HtmlCanvasElement", "CssStyleDeclaration", "console", "HtmlCollection"] }
@@ -85,3 +86,4 @@ console_log = "1.0.0"
 #wgpu = { version = "0.20.1", features = ["webgl"]}
 wasm-bindgen = { version = "0.2.93" }
 wasm-bindgen-futures = "0.4.43"
+

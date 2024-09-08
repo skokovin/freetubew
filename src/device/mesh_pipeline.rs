@@ -1,12 +1,13 @@
 use std::mem;
 use bytemuck::{Pod, Zeroable};
+use cgmath::{Matrix4, SquareMatrix};
 use is_odd::IsOdd;
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, FrontFace, PipelineLayout, RenderPipeline, TextureFormat};
 use wgpu::util::DeviceExt;
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::materials::{Material, MATERIALS_COUNT};
 use crate::device::{calculate_offset_pad, StepVertexBuffer};
-use crate::remote::selected_by_id;
+
 
 pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
 const METADATA_COUNT: u32 = 256;
@@ -30,6 +31,11 @@ pub struct MeshPipeLine {
     pub offscreen_width: u32,
     pub offscreen_data: Vec<i32>,
     pub offscreen_buffer: Buffer,
+
+    pub feed_translations_state: Vec<Matrix4<f32>>,
+    pub feed_translations: Vec<[f32; 16]>,
+    pub feed_translations_buffer:Buffer,
+
 }
 impl MeshPipeLine {
     pub fn new(device: &Device, format: TextureFormat, w: i32, h: i32) -> Self {
@@ -77,6 +83,26 @@ impl MeshPipeLine {
             contents: bytemuck::cast_slice(&metadata_default),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+
+        let mut feed_translations_state:Vec<Matrix4<f32>> = vec![];
+        for i in 0..256 {
+            let mm:Matrix4<f32>=Matrix4::identity();
+            feed_translations_state.push(mm.clone());
+        }
+        let mut feed_translations:Vec<[f32; 16]> = vec![];
+        for i in 0..256 {
+            let mm:Matrix4<f32>=Matrix4::identity();
+            let m: &[f32; 16] = mm.as_ref();
+            feed_translations.push( m.clone());
+        }
+        let  feed_translations_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("feed_translations  Buffer").as_str()),
+            contents: bytemuck::cast_slice( feed_translations.as_ref()),
+            usage: wgpu::BufferUsages::UNIFORM| wgpu::BufferUsages::COPY_DST
+        });
+
+
+
 
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Mesh Shader"),
@@ -129,6 +155,18 @@ impl MeshPipeLine {
                     },
                     count: None,
                 },
+                //Transforms
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+
             ],
             label: Some("mesh Bind Group Layout"),
         });
@@ -231,6 +269,8 @@ impl MeshPipeLine {
         });
 
 
+
+
         Self {
             metadata: metadata_default,
             metadata_buffer: metadata_buffer,
@@ -247,6 +287,9 @@ impl MeshPipeLine {
             offscreen_width: offscreen_width,
             offscreen_data: offscreen_data,
             offscreen_buffer: offscreen_buffer,
+            feed_translations_state:feed_translations_state,
+            feed_translations:  feed_translations,
+            feed_translations_buffer: feed_translations_buffer,
         }
     }
     pub fn create_bind_group(&self, device: &Device) -> BindGroup {
@@ -269,6 +312,10 @@ impl MeshPipeLine {
                     binding: 3,
                     resource: self.metadata_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: self.feed_translations_buffer.as_entire_binding(),
+                },
             ],
             label: Some("Mesh Bind Group"),
         });
@@ -290,15 +337,23 @@ impl MeshPipeLine {
         self.unselect_all();
         self.metadata[id as usize][1 as usize] = SELECT_COLOR as i32;
         self.update_meta_data(device);
-        selected_by_id(id);
+        #[cfg(target_arch = "wasm32")]{
+            use crate::remote::selected_by_id;
+            selected_by_id(id);
+        }
+
     }
     pub fn unselect_all(&mut self) {
         self.metadata.iter_mut().for_each(|md| {
             md[1] = 0;
         });
-        selected_by_id(0);
+        #[cfg(target_arch = "wasm32")]{
+            use crate::remote::selected_by_id;
+            selected_by_id(0);
+        }
+
     }
-    pub(crate) fn update_meta_data(&mut self, device: &Device) {
+    pub fn update_meta_data(&mut self, device: &Device) {
         self.metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(format!("Vertex Mesh Buffer").as_str()),
             contents: bytemuck::cast_slice(&self.metadata),

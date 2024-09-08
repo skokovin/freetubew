@@ -67,6 +67,16 @@ impl LRACLR {
         });
         arr
     }
+
+    pub fn total_len_out_d(cmnd: &Vec<LRACLR>) -> (f64, f64) {
+        let mut tl:f64=0.0;
+        let mut outd:f64=0.0;
+        cmnd.iter().for_each(|cmd| {
+            tl=tl+cmd.l+cmd.lt;
+            outd=cmd.outd;
+        });
+        (tl,outd)
+    }
 }
 
 impl Display for LRACLR{
@@ -460,14 +470,16 @@ impl CncOps {
         }
         (vertsu8, indxu8, bbx, triangles)
     }
-    pub fn to_render_data(&self) -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) {
+    pub fn to_render_data(&self) -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>,f64) {
         let mut cyl_color_id: i32 = 74;
         let mut toro_color_id: i32 = 84;
+        let mut outer_diam:f64=0.0;
         let mut id_count: u32 = 1;
         let mut meshes_all: Vec<RawMesh> = vec![];
         self.ops.iter().for_each(|op| {
             match op {
                 OpElem::CYL(c) => {
+                    outer_diam= c.r;
                     let pm = c.to_polygon_mesh();
                     let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
                     if (verts.len() > 0 && indx.len() > 0) {
@@ -532,7 +544,7 @@ impl CncOps {
             id_hash.push(index.clone() - 1);
             id_count = id_count + 1;
         });
-        (buffer, indxes, bbxs, id_hash)
+        (buffer, indxes, bbxs, id_hash,outer_diam)
     }
 
     pub fn calculate_lraclr(&self) -> Vec<LRACLR> {

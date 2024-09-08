@@ -8,12 +8,13 @@ use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
 mod camera;
 mod mesh_pipeline;
-mod materials;
+pub(crate) mod materials;
 pub mod aux_state;
 pub mod background_pipleine;
 pub mod gstate;
-mod selection_pipeline;
-mod scene;
+
+pub mod scene;
+
 
 pub const Z_FIGHTING_FACTOR: f32 = 0.0001;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

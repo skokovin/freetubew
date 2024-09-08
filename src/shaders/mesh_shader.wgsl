@@ -45,6 +45,8 @@ struct LightUniforms {
 
 @binding(3) @group(0) var<uniform> vertex_meta_data0 : array<vec4<i32>, 256>;
 
+@binding(4) @group(0) var<uniform> feed_translations : array<mat4x4<f32>, 256>;
+
 
 struct Output {
     @builtin(position) position : vec4<f32>,
@@ -56,13 +58,16 @@ struct Output {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
+    let feed_translation : mat4x4<f32>=feed_translations[in.id - 1];
+    let feed_pos=feed_translation*in.position;
 
     var hull_meta_data=37;
     var output: Output;
     output.originalpos= in.position;
     output.mat_id=in.id;
 
-    output.position = camera.mvp  * in.position;
+    //output.position = camera.mvp  * in.position;
+    output.position = camera.mvp  * feed_pos;
     output.world_position = in.position;
     output.world_normal = in.normal;
     return output;

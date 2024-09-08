@@ -1,12 +1,14 @@
 use std::future::Future;
 use std::{iter, mem};
+use std::f32::consts::PI;
 use std::io::Write;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::{Arc, MutexGuard, TryLockResult};
+use web_time::{Instant, SystemTime,Duration};
 use log::{info, warn};
 use smaa::{SmaaMode, SmaaTarget};
-use wasm_bindgen::{JsCast, JsValue};
+//use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, HtmlCanvasElement};
 use wgpu::{Adapter, BufferSlice, CommandEncoder, Device, Extent3d, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView, TextureViewDescriptor, COPY_BYTES_PER_ROW_ALIGNMENT};
 use winit::application::ApplicationHandler;
@@ -15,7 +17,6 @@ use winit::error::OsError;
 use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::platform::web::WindowExtWebSys;
 use winit::window::{Window, WindowAttributes, WindowId};
 use crate::device::aux_state::AuxState;
 use crate::device::camera::Camera;
@@ -27,10 +28,13 @@ use crate::device::scene::Scene;
 use crate::remote::{RemoteCommand, COMMANDS, IS_OFFSCREEN_READY};
 #[cfg(target_arch = "wasm32")]
 use crate::remote::{pipe_bend_ops, pipe_obj_file};
+#[cfg(target_arch = "wasm32")]
+use winit::platform::web::WindowExtWebSys;
 
 use crate::trialgo::analyzepl::analyze_bin;
 use crate::trialgo::pathfinder::LRACLR;
 
+const FRAMERATE:Duration=Duration::from_millis(30);
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
     g: 0.0,
@@ -38,6 +42,8 @@ const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 const MATERIALS_COUNT: usize = 140;
+
+const FRAME_COUNT_DIVIDER: u64 = 100000;
 const CANVAS_ID: &str = "canvas3dwindow";
 
 //#[cfg(target_arch = "wasm32")]
@@ -107,6 +113,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             SmaaMode::Smaa1X,
         );
 
+
         GState {
             test_counter: 0,
             aux_state: AuxState::new(),
@@ -128,6 +135,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             mouse_click_y: 0,
             scene: Scene::default(),
             smaa_target: smaa_target,
+            frame_counter: 0,
+            instant: Instant::now(),
         }
     }
 }
@@ -498,6 +507,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             surface_config.format.clone(),
             SmaaMode::Smaa1X,
         );
+
         GState {
             test_counter: 0,
             is_dirty: false,
@@ -519,6 +529,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             mouse_click_y: 0,
             scene: Scene::default(),
             smaa_target: smaa_target,
+            frame_counter: 0,
+            instant: Instant::now(),
         }
     }
 }
@@ -554,6 +566,8 @@ pub struct GState {
     mouse_click_y: usize,
     scene: Scene,
     smaa_target: SmaaTarget,
+    frame_counter: u64,
+    instant:Instant
 }
 
 impl GState {
@@ -561,8 +575,10 @@ impl GState {
     fn render(&mut self) {
         match self.surface.get_current_texture() {
             Ok(out) => {
+                self.frame_counter = self.frame_counter + 1;
                 self.update_camera();
                 self.update_lights();
+
                 let gw = out.texture.width();
                 let gh = out.texture.height();
 
@@ -677,6 +693,7 @@ impl GState {
         if (self.is_offscreen_mapped) {
             self.render_to_texture()
         }
+
     }
     #[inline]
     fn render_to_texture(&mut self) {
@@ -868,13 +885,14 @@ impl GState {
         let _sw_test = self.rc_window.clone().inner_size().width;
         #[cfg(not(target_arch = "wasm32"))]
         let _sw = self.rc_window.clone().inner_size().width;
+
         #[cfg(target_arch = "wasm32")]
-        let _sw = (self.rc_window.clone().canvas().unwrap().client_width() as f32 *self.scale_factor) as u32;
+        let _sw = (self.rc_window.clone().canvas().unwrap().client_width() as f32 * self.scale_factor) as u32;
 
         #[cfg(not(target_arch = "wasm32"))]
         let _sh = self.rc_window.clone().inner_size().height;
         #[cfg(target_arch = "wasm32")]
-        let _sh = (self.rc_window.clone().canvas().unwrap().client_height() as f32 *self.scale_factor) as u32;
+        let _sh = (self.rc_window.clone().canvas().unwrap().client_height() as f32 * self.scale_factor) as u32;
 
         //warn!("CURR {:?} {:?} SF{:?}",_sw_test,_sw, self.rc_window.clone().scale_factor());
 
@@ -890,6 +908,7 @@ impl GState {
         self.is_dirty = true;
     }
 
+
     fn check_commands(&mut self) {
         match COMMANDS.try_lock() {
             Ok(mut s) => {
@@ -902,7 +921,7 @@ impl GState {
                                 match analyze_bin(&stp) {
                                     None => {}
                                     Some(ops) => {
-                                        let (buffer, indxes, bbxs, id_hash): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) = ops.to_render_data();
+                                        let (buffer, indxes, bbxs, id_hash, outer_diam): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>, f64) = ops.to_render_data();
                                         self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes, id_hash);
                                         self.mesh_pipeline.update_vertexes(&self.device);
                                         self.camera.calculate_tot_bbx(bbxs);
@@ -933,15 +952,6 @@ impl GState {
     }
     fn on_keyboard(&mut self, _d: DeviceId, key: KeyEvent, _is_synth: bool, proxy: &EventLoopProxy<GEvent>) {
         match key.physical_key {
-            PhysicalKey::Code(KeyCode::F3) => {
-                match key.state {
-                    ElementState::Pressed => {}
-                    ElementState::Released => {
-                        self.mesh_pipeline.select_by_id(&self.device, self.test_counter);
-                        self.test_counter = self.test_counter + 1;
-                    }
-                }
-            }
             PhysicalKey::Code(KeyCode::F2) => {
                 match key.state {
                     ElementState::Pressed => {}
@@ -954,7 +964,7 @@ impl GState {
                         match analyze_bin(&stp) {
                             None => {}
                             Some(ops) => {
-                                let (buffer, indxes, bbxs, id_hash): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>) = ops.to_render_data();
+                                let (buffer, indxes, bbxs, id_hash, outer_diam): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>, f64) = ops.to_render_data();
                                 self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes, id_hash);
                                 self.mesh_pipeline.update_vertexes(&self.device);
                                 self.camera.calculate_tot_bbx(bbxs);
@@ -972,6 +982,15 @@ impl GState {
                     }
                 }
             }
+            PhysicalKey::Code(KeyCode::F3) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+                        self.mesh_pipeline.select_by_id(&self.device, self.test_counter);
+                        self.test_counter = self.test_counter + 1;
+                    }
+                }
+            }
             PhysicalKey::Code(KeyCode::F4) => {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -985,7 +1004,43 @@ impl GState {
                     //});
                 }
             }
+            PhysicalKey::Code(KeyCode::F5) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/ypm_e71042.stp")).as_slice());
+                        #[cfg(target_arch = "wasm32")]
+                        let stp: Vec<u8> = vec![];
+                        match analyze_bin(&stp) {
+                            None => {}
+                            Some(ops) => {
+                                let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
+                                lraclr_arr.iter().for_each(|cnc| {
+                                    warn!("{:?}",cnc);
+                                });
+                            }
+                        };
+                        warn!("F2 Released");
 
+                    }
+                }
+            }
+            PhysicalKey::Code(KeyCode::F6) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+                    }
+                }
+            }
+            PhysicalKey::Code(KeyCode::F7) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -994,6 +1049,7 @@ impl GState {
         self.queue.write_buffer(&self.mesh_pipeline.camera_buffer, 64, bytemuck::cast_slice(self.camera.get_norm_buffer()));
         self.queue.write_buffer(&self.mesh_pipeline.camera_buffer, 128, bytemuck::cast_slice(self.camera.get_forward_dir_buffer()));
     }
+
     fn update_materials(&self) {
         self.queue.write_buffer(&self.mesh_pipeline.material_buffer, 0, bytemuck::cast_slice(&self.materials));
     }
@@ -1010,8 +1066,6 @@ impl GState {
         self.mouse_click_x = x as usize;
         self.mouse_click_y = y as usize;
     }
-
-
     pub fn output_image_native(&mut self, image_data: Vec<u8>, texture_dims: (usize, usize)) {
         let path: String = String::from("d:/pipe_project/test.png");
         let mut png_data = Vec::<u8>::with_capacity(image_data.len());
@@ -1115,6 +1169,7 @@ impl ApplicationHandler<GEvent> for Application {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
                 wstate.check_commands();
+
                 match event {
                     WindowEvent::ActivationTokenDone { .. } => {}
                     WindowEvent::Resized(physical_size) => {
@@ -1134,6 +1189,7 @@ impl ApplicationHandler<GEvent> for Application {
                             None => {}
                             Some(proxy) => {
                                 wstate.on_keyboard(device_id, event, is_synthetic, proxy);
+                                wstate.is_dirty=true;
                             }
                         }
                     }
@@ -1142,12 +1198,14 @@ impl ApplicationHandler<GEvent> for Application {
                     WindowEvent::CursorMoved { device_id, position } => {
                         self.x = position.x;
                         self.y = position.y;
+                        wstate.is_dirty=true;
                     }
                     WindowEvent::CursorEntered { .. } => {}
                     WindowEvent::CursorLeft { device_id } => {}
 
                     WindowEvent::MouseWheel { device_id, delta, phase } => {}
                     WindowEvent::MouseInput { device_id, state, button } => {
+
                         match button {
                             MouseButton::Left => {
                                 match state {
@@ -1194,6 +1252,9 @@ impl ApplicationHandler<GEvent> for Application {
                             }
                             MouseButton::Other(_) => {}
                         }
+                        wstate.is_dirty=true;
+                        wstate.rc_window.clone().request_redraw();
+
                     }
                     WindowEvent::PinchGesture { .. } => {}
                     WindowEvent::PanGesture { .. } => {}
@@ -1206,12 +1267,15 @@ impl ApplicationHandler<GEvent> for Application {
                     WindowEvent::ThemeChanged(_) => {}
                     WindowEvent::Occluded(_) => {}
                     WindowEvent::RedrawRequested => {
-                        wstate.render();
+
+                            wstate.render();
+                            wstate.is_dirty = false;
+
+                        wstate.rc_window.clone().request_redraw();
                         //wstate.render_to_texture();
                     }
                 }
                 if (wstate.is_dirty) {
-                    wstate.is_dirty = false;
                     wstate.rc_window.clone().request_redraw();
                 }
             }
@@ -1219,6 +1283,7 @@ impl ApplicationHandler<GEvent> for Application {
     }
 
     fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
+
         match &mut self.graphics {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
@@ -1240,7 +1305,8 @@ impl ApplicationHandler<GEvent> for Application {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        match &self.graphics {
+        //warn!("about_to_waitEvent");
+        match &mut  self.graphics {
             MaybeGraphics::Builder(_) => {}
             MaybeGraphics::Graphics(wstate) => {
                 wstate.rc_window.clone().request_redraw();

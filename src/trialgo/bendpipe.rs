@@ -13,7 +13,10 @@ use truck_polymesh::{Faces, obj, PolygonMesh, StandardAttributes, StandardVertex
 use crate::device::Triangle;
 use crate::trialgo::{export_to_pt, export_to_pt_str, float_range, project_point_to_vec, round_by_dec};
 use crate::trialgo::analyzepl::{TESS_TOL_ANGLE, TESS_TOR_STEP, TOLE};
-
+const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
+const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
+const P_RIGHT: Vector3 = Vector3::new(0.0, 1.0, 0.0);
+const P_UP: Vector3 = Vector3::new(0.0, 0.0, 1.0);
 /*#[derive(Clone)]
 pub struct Triangle {
     pub vtx: [Point3; 3],
@@ -197,6 +200,36 @@ pub struct MainCylinder {
     pub triangles: Vec<Triangle>,
 }
 impl MainCylinder {
+    pub fn from_len(h: f64, r: f64, id: u32) -> MainCylinder {
+        let ca = MainCircle {
+            id: random(),
+            radius: r,
+            loc: Point3::new(0.0, 0.0, 0.0),
+            dir: -P_FORWARD,
+            radius_dir: P_UP,
+        };
+
+        let cb = MainCircle {
+            id: random(),
+            radius: r,
+            loc: Point3::new(0.0, 0.0, 0.0) - P_FORWARD * h,
+            dir: -P_FORWARD,
+            radius_dir: P_UP,
+        };
+        let mut mc = MainCylinder {
+            id: id as u64,
+            ca: ca,
+            cb: cb,
+            h: h,
+            r: r,
+            r_gr_id: 0,
+            ca_tor: 0,
+            cb_tor: 0,
+            triangles: vec![],
+        };
+        mc.triangulate();
+        mc
+    }
     pub fn find_by_pt(pt: &Point3, cyls: &Vec<MainCylinder>) -> Option<MainCylinder> {
         let mut found: Option<MainCylinder> = None;
         cyls.iter().for_each(|cyl| {
@@ -453,9 +486,9 @@ impl MainCylinder {
     }
     pub fn calculate_main_diam(cyls_raw: &Vec<MainCylinder>) -> Option<Vec<MainCylinder>> {
         let mut cyls: Vec<MainCylinder> = vec![];
-        cyls_raw.clone().iter_mut().for_each(|c|{
-            let nh=c.ca.loc.distance(c.cb.loc);
-            c.h=nh;
+        cyls_raw.clone().iter_mut().for_each(|c| {
+            let nh = c.ca.loc.distance(c.cb.loc);
+            c.h = nh;
             cyls.push(c.clone());
         });
 
@@ -497,7 +530,6 @@ impl MainCylinder {
                         last_id = id.clone();
                         lasd_dist = dist.clone();
                     }
-
                 }
             });
 
@@ -592,11 +624,10 @@ impl MainCylinder {
             if (is_coplanar < 0.0) {
                 self.triangles.push(Triangle::fromX64(p0.clone(), p3.clone(), p1.clone(), n.clone()));
                 self.triangles.push(Triangle::fromX64(p0.clone(), p2.clone(), p3.clone(), n.clone()));
-            }else{
+            } else {
                 self.triangles.push(Triangle::fromX64(p0.clone(), p1.clone(), p3.clone(), n.clone()));
                 self.triangles.push(Triangle::fromX64(p0.clone(), p3.clone(), p2.clone(), n.clone()));
             }
-
         }
     }
     pub fn to_polygon_mesh(&self) -> PolygonMesh {
@@ -605,7 +636,7 @@ impl MainCylinder {
         let mut indx: Vec<[StandardVertex; 3]> = vec![];
         self.triangles.iter().for_each(|tri| {
             positions.extend_from_slice(tri.as_p64().as_slice());
-            let n:Vector3=Vector3::new(tri.normal.x as f64,tri.normal.y as f64,tri.normal.z as f64,);
+            let n: Vector3 = Vector3::new(tri.normal.x as f64, tri.normal.y as f64, tri.normal.z as f64);
             tri_normals.push(n.clone());
             tri_normals.push(n.clone());
             tri_normals.push(n.clone());
@@ -685,6 +716,45 @@ pub struct BendToro {
     pub triangles: Vec<Triangle>,
 }
 impl BendToro {
+    pub fn from_angle(radians_angle: f64, bend_radius: f64, r: f64, id: u32) -> BendToro {
+        let start_point: Point3 = Point3::new(0.0, 0.0, 0.0);
+        let dorn_point: Point3 = Point3::new(0.0, r+bend_radius, 0.0);
+        let bend_plane_norm: Vector3 = Vector3::new(0.0, 0.0, 1.0);
+
+        let rotation: Basis3<f64> = Rotation3::from_axis_angle(bend_plane_norm, -Rad(radians_angle));
+        let p_tmp = rotation.rotate_point(Point3::new(0.0, -r-bend_radius, 0.0));
+        let end_point = Point3::new(p_tmp.x, p_tmp.y + r+bend_radius, p_tmp.z);
+
+        let ca = MainCircle {
+            id: random(),
+            radius: r,
+            loc: start_point,
+            dir: -P_FORWARD,
+            radius_dir: P_UP,
+        };
+        let cb = MainCircle {
+            id: random(),
+            radius: r,
+            loc: end_point,
+            dir: -P_FORWARD,
+            radius_dir: P_UP,
+        };
+
+        let mut tor = BendToro {
+            id: id as u64,
+            r: r,
+            bend_radius: bend_radius,
+            bend_center_point: dorn_point,
+            bend_plane_norm: bend_plane_norm,
+            radius_dir: bend_plane_norm,
+            ca: ca,
+            cb: cb,
+            r_gr_id: 0,
+            triangles: vec![],
+        };
+        tor.triangulate(&P_FORWARD_REVERSE);
+        tor
+    }
     pub fn gen_points(&self) -> Vec<Point3> {
         let mut pts: Vec<Point3> = vec![];
         float_range(0.0, PI * 2.0, PI / 18.0).for_each(|angle| {
@@ -947,12 +1017,10 @@ impl BendToro {
                 if (is_coplanar > 0.0) {
                     self.triangles.push(Triangle::fromX64(p0.clone(), p1.clone(), p3.clone(), n.clone()));
                     self.triangles.push(Triangle::fromX64(p0.clone(), p3.clone(), p2.clone(), n.clone()));
-                }else{
+                } else {
                     self.triangles.push(Triangle::fromX64(p0.clone(), p3.clone(), p1.clone(), n.clone()));
                     self.triangles.push(Triangle::fromX64(p0.clone(), p2.clone(), p3.clone(), n.clone()));
                 }
-
-
             }
         }
     }
@@ -962,11 +1030,10 @@ impl BendToro {
         let mut indx: Vec<[StandardVertex; 3]> = vec![];
         self.triangles.iter().for_each(|tri| {
             positions.extend_from_slice(tri.as_p64().as_slice());
-            let n:Vector3=Vector3::new(tri.normal.x as f64,tri.normal.y as f64,tri.normal.z as f64,);
+            let n: Vector3 = Vector3::new(tri.normal.x as f64, tri.normal.y as f64, tri.normal.z as f64);
             tri_normals.push(n.clone());
             tri_normals.push(n.clone());
             tri_normals.push(n.clone());
-
         });
 
         (0..positions.len()).chunks(3).into_iter().for_each(|ch| {
