@@ -32,7 +32,7 @@ use crate::remote::{pipe_bend_ops, pipe_obj_file};
 use winit::platform::web::WindowExtWebSys;
 
 use crate::trialgo::analyzepl::analyze_bin;
-use crate::trialgo::pathfinder::LRACLR;
+use crate::trialgo::pathfinder::{CncOps, OpElem, LRACLR};
 
 const FRAMERATE:Duration=Duration::from_millis(30);
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
@@ -1015,13 +1015,14 @@ impl GState {
                         match analyze_bin(&stp) {
                             None => {}
                             Some(ops) => {
-                                let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-                                lraclr_arr.iter().for_each(|cnc| {
-                                    warn!("{:?}",cnc);
-                                });
+                                let (buffer, indxes, bbxs, id_hash, outer_diam) =  ops.generate_unbend_model_from_cl();
+                                self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes, id_hash);
+                                self.mesh_pipeline.update_vertexes(&self.device);
+                                self.camera.calculate_tot_bbx(bbxs);
+                                self.camera.move_camera_to_bbx_limits();
                             }
                         };
-                        warn!("F2 Released");
+                        warn!("F5 Released");
 
                     }
                 }
@@ -1030,6 +1031,11 @@ impl GState {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
+                        let (buffer, indxes, bbxs, id_hash, outer_diam) =  CncOps::generate_one_cyl();
+                        self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes, id_hash);
+                        self.mesh_pipeline.update_vertexes(&self.device);
+                        self.camera.calculate_tot_bbx(bbxs);
+                        self.camera.move_camera_to_bbx_limits();
                     }
                 }
             }

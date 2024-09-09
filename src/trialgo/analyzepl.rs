@@ -1,15 +1,18 @@
 use std::fs::File;
 use std::io::Read;
+use std::ops::Sub;
+use cgmath::Vector3;
 use encoding_rs::WINDOWS_1251;
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use glob::glob;
+use rand::random;
 use ruststep::tables::PlaceHolder;
 use serde::de::Unexpected::Str;
 use truck_base::cgmath64::Point3;
 use truck_stepio::r#in::{FaceBoundHolder, NonRationalBSplineSurfaceHolder, Table};
-use crate::trialgo::bendpipe::{BendToro, MainCylinder};
+use crate::trialgo::bendpipe::{BendToro, MainCircle, MainCylinder};
 use crate::trialgo::name_to_id;
-use crate::trialgo::pathfinder::CncOps;
+use crate::trialgo::pathfinder::{CncOps, OpElem};
 use crate::trialgo::steputils::{extract_circles_bounds, extract_circles_bounds_tourus, extract_plane_points, extract_position3d};
 
 pub const DIVIDER: f64 = 100000000.0;
@@ -67,6 +70,8 @@ pub fn analyze_bin(arr: &Vec<u8>) -> Option<CncOps> {
         }
     }
 }
+
+
 pub fn analyze() {
     glob("d:\\pipe_project\\tests\\1214710 New Tube Leg Prototype 01 A.00.stp").unwrap().for_each(|entry| {
         match entry {

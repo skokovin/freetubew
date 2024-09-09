@@ -755,6 +755,12 @@ impl BendToro {
         tor.triangulate(&P_FORWARD_REVERSE);
         tor
     }
+
+    pub fn angle(&self) -> Rad<f64> {
+        let sv=self.ca.loc.sub(self.bend_center_point);
+        let ev=self.cb.loc.sub(self.bend_center_point);
+        sv.angle(ev)
+    }
     pub fn gen_points(&self) -> Vec<Point3> {
         let mut pts: Vec<Point3> = vec![];
         float_range(0.0, PI * 2.0, PI / 18.0).for_each(|angle| {

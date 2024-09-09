@@ -10,7 +10,7 @@ use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::{Point3, Vector3};
 use truck_polymesh::{Faces, obj, PolygonMesh, StandardAttributes, StandardVertex};
 
-use crate::trialgo::bendpipe::{BendToro, MainCylinder};
+use crate::trialgo::bendpipe::{BendToro, MainCircle, MainCylinder};
 use crate::trialgo::analyzepl::{EXTRA_LEN_CALC, EXTRA_R_CALC, TOLE};
 use crate::trialgo::{export_to_pt, project_point_to_vec, round_by_dec};
 use truck_geometry::prelude::Plane;
@@ -547,6 +547,82 @@ impl CncOps {
         (buffer, indxes, bbxs, id_hash,outer_diam)
     }
 
+    pub fn to_render_data_unbend(&self,ops:Vec<OpElem>) -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>,f64) {
+        let mut cyl_color_id: i32 = 74;
+        let mut toro_color_id: i32 = 84;
+        let mut outer_diam:f64=0.0;
+        let mut id_count: u32 = 1;
+        let mut meshes_all: Vec<RawMesh> = vec![];
+        ops.iter().for_each(|op| {
+            match op {
+                OpElem::CYL(c) => {
+                    outer_diam= c.r;
+                    let pm = c.to_polygon_mesh();
+                    let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+                    if (verts.len() > 0 && indx.len() > 0) {
+                        let rm = RawMesh {
+                            id: c.id.clone() as i32,
+                            vertex_normal: verts,
+                            indx: indx,
+                            bbx: bbx,
+                            triangles: triangles,
+                        };
+                        meshes_all.push(rm);
+                    }
+                }
+                OpElem::TOR(t) => {
+                    let pm = t.to_polygon_mesh();
+                    let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+                    if (verts.len() > 0 && indx.len() > 0) {
+                        let rm = RawMesh {
+                            id: t.id.clone() as i32,
+                            vertex_normal: verts,
+                            indx: indx,
+                            bbx: bbx,
+                            triangles: triangles,
+                        };
+                        meshes_all.push(rm);
+                    }
+                }
+                OpElem::Nothing => {}
+            }
+        });
+        let mut bbxs: Vec<f32> = vec![];
+        let mut buffer: Vec<MeshVertex> = vec![];
+        let mut indxes: Vec<u32> = vec![];
+        let mut id_hash: Vec<u32> = vec![];
+        let mut curid: u32 = 0;
+        let mut currmat: i32 = 0;
+        let mut index: u32 = 0;
+        meshes_all.iter().for_each(|mesh| {
+            //curid = mesh.id as u32;
+            curid = id_count;
+            id_hash.push(curid.clone() as u32);
+            id_hash.push(index.clone());
+            let bbx: &BoundingBox<Point3> = &mesh.bbx;
+            bbxs.push(bbx.min().x as f32);
+            bbxs.push(bbx.min().y as f32);
+            bbxs.push(bbx.min().z as f32);
+            bbxs.push(bbx.max().x as f32);
+            bbxs.push(bbx.max().y as f32);
+            bbxs.push(bbx.max().z as f32);
+
+            mesh.vertex_normal.chunks(6).for_each(|vn| {
+                let mv = MeshVertex {
+                    position: [vn[0], vn[1], vn[2], 1.0],
+                    normal: [vn[3], vn[4], vn[5], 1.0],
+                    id: curid as i32,
+                };
+                buffer.push(mv);
+                indxes.push(index);
+                index = index + 1;
+            });
+            id_hash.push(index.clone() - 1);
+            id_count = id_count + 1;
+        });
+        (buffer, indxes, bbxs, id_hash,outer_diam)
+    }
+
     pub fn calculate_lraclr(&self) -> Vec<LRACLR> {
 
         let mut cncs:Vec<LRACLR>=vec![];
@@ -837,5 +913,183 @@ impl CncOps {
             ops: new_ops
         };
         ret
+    }
+    pub fn generate_unbend_model_from_cl(&self) -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>, f64) {
+        let mut unbend_cncs:Vec<OpElem>=Vec::new();
+        let mut offset:f64 = 0.0;
+        let mut id:u64=0;
+        self.ops.iter().for_each(|op|{
+
+            match op {
+                OpElem::CYL(c) => {
+                    let end_x=offset-c.h;
+                    let mut mc:MainCylinder=MainCylinder{
+                        id: id,
+                        ca: MainCircle {
+                            id:random(),
+                            radius: c.r,
+                            loc: Point3::new(offset,0.0,0.0),
+                            dir: Vector3::new(-1.0,0.0,0.0),
+                            radius_dir: Vector3::new(0.0,0.0,1.0),
+                        },
+                        cb: MainCircle {
+                            id:random(),
+                            radius: c.r,
+                            loc:Point3::new(end_x,0.0,0.0),
+                            dir:  Vector3::new(-1.0,0.0,0.0),
+                            radius_dir: Vector3::new(0.0,0.0,1.0),
+                        },
+                        h:c.h,
+                        r: c.r,
+                        r_gr_id: 0,
+                        ca_tor: 0,
+                        cb_tor: 0,
+                        triangles: vec![],
+                    };
+                    mc.triangulate();
+                    unbend_cncs.push(OpElem::CYL(mc));
+                    offset=offset-c.h;
+                    id=id+1;
+                }
+                OpElem::TOR(t) => {
+                    let bend_r=t.r+t.bend_radius;
+                    let h =bend_r*t.angle().0;
+                    let end_x=offset-h;
+                    let mut mc:MainCylinder=MainCylinder{
+                        id: id,
+                        ca: MainCircle {
+                            id:random(),
+                            radius: t.r,
+                            loc: Point3::new(offset,0.0,0.0),
+                            dir: Vector3::new(-1.0,0.0,0.0),
+                            radius_dir: Vector3::new(0.0,0.0,1.0),
+                        },
+                        cb: MainCircle {
+                            id:random(),
+                            radius: t.r,
+                            loc:Point3::new(end_x,0.0,0.0),
+                            dir:  Vector3::new(-1.0,0.0,0.0),
+                            radius_dir: Vector3::new(0.0,0.0,1.0),
+                        },
+                        h: h,
+                        r: t.r,
+                        r_gr_id: 0,
+                        ca_tor: 0,
+                        cb_tor: 0,
+                        triangles: vec![],
+                    };
+                    mc.triangulate();
+                    unbend_cncs.push(OpElem::CYL(mc));
+                    offset=offset-h;
+                    id=id+1;
+                }
+                OpElem::Nothing => {}
+            }
+        });
+        self.to_render_data_unbend(unbend_cncs)
+    }
+
+    pub fn generate_one_cyl() -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>, f64) {
+        let mut mc:MainCylinder=MainCylinder{
+            id: 0,
+            ca: MainCircle {
+                id: random(),
+                radius: 15.0,
+                loc: Point3 ::new(0.0,0.0,0.0),
+                dir: Vector3 ::new(-1.0,0.0,0.0),
+                radius_dir:  Vector3 ::new(0.0,0.0,1.0),
+            },
+            cb: MainCircle {
+                id: random(),
+                radius: 15.0,
+                loc:  Point3 ::new(-30.0,0.0,0.0),
+                dir: Vector3 ::new(-1.0,0.0,0.0),
+                radius_dir:  Vector3 ::new(0.0,0.0,1.0),
+            },
+            h: 30.0,
+            r: 0.0,
+            r_gr_id: 0,
+            ca_tor: 0,
+            cb_tor: 0,
+            triangles: vec![],
+        };
+        mc.triangulate();
+        let oe=OpElem::CYL(mc);
+        let mut unbend_cncs:Vec<OpElem>=Vec::new();
+        unbend_cncs.push(oe);
+
+        let mut cyl_color_id: i32 = 74;
+        let mut toro_color_id: i32 = 84;
+        let mut outer_diam:f64=0.0;
+        let mut id_count: u32 = 1;
+        let mut meshes_all: Vec<RawMesh> = vec![];
+        unbend_cncs.iter().for_each(|op| {
+            match op {
+                OpElem::CYL(c) => {
+                    outer_diam= c.r;
+                    let pm = c.to_polygon_mesh();
+                    let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+                    if (verts.len() > 0 && indx.len() > 0) {
+                        let rm = RawMesh {
+                            id: c.id.clone() as i32,
+                            vertex_normal: verts,
+                            indx: indx,
+                            bbx: bbx,
+                            triangles: triangles,
+                        };
+                        meshes_all.push(rm);
+                    }
+                }
+                OpElem::TOR(t) => {
+                    let pm = t.to_polygon_mesh();
+                    let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+                    if (verts.len() > 0 && indx.len() > 0) {
+                        let rm = RawMesh {
+                            id: t.id.clone() as i32,
+                            vertex_normal: verts,
+                            indx: indx,
+                            bbx: bbx,
+                            triangles: triangles,
+                        };
+                        meshes_all.push(rm);
+                    }
+                }
+                OpElem::Nothing => {}
+            }
+        });
+        let mut bbxs: Vec<f32> = vec![];
+        let mut buffer: Vec<MeshVertex> = vec![];
+        let mut indxes: Vec<u32> = vec![];
+        let mut id_hash: Vec<u32> = vec![];
+        let mut curid: u32 = 0;
+        let mut currmat: i32 = 0;
+        let mut index: u32 = 0;
+        meshes_all.iter().for_each(|mesh| {
+            //curid = mesh.id as u32;
+            curid = id_count;
+            id_hash.push(curid.clone() as u32);
+            id_hash.push(index.clone());
+            let bbx: &BoundingBox<Point3> = &mesh.bbx;
+            bbxs.push(bbx.min().x as f32);
+            bbxs.push(bbx.min().y as f32);
+            bbxs.push(bbx.min().z as f32);
+            bbxs.push(bbx.max().x as f32);
+            bbxs.push(bbx.max().y as f32);
+            bbxs.push(bbx.max().z as f32);
+
+            mesh.vertex_normal.chunks(6).for_each(|vn| {
+                let mv = MeshVertex {
+                    position: [vn[0], vn[1], vn[2], 1.0],
+                    normal: [vn[3], vn[4], vn[5], 1.0],
+                    id: curid as i32,
+                };
+                buffer.push(mv);
+                indxes.push(index);
+                index = index + 1;
+            });
+            id_hash.push(index.clone() - 1);
+            id_count = id_count + 1;
+        });
+        (buffer, indxes, bbxs, id_hash,outer_diam)
     }
 }

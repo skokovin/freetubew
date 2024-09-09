@@ -90,6 +90,7 @@ impl Camera {
     }
     fn calculate_focus(&mut self) {
         self.focus = self.tot_bbx.diameter() as f32 * OFFSET_MULTIPLIER;
+        warn!("FOCUS {:?} {:?}",self.focus, self.eye)
     }
     pub fn update(&mut self) {
         self.calculate_focus();
