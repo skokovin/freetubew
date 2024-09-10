@@ -927,10 +927,9 @@ impl GState {
                                 match analyze_bin(&stp) {
                                     None => {}
                                     Some(ops) => {
-                                        let (buffer, indxes, bbxs, id_hash, outer_diam): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>, f64) = ops.to_render_data();
-                                        //self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes);
-                                        self.mesh_pipeline.update_vertexes(&self.device);
-                                        self.camera.calculate_tot_bbx(bbxs);
+                                        let prerender: PreRender =  ops.to_render_data();
+                                        self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
+                                        self.camera.calculate_tot_bbx(prerender.tot_bbx);
                                         self.camera.move_camera_to_bbx_limits();
                                         let cmds_arr = ops.calculate_lra();
                                         let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
@@ -971,16 +970,14 @@ impl GState {
                         match analyze_bin(&stp) {
                             None => {}
                             Some(ops) => {
-                                //let (buffer, indxes, bbxs, id_hash, outer_diam): (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>, f64) = ops.to_render_data();
-                                //self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes);
-                                //self.mesh_pipeline.update_vertexes(&self.device);
-                                //self.camera.calculate_tot_bbx(bbxs);
-                                //self.camera.move_camera_to_bbx_limits();
-                                //let cmds_arr = ops.calculate_lra();
-                                //let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-
-                                //let obj_file = ops.all_to_one_obj_bin();
-                               // warn!("FILE ANALYZED C {:?}",cmds_arr.len());
+                                let prerender: PreRender =  ops.to_render_data();
+                                self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
+                                self.camera.calculate_tot_bbx(prerender.tot_bbx);
+                                self.camera.move_camera_to_bbx_limits();
+                                let cmds_arr = ops.calculate_lra();
+                                let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
+                                let obj_file = ops.all_to_one_obj_bin();
+                                 warn!("FILE ANALYZED C {:?}",cmds_arr.len());
                             }
                         };
                         warn!("F2 Released");
@@ -1036,11 +1033,10 @@ impl GState {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
-                        //let (buffer, indxes, bbxs, id_hash, outer_diam) =  CncOps::generate_one_cyl();
-                        //self.mesh_pipeline.step_vertex_buffer.update(buffer, indxes);
-                        //self.mesh_pipeline.update_vertexes(&self.device);
-                        //self.camera.calculate_tot_bbx(bbxs);
-                        //self.camera.move_camera_to_bbx_limits();
+                        let prerender: PreRender =  CncOps::generate_one_cyl();
+                        self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
+                        self.camera.calculate_tot_bbx(prerender.tot_bbx);
+                        self.camera.move_camera_to_bbx_limits();
                     }
                 }
             }
