@@ -58,7 +58,7 @@ struct Output {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
-    let feed_translation : mat4x4<f32>=feed_translations[in.id - 1];
+    let feed_translation : mat4x4<f32>=feed_translations[in.id];
     let feed_pos=feed_translation*in.position;
 
     var hull_meta_data=37;

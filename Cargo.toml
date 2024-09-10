@@ -32,7 +32,7 @@ truck-topology = { git = "https://github.com/ricosjp/truck.git" }
 truck-meshalgo = { git = "https://github.com/ricosjp/truck.git" }
 truck-shapeops = { git = "https://github.com/ricosjp/truck.git" }
 truck-stepio = { git = "https://github.com/ricosjp/truck.git" }
-clap = "4.5.16"
+clap = "4.5.17"
 #bvh = { version = "0.8.0",features = ["serde"] }
 #triangle = "0.2.0"
 smaa = "0.15.0"
@@ -57,7 +57,7 @@ wgpu = { version = "22.1.0", features = ["webgl"] }
 
 
 rand = "0.8.5"
-bytemuck = { version = "1.17.1", features = ["derive"] }
+bytemuck = { version = "1.18.0", features = ["derive"] }
 #array-bytes = "6.2.2"
 
 #glam = { version = "0.25.0", features = ["bytemuck"] }
@@ -73,7 +73,7 @@ cfg-if = "1.0.0"
 zerocopy = { version = "0.7.35", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["sync", "rt", "macros"] }
 serde_json = "1.0.127"
-serde = { version = "1.0.209", features = ["derive"] }
+serde = { version = "1.0.210", features = ["derive"] }
 web-sys = { version = "0.3.70", features = ["Document", "Window", "Element", "HtmlCanvasElement", "CssStyleDeclaration", "console", "HtmlCollection"] }
 phf = "0.11.2"
 #wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}

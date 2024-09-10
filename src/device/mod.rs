@@ -132,27 +132,30 @@ impl MeshVertex {
 pub struct StepVertexBuffer {
     pub buffer: Vec<MeshVertex>,
     pub indxes: Vec<u32>,
-    pub id_hash: Vec<u32>,
+   // pub id_hash: Vec<u32>,
 }
 
 impl StepVertexBuffer {
-    pub fn update(&mut self, buffer: Vec<MeshVertex>, indxes: Vec<u32>, id_hash: Vec<u32>) {
+    pub fn update(&mut self, buffer: Vec<MeshVertex>, indxes: Vec<u32>) {
         self.buffer = buffer;
         self.indxes = indxes;
-        self.id_hash = id_hash;
     }
     pub fn default() -> Self {
         StepVertexBuffer {
             buffer: vec![],
             indxes: vec![],
-            id_hash: vec![],
         }
     }
     pub fn clean(&mut self) {
         self.buffer = vec![];
         self.indxes = vec![];
-        self.id_hash = vec![];
     }
+}
+
+
+pub struct PreRender {
+    pub steps_data:Vec<StepVertexBuffer>,
+    pub tot_bbx:Vec<f32>
 }
 
 

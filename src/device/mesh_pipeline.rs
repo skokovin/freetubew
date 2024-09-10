@@ -18,12 +18,12 @@ pub const SELECT_COLOR: u32 = 1;
 pub struct MeshPipeLine {
     pub metadata: Vec<[i32; 4]>,
     pub metadata_buffer: Buffer,
-    pub step_vertex_buffer: StepVertexBuffer,
+    pub step_vertex_buffer: Vec<StepVertexBuffer>,
     pub camera_buffer: Buffer,
     pub material_buffer: Buffer,
     pub light_buffer: Buffer,
-    pub v_buffer: Buffer,
-    pub i_buffer: Buffer,
+    pub v_buffer: Vec<Buffer>,
+    pub i_buffer: Vec<Buffer>,
     pub mesh_bind_group_layout: BindGroupLayout,
     pub mesh_render_pipeline: RenderPipeline,
     pub back_ground_pipe_line: BackGroundPipeLine,
@@ -59,17 +59,11 @@ impl MeshPipeLine {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let step_vertex_buffer: StepVertexBuffer = StepVertexBuffer::default();
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Index Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&step_vertex_buffer.indxes),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Vertex Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&step_vertex_buffer.buffer),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        //let step_vertex_buffer: StepVertexBuffer = StepVertexBuffer::default();
+        let step_vertex_buffer  :Vec<StepVertexBuffer> = vec![];
+
+        let index_buffer:Vec<Buffer> = vec![];
+        let vertex_buffer :Vec<Buffer> = vec![];
         let mut metadata_default: Vec<[i32; 4]> = vec![];
         for i in 0..METADATA_COUNT {
             if (!i.is_odd()) {
@@ -322,16 +316,27 @@ impl MeshPipeLine {
         mesh_uniform_bind_group
     }
     pub fn update_vertexes(&mut self, device: &Device) {
-        self.i_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Index Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&self.step_vertex_buffer.indxes),
-            usage: wgpu::BufferUsages::INDEX,
+        self.i_buffer =vec![];
+        self.v_buffer =vec![];
+
+        let mut index=0;
+        self.step_vertex_buffer.iter().for_each(|item|{
+            let i_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(format!("Index Mesh Buffer {index}").as_str()),
+                contents: bytemuck::cast_slice(&item.indxes),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            let v_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(format!("Vertex Mesh Buffer {index}").as_str()),
+                contents: bytemuck::cast_slice(&item.buffer),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            self.i_buffer.push(i_buffer);
+            self.v_buffer.push(v_buffer);
+            index=index+1;
         });
-        self.v_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Vertex Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&self.step_vertex_buffer.buffer),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+
+
     }
     pub fn select_by_id(&mut self, device: &Device, id: i32) {
         self.unselect_all();
@@ -359,6 +364,12 @@ impl MeshPipeLine {
             contents: bytemuck::cast_slice(&self.metadata),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+    }
+
+    pub fn init_model(&mut self, device: &Device, buff:Vec<StepVertexBuffer>){
+        self.step_vertex_buffer=buff;
+        self.update_vertexes(device);
+
     }
     pub fn resize(&mut self, device: &Device, w: i32, h: i32) {
         self.offscreen_width = calculate_offset_pad(w as u32);
