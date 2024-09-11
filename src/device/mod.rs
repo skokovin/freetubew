@@ -16,7 +16,8 @@ pub mod gstate;
 pub mod scene;
 
 
-pub const Z_FIGHTING_FACTOR: f32 = 0.0001;
+//pub const Z_FIGHTING_FACTOR: f32 = 0.0001;
+pub const Z_FIGHTING_FACTOR: f32 = 1.0;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Triangle {
     pub p: [Point3<f32>; 3],
@@ -155,7 +156,8 @@ impl StepVertexBuffer {
 
 pub struct PreRender {
     pub steps_data:Vec<StepVertexBuffer>,
-    pub tot_bbx:Vec<f32>
+    pub tot_bbx:Vec<f32>,
+    pub unbend_offsets:Vec<f32>,
 }
 
 

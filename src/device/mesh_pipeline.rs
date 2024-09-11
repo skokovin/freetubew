@@ -1,13 +1,17 @@
 use std::mem;
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Matrix4, SquareMatrix};
+use cgmath::{Deg, Matrix4, Point3, Rad, SquareMatrix, Vector3, Vector4};
+use cgmath::num_traits::abs;
 use is_odd::IsOdd;
+use log::warn;
+use web_sys::console::warn;
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, FrontFace, PipelineLayout, RenderPipeline, TextureFormat};
 use wgpu::util::DeviceExt;
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::materials::{Material, MATERIALS_COUNT};
 use crate::device::{calculate_offset_pad, StepVertexBuffer};
-
+use crate::device::gstate::{FORWARD_DIR32, UP_DIR32};
+use crate::trialgo::pathfinder::{CncOps, OpElem, LRACMD};
 
 pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
 const METADATA_COUNT: u32 = 256;
@@ -35,6 +39,8 @@ pub struct MeshPipeLine {
     pub feed_translations_state: Vec<Matrix4<f32>>,
     pub feed_translations: Vec<[f32; 16]>,
     pub feed_translations_buffer:Buffer,
+
+    pub ops:CncOps,
 
 }
 impl MeshPipeLine {
@@ -284,6 +290,7 @@ impl MeshPipeLine {
             feed_translations_state:feed_translations_state,
             feed_translations:  feed_translations,
             feed_translations_buffer: feed_translations_buffer,
+            ops: CncOps::default(),
         }
     }
     pub fn create_bind_group(&self, device: &Device) -> BindGroup {
@@ -336,6 +343,7 @@ impl MeshPipeLine {
             index=index+1;
         });
 
+        println!("{:?}",self.v_buffer.len());
 
     }
     pub fn select_by_id(&mut self, device: &Device, id: i32) {
@@ -380,6 +388,86 @@ impl MeshPipeLine {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+    }
+
+    pub fn do_step(&mut self,step:usize,t_dorn:Matrix4<f32>, r_dorn:Matrix4<f32>,t_feed:Matrix4<f32>,r_feed:Matrix4<f32>) {
+        for i in (0..step) {
+            self.feed_translations_state[i]=t_dorn*r_dorn*r_feed*self.feed_translations_state[i];
+        }
+        for i in (step)..256 {
+            self.feed_translations_state[i]=self.feed_translations_state[i]*t_feed;
+        }
+        self.update_transformations();
+    }
+
+    pub fn calculate_bend_step(&mut self,device: &Device){
+
+
+        let op: LRACMD =self.ops.do_bend();
+
+
+        match op.op_code {
+            0 => {
+                let r_deg_angle = Deg(op.value1 as f32);
+                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(op.value0 as f32, 0.0, 0.0));
+                let feed_r: Matrix4<f32> =Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
+                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(op.value0 as f32, 0.0, 0.0));
+                let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+                self.do_step(
+                    op.id as usize,
+                    dorn_tr,
+                    dorn_r,
+                    feed_tr,
+                    feed_r,
+                );
+            }
+            1 => {
+
+                let offset=self.ops.unbend_offsets[op.id as usize];
+                let dorn_radius: f32 = op.value1 as f32;
+                let deg_angle = Deg(op.value0 as f32);
+                let bend_radius=dorn_radius+op.pipe_radius as f32;
+                //let deg_angle = Deg(30.0);
+                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * bend_radius);
+
+                let r_feed: Matrix4<f32> = Matrix4::identity();
+                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
+
+                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+                let cp: Point3<f32> = Point3::new(0.0, -bend_radius, 0.0);
+                let v = p0 - cp;
+                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
+                //let r_dorn: Matrix4<f32> = Matrix4::identity();
+                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
+                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (bend_radius - rotated.y), 0.0);
+                warn!("new_vec_a {:?} ",self.step_vertex_buffer.len());
+                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
+                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
+
+                let new_buff: StepVertexBuffer =CncOps::generate_tor_by_cnc(&op, offset as f64);
+
+                self.step_vertex_buffer[op.id as usize]=new_buff;
+
+                self.update_vertexes(device);
+                self.do_step(
+                    op.id as usize,
+                    t_dorn,
+                    r_dorn,
+                    t_feed,
+                    r_feed,
+                );
+
+            }
+            _ => {}
+        }
+    }
+
+    pub fn update_transformations(&mut self) {
+        for i in 0..256 {
+            let m_ft: &[f32; 16] =self.feed_translations_state[i].as_ref();
+            self.feed_translations[i]=(m_ft.clone());
+        }
     }
 }
 

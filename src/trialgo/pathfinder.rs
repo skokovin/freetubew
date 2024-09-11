@@ -2,9 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::fmt::{Display, Formatter};
 use std::ops::{Mul, Sub};
-use cgmath::{Deg, InnerSpace, MetricSpace, Rad};
+use cgmath::{Basis3, Deg, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
 use is_odd::IsOdd;
 use itertools::Itertools;
+use log::warn;
 use rand::random;
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::{Point3, Vector3};
@@ -15,12 +16,13 @@ use crate::trialgo::analyzepl::{EXTRA_LEN_CALC, EXTRA_R_CALC, TOLE};
 use crate::trialgo::{export_to_pt, project_point_to_vec, round_by_dec};
 use truck_geometry::prelude::Plane;
 use crate::device::{MeshVertex, PreRender, RawMesh, StepVertexBuffer, Triangle, Z_FIGHTING_FACTOR};
+use crate::device::gstate::UP_DIR32;
 
 const L: i32 = 0;
 const R: i32 = 1;
 const A: i32 = 2;
 const K: i32 = 3;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LRACLR {
     pub id1: i32,
     pub id2: i32,
@@ -83,14 +85,19 @@ impl Display for LRACLR {
         write!(f, "L {} R {} A {} CLR {}", self.l, self.r, self.a, self.clr)
     }
 }
-
+#[derive(Debug, Clone)]
 pub struct LRACMD {
     pub id: i32,
     pub op_code: i32,
+    pub pipe_radius: f64,
     pub value0: f64,
     pub value1: f64,
 }
-
+impl Display for LRACMD {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "id {} PR {} OPC {} V0 {} V1{}", self.id, self.pipe_radius, self.op_code, self.value0, self.value1)
+    }
+}
 
 impl LRACMD {
     pub fn to_array(cmnd: &Vec<LRACMD>) -> Vec<i32> {
@@ -117,8 +124,31 @@ pub enum OpElem {
 #[derive(Clone)]
 pub struct CncOps {
     pub ops: Vec<OpElem>,
+    pub current_step: usize,
+    pub commands: Vec<LRACLR>,
+    pub opcodes: Vec<LRACMD>,
+    pub unbend_offsets:Vec<f32>,
 }
 impl CncOps {
+    pub fn default() -> Self {
+        Self {
+            ops: vec![],
+            current_step: 0,
+            commands: vec![],
+            opcodes: vec![],
+            unbend_offsets: vec![],
+        }
+    }
+
+    pub fn set_value(&mut self, value: CncOps, unbend_offsets: Vec<f32>) {
+        self.ops = value.ops;
+        self.commands = self.calculate_lraclr();
+        self.unbend_offsets=unbend_offsets;
+    }
+    pub fn curr_op(&self) -> OpElem {
+        self.ops[self.current_step].clone()
+    }
+
     pub fn new(cyls: &Vec<MainCylinder>, bends: &Vec<BendToro>) -> Self {
         let mut tot_ops: Vec<OpElem> = vec![];
         if (!cyls.is_empty() && !bends.is_empty()) {
@@ -218,10 +248,12 @@ impl CncOps {
             }
             CncOps::fix_dirs(&mut tot_ops);
         }
-
-
         Self {
             ops: tot_ops,
+            current_step: 0,
+            commands: vec![],
+            opcodes: vec![],
+            unbend_offsets: vec![],
         }
     }
     fn fix_dirs(opers: &mut Vec<OpElem>) {
@@ -357,7 +389,6 @@ impl CncOps {
         let mut obj_file = std::fs::File::create(path).unwrap();
         obj::write(&polymesh, obj_file).unwrap();
     }
-
     pub fn all_to_one_obj_bin(&self) -> Vec<u8> {
         let mut triangles: Vec<Triangle> = vec![];
         self.ops.iter().for_each(|op| {
@@ -469,83 +500,8 @@ impl CncOps {
         }
         (vertsu8, indxu8, bbx, triangles)
     }
-    pub fn to_render_data_old(&self) -> (Vec<MeshVertex>, Vec<u32>, Vec<f32>, Vec<u32>, f64) {
-        let mut cyl_color_id: i32 = 74;
-        let mut toro_color_id: i32 = 84;
-        let mut outer_diam: f64 = 0.0;
-        let mut id_count: u32 = 1;
-        let mut meshes_all: Vec<RawMesh> = vec![];
-        self.ops.iter().for_each(|op| {
-            match op {
-                OpElem::CYL(c) => {
-                    outer_diam = c.r;
-                    let pm = c.to_polygon_mesh();
-                    let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
-                    if (verts.len() > 0 && indx.len() > 0) {
-                        let rm = RawMesh {
-                            id: c.id.clone() as i32,
-                            vertex_normal: verts,
-                            indx: indx,
-                            bbx: bbx,
-                            triangles: triangles,
-                        };
-                        meshes_all.push(rm);
-                    }
-                }
-                OpElem::TOR(t) => {
-                    let pm = t.to_polygon_mesh();
-                    let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
-                    if (verts.len() > 0 && indx.len() > 0) {
-                        let rm = RawMesh {
-                            id: t.id.clone() as i32,
-                            vertex_normal: verts,
-                            indx: indx,
-                            bbx: bbx,
-                            triangles: triangles,
-                        };
-                        meshes_all.push(rm);
-                    }
-                }
-                OpElem::Nothing => {}
-            }
-        });
 
-        let mut bbxs: Vec<f32> = vec![];
-        let mut buffer: Vec<MeshVertex> = vec![];
-        let mut indxes: Vec<u32> = vec![];
-        let mut id_hash: Vec<u32> = vec![];
-        let mut curid: u32 = 1;
-        let mut currmat: i32 = 0;
-        let mut index: u32 = 0;
-        meshes_all.iter().for_each(|mesh| {
-            //curid = mesh.id as u32;
-            curid = id_count;
-            id_hash.push(curid.clone() as u32);
-            id_hash.push(index.clone());
-            let bbx: &BoundingBox<Point3> = &mesh.bbx;
-            bbxs.push(bbx.min().x as f32);
-            bbxs.push(bbx.min().y as f32);
-            bbxs.push(bbx.min().z as f32);
-            bbxs.push(bbx.max().x as f32);
-            bbxs.push(bbx.max().y as f32);
-            bbxs.push(bbx.max().z as f32);
-
-            mesh.vertex_normal.chunks(6).for_each(|vn| {
-                let mv = MeshVertex {
-                    position: [vn[0], vn[1], vn[2], 1.0],
-                    normal: [vn[3], vn[4], vn[5], 1.0],
-                    id: curid as i32,
-                };
-                buffer.push(mv);
-                indxes.push(index);
-                index = index + 1;
-            });
-            id_hash.push(index.clone() - 1);
-            id_count = id_count + 1;
-        });
-        (buffer, indxes, bbxs, id_hash, outer_diam)
-    }
-    pub fn to_render_data(&self) -> PreRender {
+    pub fn to_render_data(&self,offsets:Vec<f32>) -> PreRender {
         let mut steps_data: Vec<StepVertexBuffer> = vec![];
 
         let mut outer_diam: f64 = 0.0;
@@ -623,12 +579,10 @@ impl CncOps {
         PreRender {
             steps_data: steps_data,
             tot_bbx: bbxs,
+            unbend_offsets: offsets,
         }
     }
-
-    pub fn to_render_data_unbend(&self, ops: Vec<OpElem>) -> PreRender {
-
-
+    pub fn to_render_data_unbend(&self, ops: Vec<OpElem>, offsets: Vec<f32>) -> PreRender {
         let mut outer_diam: f64 = 0.0;
 
         let mut meshes_all: Vec<RawMesh> = vec![];
@@ -704,11 +658,12 @@ impl CncOps {
         PreRender {
             steps_data: steps_data,
             tot_bbx: bbxs,
+            unbend_offsets: offsets,
         }
     }
-
-    pub fn calculate_lraclr(&self) -> Vec<LRACLR> {
+    pub fn calculate_lraclr(&mut self) -> Vec<LRACLR> {
         let mut cncs: Vec<LRACLR> = vec![];
+        let mut opcodes: Vec<LRACMD> = vec![];
         if (self.ops.len() > 1 && self.ops.len().is_odd()) {
             let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));
             let last_op: OpElem = self.ops.last().unwrap().clone();
@@ -728,7 +683,7 @@ impl CncOps {
                         cnc.id1 = counter;
                         counter = counter + 1;
                         cnc.l = c.h;
-                        outd = c.r * 2.0;
+                        outd = c.r;
                         cnc.outd = outd;
                     }
                     OpElem::TOR(t) => {}
@@ -756,7 +711,8 @@ impl CncOps {
                                     let curr_p = cp.clone() + curr_vec * c.r;
                                     let ccw_vec = curr_p.sub(prev_p);
                                     let rot_angle = prev_vec.angle(curr_vec);
-                                    let k: f64 = {
+
+                                   let k: f64 = {
                                         if (rot_angle == Rad(PI) || rot_angle == Rad(2.0 * PI)) {
                                             -1.0
                                         } else if (prev_right.dot(ccw_vec) < 0.0) {
@@ -765,8 +721,10 @@ impl CncOps {
                                             1.0
                                         }
                                     };
+                                    warn!("ROT ANGLE {:?} {:?}",k,rot_angle);
                                     plane = new_plane;
                                     rot_angle * k
+
                                 };
                                 r_rad = r.0;
                                 cnc.r = Deg::from(r).0;
@@ -801,9 +759,32 @@ impl CncOps {
                 OpElem::Nothing => {}
             }
         }
-        cncs
-    }
 
+        let mut counter = 0;
+        cncs.iter().for_each(|cnc| {
+            let opc1: LRACMD = LRACMD {
+                id: counter,
+                op_code: 0,
+                pipe_radius: cnc.outd,
+                value0: cnc.l,
+                value1: cnc.r,
+            };
+            counter = counter + 1;
+            let opc2: LRACMD = LRACMD {
+                id: counter,
+                op_code: 1,
+                pipe_radius: cnc.outd,
+                value0: cnc.a,
+                value1: cnc.clr,
+            };
+            counter = counter + 1;
+            opcodes.push(opc1);
+            opcodes.push(opc2);
+        });
+        self.opcodes = opcodes;
+        self.commands = cncs;
+        self.commands.clone()
+    }
     pub fn calculate_lra(&self) -> Vec<i32> {
         let mut cmnds: Vec<LRACMD> = vec![];
         let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));
@@ -851,24 +832,28 @@ impl CncOps {
                                 let l_op = LRACMD {
                                     id: c.id as i32,
                                     op_code: L,
+                                    pipe_radius: t.r,
                                     value0: l,
                                     value1: 0.0,
                                 };
                                 let r_op = LRACMD {
                                     id: c.id as i32,
                                     op_code: R,
+                                    pipe_radius: t.r,
                                     value0: Deg::from(r).0,
                                     value1: 0.0,
                                 };
                                 let k_op = LRACMD {
                                     id: t.id as i32,
                                     op_code: K,
+                                    pipe_radius: t.r,
                                     value0: br,
                                     value1: 0.0,
                                 };
                                 let a_op = LRACMD {
                                     id: t.id as i32,
                                     op_code: A,
+                                    pipe_radius: t.r,
                                     value0: Deg::from(bend_angle).0,
                                     value1: t.bend_radius,
                                 };
@@ -890,6 +875,7 @@ impl CncOps {
                     let l_op = LRACMD {
                         id: c.id as i32,
                         op_code: L,
+                        pipe_radius: c.r,
                         value0: c.h,
                         value1: 0.0,
                     };
@@ -990,17 +976,23 @@ impl CncOps {
                 new_ops[last_index] = OpElem::CYL(mc);
             }
         }
-        let ret = CncOps {
-            ops: new_ops
+        let mut ret = CncOps {
+            ops: new_ops,
+            current_step: 0,
+            commands: vec![],
+            opcodes: vec![],
+            unbend_offsets: vec![],
         };
+        ret.calculate_lraclr();
         ret
     }
-
     pub fn generate_unbend_model_from_cl(&self) -> PreRender {
         let mut unbend_cncs: Vec<OpElem> = Vec::new();
         let mut offset: f64 = 0.0;
+        let mut offsets: Vec<f32> = vec![];
         let mut id: u64 = 0;
         self.ops.iter().for_each(|op| {
+            warn!("OFFSET {:?} {:?}", id, offset);
             match op {
                 OpElem::CYL(c) => {
                     let end_x = offset - c.h;
@@ -1031,6 +1023,7 @@ impl CncOps {
                     unbend_cncs.push(OpElem::CYL(mc));
                     offset = offset - c.h;
                     id = id + 1;
+                    offsets.push(offset as f32);
                 }
                 OpElem::TOR(t) => {
                     let bend_r = t.r + t.bend_radius;
@@ -1062,16 +1055,16 @@ impl CncOps {
                     mc.triangulate();
                     unbend_cncs.push(OpElem::CYL(mc));
                     offset = offset - h;
+                    offsets.push(offset as f32);
                     id = id + 1;
                 }
                 OpElem::Nothing => {}
             }
         });
 
-        self.to_render_data_unbend(unbend_cncs)
+        self.to_render_data_unbend(unbend_cncs,offsets)
     }
-
-    pub fn generate_one_cyl() -> PreRender  {
+    pub fn generate_one_cyl() -> PreRender {
         let mut mc: MainCylinder = MainCylinder {
             id: 0,
             ca: MainCircle {
@@ -1174,6 +1167,97 @@ impl CncOps {
         PreRender {
             steps_data: steps_data,
             tot_bbx: bbxs,
+            unbend_offsets: vec![],
         }
+    }
+
+    pub fn generate_tor_by_cnc(opcode: &LRACMD,x_movement:f64) -> StepVertexBuffer {
+        //let x_movement=-446.75657178172645;
+        let a = Rad::from(Deg(opcode.value0 as f64));
+        let r = opcode.pipe_radius;
+        let bend_radius = opcode.pipe_radius + opcode.value1;
+        let p0: Point3 = Point3::new(x_movement,0.0, 0.0);
+        let p1: Point3 = Point3::new(x_movement, bend_radius, 0.0);
+        let v = p0.sub(p1);
+        let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), a);
+        let forward_dir = Vector3::new(1.0, 0.0, 0.0);
+        let new_v = rotation.rotate_vector(v);
+        let new_forward_dir = rotation.rotate_vector(forward_dir);
+        let end_p = p1 + new_v;
+
+        let mut tor: BendToro = BendToro {
+            id: opcode.id as u64,
+            r,
+            bend_radius,
+            bend_center_point: p1,
+            bend_plane_norm: Vector3::new(0.0, 0.0, 1.0),
+            radius_dir: Vector3::new(0.0, 0.0, 1.0),
+            ca: MainCircle {
+                id: random(),
+                radius: r,
+                loc: p0,
+                dir: Vector3::new(1.0, 0.0, 0.0),
+                radius_dir: Vector3::new(0.0, 0.0, 1.0),
+            },
+            cb: MainCircle {
+                id: random(),
+                radius: r,
+                loc: end_p,
+                dir: new_forward_dir,
+                radius_dir: Vector3::new(0.0, 0.0, 1.0),
+            },
+            r_gr_id: 0,
+            triangles: vec![],
+        };
+        tor.triangulate(&forward_dir);
+
+        let pm = tor.to_polygon_mesh();
+        let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+
+        let mesh = RawMesh {
+            id: tor.id.clone() as i32,
+            vertex_normal: verts,
+            indx: indx,
+            bbx: bbx,
+            triangles: triangles,
+        };
+
+        let mut bbxs: Vec<f32> = vec![];
+
+
+        let mut index: u32 = 0;
+        let mut indxes: Vec<u32> = vec![];
+        let mut buffer: Vec<MeshVertex> = vec![];
+
+
+        let bbx: &BoundingBox<Point3> = &mesh.bbx;
+        bbxs.push(bbx.min().x as f32);
+        bbxs.push(bbx.min().y as f32);
+        bbxs.push(bbx.min().z as f32);
+        bbxs.push(bbx.max().x as f32);
+        bbxs.push(bbx.max().y as f32);
+        bbxs.push(bbx.max().z as f32);
+        mesh.vertex_normal.chunks(6).for_each(|vn| {
+            let mv = MeshVertex {
+                position: [vn[0], vn[1], vn[2], 1.0],
+                normal: [vn[3], vn[4], vn[5], 1.0],
+                id: mesh.id,
+            };
+            buffer.push(mv);
+            indxes.push(index);
+            index = index + 1;
+        });
+
+        let sv = StepVertexBuffer {
+            buffer,
+            indxes,
+        };
+
+        sv
+    }
+    pub fn do_bend(&mut self) -> LRACMD {
+        let oc: LRACMD = self.opcodes[self.current_step].clone();
+        self.current_step = self.current_step + 1;
+        oc
     }
 }

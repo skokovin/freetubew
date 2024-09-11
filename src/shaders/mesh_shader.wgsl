@@ -68,6 +68,9 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
 
     //output.position = camera.mvp  * in.position;
     output.position = camera.mvp  * feed_pos;
+    output.position.z = log(output.position.w*C + 1)/log(FAR*C + 1);
+    output.position.z *= output.position.w;
+
     output.world_position = in.position;
     output.world_normal = in.normal;
     return output;

@@ -5,7 +5,9 @@ use std::io::Write;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::{Arc, MutexGuard, TryLockResult};
-use web_time::{Instant, SystemTime,Duration};
+use cgmath::{Deg, Matrix4, Point3, Rad, SquareMatrix, Vector3, Vector4};
+use cgmath::num_traits::abs;
+use web_time::{Instant, SystemTime, Duration};
 use log::{info, warn};
 use smaa::{SmaaMode, SmaaTarget};
 //use wasm_bindgen::{JsCast, JsValue};
@@ -22,7 +24,7 @@ use crate::device::aux_state::AuxState;
 use crate::device::camera::Camera;
 use crate::device::materials::Material;
 use crate::device::mesh_pipeline::{MeshPipeLine, OFFSCREEN_TEXEL_SIZE};
-use crate::device::{MeshVertex, PreRender};
+use crate::device::{MeshVertex, PreRender, Z_FIGHTING_FACTOR};
 use crate::device::scene::Scene;
 
 use crate::remote::{RemoteCommand, COMMANDS, IS_OFFSCREEN_READY};
@@ -45,7 +47,8 @@ const MATERIALS_COUNT: usize = 140;
 
 const FRAME_COUNT_DIVIDER: u64 = 100000;
 const CANVAS_ID: &str = "canvas3dwindow";
-
+pub const UP_DIR32: Vector3<f32> = Vector3::new(0.0, 0.0, 1.0);
+pub const FORWARD_DIR32: Vector3<f32> = Vector3::new(1.0, 0.0, 0.0);
 //#[cfg(target_arch = "wasm32")]
 #[cfg(not(target_arch = "wasm32"))]
 async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
@@ -578,6 +581,7 @@ impl GState {
                 self.frame_counter = self.frame_counter + 1;
                 self.update_camera();
                 self.update_lights();
+                self.update_transformations();
 
                 let gw = out.texture.width();
                 let gh = out.texture.height();
@@ -926,8 +930,8 @@ impl GState {
                                 warn!("FILE LOADED {:?}",stp.len());
                                 match analyze_bin(&stp) {
                                     None => {}
-                                    Some(ops) => {
-                                        let prerender: PreRender =  ops.to_render_data();
+                                    Some(mut ops) => {
+                                        let prerender: PreRender =  ops.to_render_data(vec![]);
                                         self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
                                         self.camera.calculate_tot_bbx(prerender.tot_bbx);
                                         self.camera.move_camera_to_bbx_limits();
@@ -969,8 +973,8 @@ impl GState {
                         let stp: Vec<u8> = vec![];
                         match analyze_bin(&stp) {
                             None => {}
-                            Some(ops) => {
-                                let prerender: PreRender =  ops.to_render_data();
+                            Some(mut ops) => {
+                                let prerender: PreRender =  ops.to_render_data(vec![]);
                                 self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
                                 self.camera.calculate_tot_bbx(prerender.tot_bbx);
                                 self.camera.move_camera_to_bbx_limits();
@@ -1022,6 +1026,7 @@ impl GState {
                                 self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
                                 self.camera.calculate_tot_bbx(prerender.tot_bbx);
                                 self.camera.move_camera_to_bbx_limits();
+                                self.mesh_pipeline.ops.set_value(ops,prerender.unbend_offsets);
                             }
                         };
                         warn!("F5 Released");
@@ -1044,10 +1049,218 @@ impl GState {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
+                        match self.test_counter {
+                            0 => {
+                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679, 0.0, 0.0));
+                                let feed_r: Matrix4<f32> = Matrix4::identity();
+                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679,0.0,0.0));
+                                let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    dorn_tr,
+                                    dorn_r,
+                                    feed_tr,
+                                    feed_r,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            1 => {
+                                let dorn_radius: f32 = 90.0;
+                                let deg_angle = Deg(47.516);
+                                //let deg_angle = Deg(30.0);
+                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
+
+                                let r_feed: Matrix4<f32> = Matrix4::identity();
+                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
+
+                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
+                                let v = p0 - cp;
+                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
+                                //let r_dorn: Matrix4<f32> = Matrix4::identity();
+                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
+                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
+                                warn!("new_vec_a {:?} ",new_vec);
+                                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
+                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    t_dorn,
+                                    r_dorn,
+                                    t_feed,
+                                    r_feed,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            2 => {
+                                let r_deg_angle = Deg(61.761);
+                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
+                                let feed_r: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
+                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
+                                let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    dorn_tr,
+                                    dorn_r,
+                                    feed_tr,
+                                    feed_r,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            3 => {
+                                let dorn_radius: f32 = 90.0;
+                                let deg_angle = Deg(53.382);
+                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
+
+                                let r_feed: Matrix4<f32> = Matrix4::identity();
+                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
+
+                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
+                                let v = p0 - cp;
+                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
+                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
+                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
+
+                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    t_dorn,
+                                    r_dorn,
+                                    t_feed,
+                                    r_feed,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            4 => {
+                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(230.036, 0.0, 0.0));
+                                let feed_r: Matrix4<f32> = Matrix4::identity();
+                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(230.036,0.0,0.0));
+                                let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    dorn_tr,
+                                    dorn_r,
+                                    feed_tr,
+                                    feed_r,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            5 => {
+                                let dorn_radius: f32 = 90.0;
+                                let deg_angle = Deg(53.382);
+                                //let deg_angle = Deg(30.0);
+                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
+
+                                let r_feed: Matrix4<f32> = Matrix4::identity();
+                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
+
+                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
+                                let v = p0 - cp;
+                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
+                                //let r_dorn: Matrix4<f32> = Matrix4::identity();
+                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
+                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
+                                warn!("new_vec_a {:?} ",new_vec);
+                                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
+                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    t_dorn,
+                                    r_dorn,
+                                    t_feed,
+                                    r_feed,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            6 => {
+                                let r_deg_angle = Deg(-61.761);
+                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
+                                let feed_r: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
+                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
+                                let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    dorn_tr,
+                                    dorn_r,
+                                    feed_tr,
+                                    feed_r,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            7 => {
+                                let dorn_radius: f32 = 90.0;
+                                let deg_angle = Deg(47.516);
+                                //let deg_angle = Deg(30.0);
+                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
+
+                                let r_feed: Matrix4<f32> = Matrix4::identity();
+                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
+
+                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
+                                let v = p0 - cp;
+                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
+                                //let r_dorn: Matrix4<f32> = Matrix4::identity();
+                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
+                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
+                                warn!("new_vec_a {:?} ",new_vec);
+                                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
+                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    t_dorn,
+                                    r_dorn,
+                                    t_feed,
+                                    r_feed,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            8 => {
+                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679, 0.0, 0.0));
+                                let feed_r: Matrix4<f32> = Matrix4::identity();
+                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679,0.0,0.0));
+                                let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+
+                                self.mesh_pipeline.do_step(
+                                    self.test_counter as usize,
+                                    dorn_tr,
+                                    dorn_r,
+                                    feed_tr,
+                                    feed_r,
+                                );
+                                self.test_counter = self.test_counter + 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            PhysicalKey::Code(KeyCode::F8) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+                      if(!self.mesh_pipeline.ops.ops.is_empty()){
+                          self.mesh_pipeline.calculate_bend_step(&self.device);
+                      }
 
                     }
                 }
             }
+
             _ => {}
         }
     }
@@ -1056,7 +1269,9 @@ impl GState {
         self.queue.write_buffer(&self.mesh_pipeline.camera_buffer, 64, bytemuck::cast_slice(self.camera.get_norm_buffer()));
         self.queue.write_buffer(&self.mesh_pipeline.camera_buffer, 128, bytemuck::cast_slice(self.camera.get_forward_dir_buffer()));
     }
-
+    fn update_transformations(&mut self) {
+        self.queue.write_buffer(&self.mesh_pipeline.feed_translations_buffer, 0, bytemuck::cast_slice(self.mesh_pipeline.feed_translations.as_ref()));
+    }
     fn update_materials(&self) {
         self.queue.write_buffer(&self.mesh_pipeline.material_buffer, 0, bytemuck::cast_slice(&self.materials));
     }
