@@ -30,6 +30,8 @@ impl CommandState {
 pub enum RemoteCommand {
     OnLoadSTPfile((Vec<u8>)),
     OnSelectById(i32),
+    OnInitBend((Vec<u8>)),
+    OnDoBend,
 }
 
 /*#[cfg(target_arch = "wasm32")]

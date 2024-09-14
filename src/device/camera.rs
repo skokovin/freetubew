@@ -170,6 +170,7 @@ impl Camera {
         //self.update();
     }
 
+
     pub fn calculate_tot_bbx_at_zero_point(&mut self, bbxs: Vec<f32>) {
         let mut out_bbx = {
             let pmin: Point3<f64> = Point3::new(-100.0, -100.0, -100.0);

@@ -3,6 +3,7 @@ use std::f64::consts::PI;
 use std::fmt::{Display, Formatter};
 use std::ops::{Mul, Sub};
 use cgmath::{Basis3, Deg, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
+use cgmath::num_traits::abs;
 use is_odd::IsOdd;
 use itertools::Itertools;
 use log::warn;
@@ -112,6 +113,16 @@ impl LRACMD {
         });
         arr
     }
+
+    pub fn default() -> Self {
+        Self {
+            id: 0,
+            op_code: 0,
+            pipe_radius: 0.0,
+            value0: 0.0,
+            value1: 0.0,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -127,7 +138,7 @@ pub struct CncOps {
     pub current_step: usize,
     pub commands: Vec<LRACLR>,
     pub opcodes: Vec<LRACMD>,
-    pub unbend_offsets:Vec<f32>,
+    pub unbend_offsets: Vec<f32>,
 }
 impl CncOps {
     pub fn default() -> Self {
@@ -143,7 +154,8 @@ impl CncOps {
     pub fn set_value(&mut self, value: CncOps, unbend_offsets: Vec<f32>) {
         self.ops = value.ops;
         self.commands = self.calculate_lraclr();
-        self.unbend_offsets=unbend_offsets;
+        self.unbend_offsets = unbend_offsets;
+        self.current_step=0;
     }
     pub fn curr_op(&self) -> OpElem {
         self.ops[self.current_step].clone()
@@ -501,7 +513,7 @@ impl CncOps {
         (vertsu8, indxu8, bbx, triangles)
     }
 
-    pub fn to_render_data(&self,offsets:Vec<f32>) -> PreRender {
+    pub fn to_render_data(&self, offsets: Vec<f32>) -> PreRender {
         let mut steps_data: Vec<StepVertexBuffer> = vec![];
 
         let mut outer_diam: f64 = 0.0;
@@ -561,7 +573,7 @@ impl CncOps {
             mesh.vertex_normal.chunks(6).for_each(|vn| {
                 let mv = MeshVertex {
                     position: [vn[0], vn[1], vn[2], 1.0],
-                    normal: [vn[3], vn[4], vn[5], 1.0],
+                    normal: [vn[3], vn[4], vn[5], 0.0],
                     id: id_count as i32,
                 };
                 buffer.push(mv);
@@ -640,7 +652,7 @@ impl CncOps {
             mesh.vertex_normal.chunks(6).for_each(|vn| {
                 let mv = MeshVertex {
                     position: [vn[0], vn[1], vn[2], 1.0],
-                    normal: [vn[3], vn[4], vn[5], 1.0],
+                    normal: [vn[3], vn[4], vn[5], 0.0],
                     id: id_count as i32,
                 };
                 buffer.push(mv);
@@ -661,7 +673,129 @@ impl CncOps {
             unbend_offsets: offsets,
         }
     }
+
     pub fn calculate_lraclr(&mut self) -> Vec<LRACLR> {
+        let mut cncs: Vec<LRACLR> = vec![];
+        let mut opcodes: Vec<LRACMD> = vec![];
+        if (self.ops.len() > 1 && self.ops.len().is_odd()) {
+            let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));
+            let last_op: OpElem = self.ops.last().unwrap().clone();
+            let mut pair_arr: Vec<OpElem> = vec![];
+            for i in 0..self.ops.len() - 1 {
+                pair_arr.push(self.ops[i].clone());
+            }
+            let mut it_first = true;
+            let mut outd: f64 = 0.0;
+            let mut counter = 0;
+            pair_arr.chunks(2).for_each(|ops| {
+                let op1 = &ops[0];
+                let op2 = &ops[1];
+                let mut cnc: LRACLR = LRACLR::default();
+                match op1 {
+                    OpElem::CYL(c) => {
+                        cnc.id1 = counter;
+                        counter = counter + 1;
+                        cnc.l = c.h;
+                        outd = c.r;
+                        cnc.outd = outd;
+
+                        match op2 {
+                            OpElem::TOR(t) => {
+                                let mut r_rad = 0.0;
+
+                                let r: Rad<f64> = {
+                                    if (it_first) {
+                                        let new_plane = Plane::new(t.bend_center_point, t.ca.loc, t.cb.loc);
+                                        plane = new_plane;
+                                        it_first = false;
+                                        Rad(0.0)
+                                    } else {
+                                        let new_plane: Plane = Plane::new(t.bend_center_point, t.ca.loc, t.cb.loc);
+                                        let rot_axe: Vector3 = c.cb.loc.sub(c.ca.loc);
+                                        let prev_vec = plane.normal();
+                                        let prev_right = rot_axe.cross(prev_vec);
+                                        let curr_vec = new_plane.normal();
+                                        let test_rot_dir = curr_vec.dot(prev_right);
+
+
+                                        //let cp = c.cb.loc.clone();
+                                        //let prev_p = cp.clone() + prev_vec * c.r;
+                                        //let curr_p = cp.clone() + curr_vec * c.r;
+                                        let rot_angle = prev_vec.angle(curr_vec);
+
+                                        let k: f64 = {
+                                            if (test_rot_dir < 0.0) {
+                                                1.0
+                                            } else {
+                                                -1.0
+                                            }
+                                        };
+                                        //warn!("ROT ANGLE {:?}",test_rot_dir);
+                                        plane = new_plane;
+                                        rot_angle * k
+                                    }
+                                };
+                                r_rad = r.0;
+                                cnc.r = Deg::from(r).0;
+                                cnc.clr = t.bend_radius;
+                                cnc.id2 = counter;
+                                counter = counter + 1;
+                                let ba = t.ca.loc.sub(t.bend_center_point);
+                                let bb = t.cb.loc.sub(t.bend_center_point);
+                                let bend_angle = ba.angle(bb);
+                                cnc.lt = abs(bend_angle.0) * (t.bend_radius+t.r);
+                                cnc.a = Deg::from(bend_angle).0;
+                            }
+                            _ => {}
+                        }
+
+                        cnc.outd = outd;
+                        cncs.push(cnc);
+                    }
+                    _ => {}
+                }
+            });
+            match last_op {
+                OpElem::CYL(c) => {
+                    let mut cnc: LRACLR = LRACLR::default();
+                    cnc.id1 = counter;
+                    cnc.id2 = counter+1;
+                    cnc.l = c.h;
+                    cnc.outd = outd;
+                    cncs.push(cnc);
+                }
+                OpElem::TOR(_) => {}
+                OpElem::Nothing => {}
+            }
+        }
+
+        let mut counter = 0;
+        cncs.iter().for_each(|cnc| {
+            let opc1: LRACMD = LRACMD {
+                id: counter,
+                op_code: 0,
+                pipe_radius: cnc.outd,
+                value0: cnc.l,
+                value1: cnc.r,
+            };
+            counter = counter + 1;
+            let opc2: LRACMD = LRACMD {
+                id: counter,
+                op_code: 1,
+                pipe_radius: cnc.outd,
+                value0: cnc.a,
+                value1: cnc.clr,
+            };
+            counter = counter + 1;
+            opcodes.push(opc1);
+            opcodes.push(opc2);
+        });
+        self.opcodes = opcodes;
+        self.commands = cncs;
+        self.commands.clone()
+    }
+
+    pub fn calculate_lraclr_old(&mut self) -> Vec<LRACLR> {
         let mut cncs: Vec<LRACLR> = vec![];
         let mut opcodes: Vec<LRACMD> = vec![];
         if (self.ops.len() > 1 && self.ops.len().is_odd()) {
@@ -712,7 +846,7 @@ impl CncOps {
                                     let ccw_vec = curr_p.sub(prev_p);
                                     let rot_angle = prev_vec.angle(curr_vec);
 
-                                   let k: f64 = {
+                                    let k: f64 = {
                                         if (rot_angle == Rad(PI) || rot_angle == Rad(2.0 * PI)) {
                                             -1.0
                                         } else if (prev_right.dot(ccw_vec) < 0.0) {
@@ -724,7 +858,6 @@ impl CncOps {
                                     warn!("ROT ANGLE {:?} {:?}",k,rot_angle);
                                     plane = new_plane;
                                     rot_angle * k
-
                                 };
                                 r_rad = r.0;
                                 cnc.r = Deg::from(r).0;
@@ -992,7 +1125,7 @@ impl CncOps {
         let mut offsets: Vec<f32> = vec![];
         let mut id: u64 = 0;
         self.ops.iter().for_each(|op| {
-            warn!("OFFSET {:?} {:?}", id, offset);
+            //warn!("OFFSET {:?} {:?}", id, offset);
             match op {
                 OpElem::CYL(c) => {
                     let end_x = offset - c.h;
@@ -1062,7 +1195,7 @@ impl CncOps {
             }
         });
 
-        self.to_render_data_unbend(unbend_cncs,offsets)
+        self.to_render_data_unbend(unbend_cncs, offsets)
     }
     pub fn generate_one_cyl() -> PreRender {
         let mut mc: MainCylinder = MainCylinder {
@@ -1149,7 +1282,7 @@ impl CncOps {
             mesh.vertex_normal.chunks(6).for_each(|vn| {
                 let mv = MeshVertex {
                     position: [vn[0], vn[1], vn[2], 1.0],
-                    normal: [vn[3], vn[4], vn[5], 1.0],
+                    normal: [vn[3], vn[4], vn[5], 0.0],
                     id: id_count as i32,
                 };
                 buffer.push(mv);
@@ -1170,13 +1303,12 @@ impl CncOps {
             unbend_offsets: vec![],
         }
     }
-
-    pub fn generate_tor_by_cnc(opcode: &LRACMD,x_movement:f64) -> StepVertexBuffer {
+    pub fn generate_tor_by_cnc(opcode: &LRACMD, x_movement: f64) -> StepVertexBuffer {
         //let x_movement=-446.75657178172645;
         let a = Rad::from(Deg(opcode.value0 as f64));
         let r = opcode.pipe_radius;
         let bend_radius = opcode.pipe_radius + opcode.value1;
-        let p0: Point3 = Point3::new(x_movement,0.0, 0.0);
+        let p0: Point3 = Point3::new(x_movement, 0.0, 0.0);
         let p1: Point3 = Point3::new(x_movement, bend_radius, 0.0);
         let v = p0.sub(p1);
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), a);
@@ -1240,7 +1372,7 @@ impl CncOps {
         mesh.vertex_normal.chunks(6).for_each(|vn| {
             let mv = MeshVertex {
                 position: [vn[0], vn[1], vn[2], 1.0],
-                normal: [vn[3], vn[4], vn[5], 1.0],
+                normal: [vn[3], vn[4], vn[5], 0.0],
                 id: mesh.id,
             };
             buffer.push(mv);
@@ -1256,8 +1388,12 @@ impl CncOps {
         sv
     }
     pub fn do_bend(&mut self) -> LRACMD {
-        let oc: LRACMD = self.opcodes[self.current_step].clone();
-        self.current_step = self.current_step + 1;
-        oc
+        if (self.current_step < self.opcodes.len()) {
+            let oc: LRACMD = self.opcodes[self.current_step].clone();
+            self.current_step = self.current_step + 1;
+            oc
+        } else {
+            LRACMD::default()
+        }
     }
 }

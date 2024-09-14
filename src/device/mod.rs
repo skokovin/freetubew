@@ -108,14 +108,14 @@ impl MeshVertex {
     pub fn default() -> Self {
         Self {
             position: [0.0, 0.0, 0.0, 1.0],
-            normal: [1.0, 0.0, 0.0, 1.0],
+            normal: [1.0, 0.0, 0.0, 0.0],
             id: 0,
         }
     }
     pub fn new(vx: f32, vy: f32, vz: f32, nx: f32, ny: f32, nz: f32, id: i32) -> Self {
         Self {
             position: [vx, vy, vz, 1.0],
-            normal: [nx, ny, nz, 1.0],
+            normal: [nx, ny, nz, 0.0],
             id: id,
         }
     }

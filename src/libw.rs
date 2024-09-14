@@ -62,3 +62,32 @@ pub async unsafe fn select_by_id(id: i32) {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async unsafe fn do_bend() {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let _ = console_log::init_with_level(Level::Error);
+    match COMMANDS.lock() {
+        Ok(mut m) => {
+            m.values.push_back(RemoteCommand::OnDoBend);
+        }
+        Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async unsafe fn read_unbend_file(arr: Uint8Array) {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let _ = console_log::init_with_level(Level::Warn);
+    warn!("load_step_file");
+    let mut handler_v: Vec<u8> = arr.to_vec();
+    match COMMANDS.lock() {
+        Ok(mut m) => {
+            info!("LOAD STEP {:?}",handler_v.len());
+            m.values.push_back(RemoteCommand::OnInitBend(handler_v));
+        }
+        Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
+    }
+}
+

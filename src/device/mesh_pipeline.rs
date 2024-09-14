@@ -38,9 +38,9 @@ pub struct MeshPipeLine {
 
     pub feed_translations_state: Vec<Matrix4<f32>>,
     pub feed_translations: Vec<[f32; 16]>,
-    pub feed_translations_buffer:Buffer,
+    pub feed_translations_buffer: Buffer,
 
-    pub ops:CncOps,
+    pub ops: CncOps,
 
 }
 impl MeshPipeLine {
@@ -66,16 +66,16 @@ impl MeshPipeLine {
             mapped_at_creation: false,
         });
         //let step_vertex_buffer: StepVertexBuffer = StepVertexBuffer::default();
-        let step_vertex_buffer  :Vec<StepVertexBuffer> = vec![];
+        let step_vertex_buffer: Vec<StepVertexBuffer> = vec![];
 
-        let index_buffer:Vec<Buffer> = vec![];
-        let vertex_buffer :Vec<Buffer> = vec![];
+        let index_buffer: Vec<Buffer> = vec![];
+        let vertex_buffer: Vec<Buffer> = vec![];
         let mut metadata_default: Vec<[i32; 4]> = vec![];
         for i in 0..METADATA_COUNT {
             if (!i.is_odd()) {
-                metadata_default.push([BEND_COLOR as i32, 0, 0, 0]);
-            } else {
                 metadata_default.push([STRIGHT_COLOR as i32, 0, 0, 0]);
+            } else {
+                metadata_default.push([BEND_COLOR as i32, 0, 0, 0]);
             }
         };
         let metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -84,24 +84,22 @@ impl MeshPipeLine {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let mut feed_translations_state:Vec<Matrix4<f32>> = vec![];
+        let mut feed_translations_state: Vec<Matrix4<f32>> = vec![];
         for i in 0..256 {
-            let mm:Matrix4<f32>=Matrix4::identity();
+            let mm: Matrix4<f32> = Matrix4::identity();
             feed_translations_state.push(mm.clone());
         }
-        let mut feed_translations:Vec<[f32; 16]> = vec![];
+        let mut feed_translations: Vec<[f32; 16]> = vec![];
         for i in 0..256 {
-            let mm:Matrix4<f32>=Matrix4::identity();
+            let mm: Matrix4<f32> = Matrix4::identity();
             let m: &[f32; 16] = mm.as_ref();
-            feed_translations.push( m.clone());
+            feed_translations.push(m.clone());
         }
-        let  feed_translations_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let feed_translations_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(format!("feed_translations  Buffer").as_str()),
-            contents: bytemuck::cast_slice( feed_translations.as_ref()),
-            usage: wgpu::BufferUsages::UNIFORM| wgpu::BufferUsages::COPY_DST
+            contents: bytemuck::cast_slice(feed_translations.as_ref()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-
-
 
 
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -166,7 +164,6 @@ impl MeshPipeLine {
                     },
                     count: None,
                 },
-
             ],
             label: Some("mesh Bind Group Layout"),
         });
@@ -259,7 +256,7 @@ impl MeshPipeLine {
             cache: None,
         });
 
-        let offscreen_width: u32 =calculate_offset_pad(w as u32);
+        let offscreen_width: u32 = calculate_offset_pad(w as u32);
         let mut offscreen_data: Vec<i32> = Vec::<i32>::with_capacity((offscreen_width as i32 * h * OFFSCREEN_TEXEL_SIZE as i32) as usize);
         let offscreen_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("OFSSCREEN_BUUFER"),
@@ -267,8 +264,6 @@ impl MeshPipeLine {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-
-
 
 
         Self {
@@ -287,8 +282,8 @@ impl MeshPipeLine {
             offscreen_width: offscreen_width,
             offscreen_data: offscreen_data,
             offscreen_buffer: offscreen_buffer,
-            feed_translations_state:feed_translations_state,
-            feed_translations:  feed_translations,
+            feed_translations_state: feed_translations_state,
+            feed_translations: feed_translations,
             feed_translations_buffer: feed_translations_buffer,
             ops: CncOps::default(),
         }
@@ -323,11 +318,10 @@ impl MeshPipeLine {
         mesh_uniform_bind_group
     }
     pub fn update_vertexes(&mut self, device: &Device) {
-        self.i_buffer =vec![];
-        self.v_buffer =vec![];
-
-        let mut index=0;
-        self.step_vertex_buffer.iter().for_each(|item|{
+        self.i_buffer = vec![];
+        self.v_buffer = vec![];
+        let mut index = 0;
+        self.step_vertex_buffer.iter().for_each(|item| {
             let i_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(format!("Index Mesh Buffer {index}").as_str()),
                 contents: bytemuck::cast_slice(&item.indxes),
@@ -340,11 +334,8 @@ impl MeshPipeLine {
             });
             self.i_buffer.push(i_buffer);
             self.v_buffer.push(v_buffer);
-            index=index+1;
+            index = index + 1;
         });
-
-        println!("{:?}",self.v_buffer.len());
-
     }
     pub fn select_by_id(&mut self, device: &Device, id: i32) {
         self.unselect_all();
@@ -354,7 +345,6 @@ impl MeshPipeLine {
             use crate::remote::selected_by_id;
             selected_by_id(id);
         }
-
     }
     pub fn unselect_all(&mut self) {
         self.metadata.iter_mut().for_each(|md| {
@@ -364,7 +354,6 @@ impl MeshPipeLine {
             use crate::remote::selected_by_id;
             selected_by_id(0);
         }
-
     }
     pub fn update_meta_data(&mut self, device: &Device) {
         self.metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -374,10 +363,9 @@ impl MeshPipeLine {
         });
     }
 
-    pub fn init_model(&mut self, device: &Device, buff:Vec<StepVertexBuffer>){
-        self.step_vertex_buffer=buff;
+    pub fn init_model(&mut self, device: &Device, buff: Vec<StepVertexBuffer>) {
+        self.step_vertex_buffer = buff;
         self.update_vertexes(device);
-
     }
     pub fn resize(&mut self, device: &Device, w: i32, h: i32) {
         self.offscreen_width = calculate_offset_pad(w as u32);
@@ -390,27 +378,25 @@ impl MeshPipeLine {
         });
     }
 
-    pub fn do_step(&mut self,step:usize,t_dorn:Matrix4<f32>, r_dorn:Matrix4<f32>,t_feed:Matrix4<f32>,r_feed:Matrix4<f32>) {
+    pub fn do_step(&mut self, step: usize, t_dorn: Matrix4<f32>, r_dorn: Matrix4<f32>, t_feed: Matrix4<f32>, r_feed: Matrix4<f32>) {
         for i in (0..step) {
-            self.feed_translations_state[i]=t_dorn*r_dorn*r_feed*self.feed_translations_state[i];
+            self.feed_translations_state[i] = t_dorn * r_dorn * r_feed * self.feed_translations_state[i];
         }
         for i in (step)..256 {
-            self.feed_translations_state[i]=self.feed_translations_state[i]*t_feed;
+            self.feed_translations_state[i] = self.feed_translations_state[i] * t_feed;
         }
         self.update_transformations();
     }
 
-    pub fn calculate_bend_step(&mut self,device: &Device){
-
-
-        let op: LRACMD =self.ops.do_bend();
+    pub fn calculate_bend_step(&mut self, device: &Device) {
+        let op: LRACMD = self.ops.do_bend();
 
 
         match op.op_code {
             0 => {
                 let r_deg_angle = Deg(op.value1 as f32);
                 let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(op.value0 as f32, 0.0, 0.0));
-                let feed_r: Matrix4<f32> =Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
+                let feed_r: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
                 let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(op.value0 as f32, 0.0, 0.0));
                 let dorn_r: Matrix4<f32> = Matrix4::identity();
 
@@ -423,50 +409,59 @@ impl MeshPipeLine {
                 );
             }
             1 => {
+                if (op.id < self.ops.unbend_offsets.len() as i32) {
+                    let offset = self.ops.unbend_offsets[op.id as usize];
+                    let dorn_radius: f32 = op.value1 as f32;
+                    let deg_angle = Deg(op.value0 as f32);
+                    let bend_radius = dorn_radius + op.pipe_radius as f32;
+                    //let deg_angle = Deg(30.0);
+                    let dorn_move_scalar = abs(Rad::from(deg_angle).0 * bend_radius);
 
-                let offset=self.ops.unbend_offsets[op.id as usize];
-                let dorn_radius: f32 = op.value1 as f32;
-                let deg_angle = Deg(op.value0 as f32);
-                let bend_radius=dorn_radius+op.pipe_radius as f32;
-                //let deg_angle = Deg(30.0);
-                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * bend_radius);
+                    let r_feed: Matrix4<f32> = Matrix4::identity();
+                    let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
 
-                let r_feed: Matrix4<f32> = Matrix4::identity();
-                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
+                    let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+                    let cp: Point3<f32> = Point3::new(0.0, -bend_radius, 0.0);
+                    let v = p0 - cp;
+                    let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
+                    //let r_dorn: Matrix4<f32> = Matrix4::identity();
+                    let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
+                    let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (bend_radius - rotated.y), 0.0);
 
-                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
-                let cp: Point3<f32> = Point3::new(0.0, -bend_radius, 0.0);
-                let v = p0 - cp;
-                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
-                //let r_dorn: Matrix4<f32> = Matrix4::identity();
-                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
-                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (bend_radius - rotated.y), 0.0);
-                warn!("new_vec_a {:?} ",self.step_vertex_buffer.len());
-                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
-                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
+                    let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
 
-                let new_buff: StepVertexBuffer =CncOps::generate_tor_by_cnc(&op, offset as f64);
+                    let new_buff: StepVertexBuffer = CncOps::generate_tor_by_cnc(&op, offset as f64);
 
-                self.step_vertex_buffer[op.id as usize]=new_buff;
+                    self.step_vertex_buffer[op.id as usize] = new_buff;
 
-                self.update_vertexes(device);
-                self.do_step(
-                    op.id as usize,
-                    t_dorn,
-                    r_dorn,
-                    t_feed,
-                    r_feed,
-                );
-
+                    self.update_vertexes(device);
+                    self.do_step(
+                        op.id as usize,
+                        t_dorn,
+                        r_dorn,
+                        t_feed,
+                        r_feed,
+                    );
+                }
             }
             _ => {}
         }
     }
 
+
+
     pub fn update_transformations(&mut self) {
         for i in 0..256 {
-            let m_ft: &[f32; 16] =self.feed_translations_state[i].as_ref();
-            self.feed_translations[i]=(m_ft.clone());
+            let m_ft: &[f32; 16] = self.feed_translations_state[i].as_ref();
+            self.feed_translations[i] = (m_ft.clone());
+        }
+    }
+
+    pub fn reset_transformations(&mut self) {
+        for i in 0..256 {
+            self.feed_translations_state[i]=Matrix4::identity();
+            let m_ft: &[f32; 16] = self.feed_translations_state[i].as_ref();
+            self.feed_translations[i] = (m_ft.clone());
         }
     }
 }

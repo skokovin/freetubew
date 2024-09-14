@@ -927,6 +927,7 @@ impl GState {
                     Some(command) => {
                         match command {
                             RemoteCommand::OnLoadSTPfile(stp) => {
+                                self.mesh_pipeline.reset_transformations();
                                 warn!("FILE LOADED {:?}",stp.len());
                                 match analyze_bin(&stp) {
                                     None => {}
@@ -951,6 +952,38 @@ impl GState {
                             }
                             RemoteCommand::OnSelectById(id) => {
                                 self.mesh_pipeline.select_by_id(&self.device, id);
+                            }
+                            RemoteCommand::OnInitBend (stp)=> {
+                                self.mesh_pipeline.reset_transformations();
+                                match analyze_bin(&stp) {
+                                    None => {}
+                                    Some(mut ops) => {
+                                        let prerender_bent: PreRender =  ops.to_render_data(vec![]);
+
+
+                                        let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
+                                        let obj_file = ops.all_to_one_obj_bin();
+                                        let lraclr_arr_i32: Vec<i32> = LRACLR::to_array(&lraclr_arr);
+
+                                        let prerender: PreRender =  ops.generate_unbend_model_from_cl();
+                                        self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
+                                        self.camera.calculate_tot_bbx_at_zero_point(prerender_bent.tot_bbx);
+                                        self.camera.move_camera_to_bbx_limits();
+                                        self.mesh_pipeline.ops.set_value(ops,prerender.unbend_offsets);
+
+                                        #[cfg(target_arch = "wasm32")]{
+
+                                            pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(lraclr_arr_i32.as_slice()));
+
+                                            pipe_obj_file(wasm_bindgen_futures::js_sys::Uint8Array::from(obj_file.as_slice()));
+                                        }
+                                    }
+                                };
+                            }
+                            RemoteCommand::OnDoBend => {
+                                if(!self.mesh_pipeline.ops.ops.is_empty()){
+                                    self.mesh_pipeline.calculate_bend_step(&self.device);
+                                }
                             }
                         }
                     }
@@ -980,6 +1013,7 @@ impl GState {
                                 self.camera.move_camera_to_bbx_limits();
                                 let cmds_arr = ops.calculate_lra();
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
+                                let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
                                 let obj_file = ops.all_to_one_obj_bin();
                                  warn!("FILE ANALYZED C {:?}",cmds_arr.len());
                             }
@@ -1015,16 +1049,17 @@ impl GState {
                     ElementState::Pressed => {}
                     ElementState::Released => {
                         #[cfg(not(target_arch = "wasm32"))]
-                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/5.stp")).as_slice());
+                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
                         //let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/ypm_e71042.stp")).as_slice());
                         #[cfg(target_arch = "wasm32")]
                         let stp: Vec<u8> = vec![];
                         match analyze_bin(&stp) {
                             None => {}
                             Some(ops) => {
+                                let prerender_bent: PreRender =  ops.to_render_data(vec![]);
                                 let prerender: PreRender =  ops.generate_unbend_model_from_cl();
                                 self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
-                                self.camera.calculate_tot_bbx(prerender.tot_bbx);
+                                self.camera.calculate_tot_bbx_at_zero_point(prerender_bent.tot_bbx);
                                 self.camera.move_camera_to_bbx_limits();
                                 self.mesh_pipeline.ops.set_value(ops,prerender.unbend_offsets);
                             }
