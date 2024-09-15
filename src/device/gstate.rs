@@ -140,6 +140,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             smaa_target: smaa_target,
             frame_counter: 0,
             instant: Instant::now(),
+            render_mode:RenderMode::Bend,
         }
     }
 }
@@ -534,10 +535,15 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             smaa_target: smaa_target,
             frame_counter: 0,
             instant: Instant::now(),
+            render_mode:RenderMode::Bend,
         }
     }
 }
 
+enum RenderMode {
+    Bend,
+    UnBend,
+}
 
 enum MaybeGraphics {
     Builder(StateBuilder),
@@ -570,7 +576,8 @@ pub struct GState {
     scene: Scene,
     smaa_target: SmaaTarget,
     frame_counter: u64,
-    instant:Instant
+    instant:Instant,
+    render_mode: RenderMode,
 }
 
 impl GState {
@@ -654,6 +661,47 @@ impl GState {
                     render_pass.set_bind_group(0, &background_bind, &[]);
                     render_pass.draw(0..6, 0..1);
                 }
+
+                match self.render_mode{
+                    RenderMode::Bend => {}
+                    RenderMode::UnBend => {
+                        //DORN
+                        {
+                            for i in 0..self.mesh_pipeline.dorn.step_vertex_buffer.len() {
+                                let indx_count = (self.mesh_pipeline.dorn.i_buffer[i].size() / mem::size_of::<i32>() as u64) as u32;
+                                if (indx_count > 0) {
+                                    let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                        label: Some("Render Pass 2"),
+                                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                            view: &smaa_frame,
+                                            resolve_target: None,
+                                            ops: wgpu::Operations {
+                                                load: wgpu::LoadOp::Load,
+                                                store: StoreOp::Store,
+                                            },
+                                        })],
+                                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                            view: &depth_view,
+                                            depth_ops: Some(wgpu::Operations {
+                                                load: wgpu::LoadOp::Load,
+                                                store: StoreOp::Store,
+                                            }),
+                                            stencil_ops: None,
+                                        }),
+                                        timestamp_writes: None,
+                                        occlusion_query_set: None,
+                                    });
+                                    render_pass.set_pipeline(&self.mesh_pipeline.mesh_render_pipeline);
+                                    render_pass.set_bind_group(0, &bg, &[]);
+                                    render_pass.set_vertex_buffer(0, self.mesh_pipeline.dorn.v_buffer[i].slice(..));
+                                    render_pass.set_index_buffer(self.mesh_pipeline.dorn.i_buffer[i].slice(..), wgpu::IndexFormat::Uint32);
+                                    render_pass.draw_indexed(Range { start: 0, end: indx_count }, 0, Range { start: 0, end: 1 });
+                                }
+                            }
+                        }
+                    }
+                }
+
                 //MESH
                 {
                     for i in 0..self.mesh_pipeline.step_vertex_buffer.len() {
@@ -927,6 +975,7 @@ impl GState {
                     Some(command) => {
                         match command {
                             RemoteCommand::OnLoadSTPfile(stp) => {
+                                self.render_mode=RenderMode::Bend;
                                 self.mesh_pipeline.reset_transformations();
                                 warn!("FILE LOADED {:?}",stp.len());
                                 match analyze_bin(&stp) {
@@ -958,8 +1007,9 @@ impl GState {
                                 match analyze_bin(&stp) {
                                     None => {}
                                     Some(mut ops) => {
+                                        self.render_mode=RenderMode::UnBend;
                                         let prerender_bent: PreRender =  ops.to_render_data(vec![]);
-
+                                        warn!("UnBend");
 
                                         let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
                                         let obj_file = ops.all_to_one_obj_bin();
@@ -1031,20 +1081,8 @@ impl GState {
                     }
                 }
             }
-            PhysicalKey::Code(KeyCode::F4) => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    assert!(proxy.send_event(GEvent::SthngElse()).is_ok());
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
 
-                    //wasm_bindgen_futures::spawn_local(async move {
-                    assert!(proxy.send_event(GEvent::SthngElse()).is_ok());
-                    //});
-                }
-            }
-            PhysicalKey::Code(KeyCode::F5) => {
+            PhysicalKey::Code(KeyCode::F4) => {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
@@ -1056,6 +1094,7 @@ impl GState {
                         match analyze_bin(&stp) {
                             None => {}
                             Some(ops) => {
+                                self.render_mode=RenderMode::UnBend;
                                 let prerender_bent: PreRender =  ops.to_render_data(vec![]);
                                 let prerender: PreRender =  ops.generate_unbend_model_from_cl();
                                 self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
@@ -1081,208 +1120,7 @@ impl GState {
                 }
             }
             PhysicalKey::Code(KeyCode::F7) => {
-                match key.state {
-                    ElementState::Pressed => {}
-                    ElementState::Released => {
-                        match self.test_counter {
-                            0 => {
-                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679, 0.0, 0.0));
-                                let feed_r: Matrix4<f32> = Matrix4::identity();
-                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679,0.0,0.0));
-                                let dorn_r: Matrix4<f32> = Matrix4::identity();
 
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    dorn_tr,
-                                    dorn_r,
-                                    feed_tr,
-                                    feed_r,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            1 => {
-                                let dorn_radius: f32 = 90.0;
-                                let deg_angle = Deg(47.516);
-                                //let deg_angle = Deg(30.0);
-                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
-
-                                let r_feed: Matrix4<f32> = Matrix4::identity();
-                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
-
-                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
-                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
-                                let v = p0 - cp;
-                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
-                                //let r_dorn: Matrix4<f32> = Matrix4::identity();
-                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
-                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
-                                warn!("new_vec_a {:?} ",new_vec);
-                                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
-                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    t_dorn,
-                                    r_dorn,
-                                    t_feed,
-                                    r_feed,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            2 => {
-                                let r_deg_angle = Deg(61.761);
-                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
-                                let feed_r: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
-                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
-                                let dorn_r: Matrix4<f32> = Matrix4::identity();
-
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    dorn_tr,
-                                    dorn_r,
-                                    feed_tr,
-                                    feed_r,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            3 => {
-                                let dorn_radius: f32 = 90.0;
-                                let deg_angle = Deg(53.382);
-                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
-
-                                let r_feed: Matrix4<f32> = Matrix4::identity();
-                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
-
-                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
-                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
-                                let v = p0 - cp;
-                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
-                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
-                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
-
-                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    t_dorn,
-                                    r_dorn,
-                                    t_feed,
-                                    r_feed,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            4 => {
-                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(230.036, 0.0, 0.0));
-                                let feed_r: Matrix4<f32> = Matrix4::identity();
-                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(230.036,0.0,0.0));
-                                let dorn_r: Matrix4<f32> = Matrix4::identity();
-
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    dorn_tr,
-                                    dorn_r,
-                                    feed_tr,
-                                    feed_r,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            5 => {
-                                let dorn_radius: f32 = 90.0;
-                                let deg_angle = Deg(53.382);
-                                //let deg_angle = Deg(30.0);
-                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
-
-                                let r_feed: Matrix4<f32> = Matrix4::identity();
-                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
-
-                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
-                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
-                                let v = p0 - cp;
-                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
-                                //let r_dorn: Matrix4<f32> = Matrix4::identity();
-                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
-                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
-                                warn!("new_vec_a {:?} ",new_vec);
-                                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
-                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    t_dorn,
-                                    r_dorn,
-                                    t_feed,
-                                    r_feed,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            6 => {
-                                let r_deg_angle = Deg(-61.761);
-                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
-                                let feed_r: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
-                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(65.53, 0.0, 0.0));
-                                let dorn_r: Matrix4<f32> = Matrix4::identity();
-
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    dorn_tr,
-                                    dorn_r,
-                                    feed_tr,
-                                    feed_r,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            7 => {
-                                let dorn_radius: f32 = 90.0;
-                                let deg_angle = Deg(47.516);
-                                //let deg_angle = Deg(30.0);
-                                let dorn_move_scalar = abs(Rad::from(deg_angle).0 * dorn_radius);
-
-                                let r_feed: Matrix4<f32> = Matrix4::identity();
-                                let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
-
-                                let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
-                                let cp: Point3<f32> = Point3::new(0.0, -dorn_radius, 0.0);
-                                let v = p0 - cp;
-                                let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
-                                //let r_dorn: Matrix4<f32> = Matrix4::identity();
-                                let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
-                                let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (dorn_radius - rotated.y), 0.0);
-                                warn!("new_vec_a {:?} ",new_vec);
-                                //let new_vec: Vector3<f32> = Vector3::new(45.0, 12.0, 0.0);
-                                let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    t_dorn,
-                                    r_dorn,
-                                    t_feed,
-                                    r_feed,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            8 => {
-                                let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679, 0.0, 0.0));
-                                let feed_r: Matrix4<f32> = Matrix4::identity();
-                                let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(359.679,0.0,0.0));
-                                let dorn_r: Matrix4<f32> = Matrix4::identity();
-
-
-                                self.mesh_pipeline.do_step(
-                                    self.test_counter as usize,
-                                    dorn_tr,
-                                    dorn_r,
-                                    feed_tr,
-                                    feed_r,
-                                );
-                                self.test_counter = self.test_counter + 1;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
             }
             PhysicalKey::Code(KeyCode::F8) => {
                 match key.state {

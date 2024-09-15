@@ -14,7 +14,7 @@ pub mod background_pipleine;
 pub mod gstate;
 
 pub mod scene;
-
+pub mod dorn;
 
 //pub const Z_FIGHTING_FACTOR: f32 = 0.0001;
 pub const Z_FIGHTING_FACTOR: f32 = 1.0;

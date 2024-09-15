@@ -10,9 +10,11 @@ use truck_geometry::prelude::Plane;
 use truck_geotrait::Invertible;
 use truck_meshalgo::filters::{NormalFilters, OptimizingFilter, StructuringFilter};
 use truck_polymesh::{Faces, obj, PolygonMesh, StandardAttributes, StandardVertex};
-use crate::device::Triangle;
+use crate::device::{MeshVertex, RawMesh, StepVertexBuffer, Triangle};
 use crate::trialgo::{export_to_pt, export_to_pt_str, float_range, project_point_to_vec, round_by_dec};
 use crate::trialgo::analyzepl::{TESS_TOL_ANGLE, TESS_TOR_STEP, TOLE};
+use crate::trialgo::pathfinder::CncOps;
+
 const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
 const P_RIGHT: Vector3 = Vector3::new(0.0, 1.0, 0.0);
@@ -200,6 +202,68 @@ pub struct MainCylinder {
     pub triangles: Vec<Triangle>,
 }
 impl MainCylinder {
+    pub fn by_2points_r(sp: Point3, ep: Point3, r: f64, id: u32) -> StepVertexBuffer {
+        let dir: Vector3 = ep.sub(sp);
+        let dir_n: Vector3 = dir.normalize();
+        let l: f64 = dir.magnitude();
+        let v_right: Vector3 = {
+            let p_rand: Point3 = Point3::new(random(), random(), random());
+            let proj_point: Point3 = project_point_to_vec(&dir_n, &sp, &p_rand);
+            p_rand.sub(proj_point).normalize()
+        };
+        let mut mc: MainCylinder = MainCylinder {
+            id: id as u64,
+            ca: MainCircle {
+                id: random(),
+                radius: r,
+                loc: sp,
+                dir: dir_n,
+                radius_dir: v_right,
+            },
+            cb: MainCircle {
+                id: random(),
+                radius: r,
+                loc: ep,
+                dir: dir_n,
+                radius_dir: v_right,
+            },
+            h: l,
+            r: r,
+            r_gr_id: 0,
+            ca_tor: 0,
+            cb_tor: 0,
+            triangles: vec![],
+        };
+        mc.triangulate();
+        let pm: PolygonMesh = mc.to_polygon_mesh();
+        let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+
+        let mesh = RawMesh {
+            id: id as i32,
+            vertex_normal: verts,
+            indx: indx,
+            bbx: bbx,
+            triangles: triangles,
+        };
+        let mut index: u32 = 0;
+        let mut indxes: Vec<u32> = vec![];
+        let mut buffer: Vec<MeshVertex> = vec![];
+        mesh.vertex_normal.chunks(6).for_each(|vn| {
+            let mv = MeshVertex {
+                position: [vn[0], vn[1], vn[2], 1.0],
+                normal: [vn[3], vn[4], vn[5], 0.0],
+                id: id as i32,
+            };
+            buffer.push(mv);
+            indxes.push(index);
+            index = index + 1;
+        });
+        let sv = StepVertexBuffer {
+            buffer,
+            indxes,
+        };
+        sv
+    }
     pub fn from_len(h: f64, r: f64, id: u32) -> MainCylinder {
         let ca = MainCircle {
             id: random(),
@@ -718,12 +782,12 @@ pub struct BendToro {
 impl BendToro {
     pub fn from_angle(radians_angle: f64, bend_radius: f64, r: f64, id: u32) -> BendToro {
         let start_point: Point3 = Point3::new(0.0, 0.0, 0.0);
-        let dorn_point: Point3 = Point3::new(0.0, r+bend_radius, 0.0);
+        let dorn_point: Point3 = Point3::new(0.0, r + bend_radius, 0.0);
         let bend_plane_norm: Vector3 = Vector3::new(0.0, 0.0, 1.0);
 
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(bend_plane_norm, -Rad(radians_angle));
-        let p_tmp = rotation.rotate_point(Point3::new(0.0, -r-bend_radius, 0.0));
-        let end_point = Point3::new(p_tmp.x, p_tmp.y + r+bend_radius, p_tmp.z);
+        let p_tmp = rotation.rotate_point(Point3::new(0.0, -r - bend_radius, 0.0));
+        let end_point = Point3::new(p_tmp.x, p_tmp.y + r + bend_radius, p_tmp.z);
 
         let ca = MainCircle {
             id: random(),
@@ -757,8 +821,8 @@ impl BendToro {
     }
 
     pub fn angle(&self) -> Rad<f64> {
-        let sv=self.ca.loc.sub(self.bend_center_point);
-        let ev=self.cb.loc.sub(self.bend_center_point);
+        let sv = self.ca.loc.sub(self.bend_center_point);
+        let ev = self.cb.loc.sub(self.bend_center_point);
         sv.angle(ev)
     }
     pub fn gen_points(&self) -> Vec<Point3> {
