@@ -37,6 +37,23 @@ impl Triangle {
             normal: normal,
         }
     }
+    pub fn from_f64_without_normals(p0_64: Point3<f64>, p1_64: Point3<f64>, p2_64: Point3<f64>) -> Self {
+        let p0: Point3<f32>=Point3::new(p0_64.x as f32, p0_64.y as f32, p0_64.z as f32);
+        let p1: Point3<f32>=Point3::new(p1_64.x as f32, p1_64.y as f32, p1_64.z as f32);
+        let p2: Point3<f32>=Point3::new(p2_64.x as f32, p2_64.y as f32, p2_64.z as f32);
+
+        let u = p1.sub(p0);
+        let v = p2.sub(p0);
+        let normal: Vector3<f32> = Vector3::new(
+            u.y * v.z - u.z * v.y,
+            u.z * v.x - u.x * v.z,
+            u.x * v.y - u.y * v.x,
+        );
+        Self {
+            p: [p0, p1, p2],
+            normal: normal,
+        }
+    }
 
     pub fn fromX64(
         p0: truck_base::cgmath64::Point3,

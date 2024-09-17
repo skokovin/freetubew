@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::ops::Sub;
-use cgmath::{Basis3, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
+use cgmath::{Basis3, Deg, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
 use itertools::Itertools;
 use nanoid::nanoid;
 use rand::random;
@@ -11,9 +11,11 @@ use truck_geotrait::Invertible;
 use truck_meshalgo::filters::{NormalFilters, OptimizingFilter, StructuringFilter};
 use truck_polymesh::{Faces, obj, PolygonMesh, StandardAttributes, StandardVertex};
 use crate::device::{MeshVertex, RawMesh, StepVertexBuffer, Triangle};
-use crate::trialgo::{export_to_pt, export_to_pt_str, float_range, project_point_to_vec, round_by_dec};
+use crate::trialgo::{export_to_pt, export_to_pt_str, float_range, gen_cap, polygon_mesh_from_triangles, project_point_to_vec, round_by_dec};
 use crate::trialgo::analyzepl::{TESS_TOL_ANGLE, TESS_TOR_STEP, TOLE};
 use crate::trialgo::pathfinder::CncOps;
+
+const CAP_TRIANGULATION: Rad<f64> = Rad(PI / 180.0);
 
 const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
@@ -202,7 +204,8 @@ pub struct MainCylinder {
     pub triangles: Vec<Triangle>,
 }
 impl MainCylinder {
-    pub fn by_2points_r(sp: Point3, ep: Point3, r: f64, id: u32) -> StepVertexBuffer {
+    pub fn by_2points_r(sp: Point3, ep: Point3, r: f64, id: u32) -> Vec<StepVertexBuffer> {
+        let mut svs: Vec<StepVertexBuffer> = vec![];
         let dir: Vector3 = ep.sub(sp);
         let dir_n: Vector3 = dir.normalize();
         let l: f64 = dir.magnitude();
@@ -262,8 +265,16 @@ impl MainCylinder {
             buffer,
             indxes,
         };
-        sv
+        svs.push(sv);
+
+        let cap1=gen_cap(sp, dir_n, v_right, r, id as i32,false);
+        let cap2=gen_cap(ep, dir_n, v_right, r, id as i32,true);
+        svs.push(cap1);
+        svs.push(cap2);
+        svs
     }
+
+
     pub fn from_len(h: f64, r: f64, id: u32) -> MainCylinder {
         let ca = MainCircle {
             id: random(),
@@ -694,6 +705,7 @@ impl MainCylinder {
             }
         }
     }
+
     pub fn to_polygon_mesh(&self) -> PolygonMesh {
         let mut positions: Vec<Point3> = vec![];
         let mut tri_normals: Vec<Vector3> = vec![];

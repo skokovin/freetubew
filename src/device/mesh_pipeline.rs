@@ -10,7 +10,7 @@ use wgpu::util::DeviceExt;
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::materials::{Material, MATERIALS_COUNT};
 use crate::device::{calculate_offset_pad, StepVertexBuffer};
-use crate::device::dorn::{Dorn, DORN_DEFAULT_RADIUS, DORN_ID, DORN_PARK_POSITION};
+use crate::device::dorn::{Dorn, DORN_AXIS_Y_COLOR, DORN_AXIS_Y_ID, DORN_AXIS_Y_MOVED_ID, DORN_AXIS_Z_COLOR, DORN_AXIS_Z_ID, DORN_AXIS_Z_MOVED_ID, DORN_COLOR_ID, DORN_DEFAULT_RADIUS, DORN_ID, DORN_PARK_POSITION};
 use crate::device::gstate::{FORWARD_DIR32, UP_DIR32};
 use crate::trialgo::pathfinder::{CncOps, OpElem, LRACMD};
 
@@ -81,20 +81,27 @@ impl MeshPipeLine {
                 metadata_default.push([BEND_COLOR as i32, 0, 0, 0]);
             }
         };
+        metadata_default[DORN_ID]=[DORN_COLOR_ID as i32, 0, 0, 0];
+
+        metadata_default[DORN_AXIS_Y_ID]=[DORN_AXIS_Y_COLOR as i32, 0, 0, 0];
+        metadata_default[DORN_AXIS_Y_MOVED_ID]=[DORN_AXIS_Y_COLOR as i32, 0, 0, 0];
+        metadata_default[DORN_AXIS_Z_ID]=[DORN_AXIS_Z_COLOR as i32, 0, 0, 0];
+        metadata_default[DORN_AXIS_Z_MOVED_ID]=[DORN_AXIS_Z_COLOR as i32, 0, 0, 0];
+
         let metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(format!("Vertex Mesh Buffer").as_str()),
             contents: bytemuck::cast_slice(&metadata_default),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let dorn:Dorn=Dorn::default();
+
         let mut feed_translations_state: Vec<Matrix4<f32>> = vec![];
         for i in 0..256 {
             let mm: Matrix4<f32> = Matrix4::identity();
             feed_translations_state.push(mm.clone());
         }
-        let dorn:Dorn=Dorn::default();
         feed_translations_state[DORN_ID]=dorn.park_translation.clone();
-        feed_translations_state[DORN_ID-1]=dorn.park_translation.clone();
         let mut feed_translations: Vec<[f32; 16]> = vec![];
         for i in 0..256 {
             let mm: Matrix4<f32> = feed_translations_state[i];
@@ -371,6 +378,29 @@ impl MeshPipeLine {
     }
 
     pub fn init_model(&mut self, device: &Device, buff: Vec<StepVertexBuffer>) {
+        let mut feed_translations_state: Vec<Matrix4<f32>> = vec![];
+        for i in 0..256 {
+            let mm: Matrix4<f32> = Matrix4::identity();
+            feed_translations_state.push(mm.clone());
+        }
+        feed_translations_state[DORN_ID]= self.dorn.park_translation.clone();
+        let mut feed_translations: Vec<[f32; 16]> = vec![];
+        for i in 0..256 {
+            let mm: Matrix4<f32> = feed_translations_state[i];
+            let m: &[f32; 16] = mm.as_ref();
+            feed_translations.push(m.clone());
+        }
+        let feed_translations_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("feed_translations  Buffer").as_str()),
+            contents: bytemuck::cast_slice(feed_translations.as_ref()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+
+        self.feed_translations_state= feed_translations_state;
+        self.feed_translations= feed_translations;
+        self.feed_translations_buffer= feed_translations_buffer;
+
         self.step_vertex_buffer = buff;
         self.update_vertexes(device);
         self.dorn.update_vertexes(device);
@@ -389,6 +419,8 @@ impl MeshPipeLine {
     pub fn do_step(&mut self, step: usize, t_dorn: Matrix4<f32>, r_dorn: Matrix4<f32>, t_feed: Matrix4<f32>, r_feed: Matrix4<f32>, dorn_head_pos:f32) {
         for i in (0..step) {
             self.feed_translations_state[i] = t_dorn * r_dorn * r_feed * self.feed_translations_state[i];
+            self.feed_translations_state[DORN_AXIS_Y_MOVED_ID] = t_dorn * r_dorn;
+            self.feed_translations_state[DORN_AXIS_Z_MOVED_ID] = r_feed;
         }
         for i in (step)..249 {
             self.feed_translations_state[i] = self.feed_translations_state[i] * t_feed;
