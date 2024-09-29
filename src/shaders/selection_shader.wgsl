@@ -67,7 +67,7 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
     output.mat_id=in.id;
 
        //output.position = camera.mvp  * in.position;
-       output.position = camera.mvp  * feed_pos;
+    output.position = camera.mvp  * feed_pos;
     output.world_position = in.position;
     output.id =vec4<i32> (in.id,0,0,0);
     return output;

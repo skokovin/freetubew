@@ -7,12 +7,13 @@ use std::rc::Rc;
 use std::sync::{Arc, MutexGuard, TryLockResult};
 use cgmath::{Deg, Matrix4, Point3, Rad, SquareMatrix, Vector3, Vector4};
 use cgmath::num_traits::abs;
+use glyphon::{Attrs, Cache, Color, Family, Metrics, Resolution, Shaping, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport};
 use web_time::{Instant, SystemTime, Duration};
 use log::{info, warn};
 use smaa::{SmaaMode, SmaaTarget};
 //use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, HtmlCanvasElement};
-use wgpu::{Adapter, BufferSlice, CommandEncoder, Device, Extent3d, Instance, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView, TextureViewDescriptor, COPY_BYTES_PER_ROW_ALIGNMENT};
+use wgpu::{Adapter, BufferSlice, CommandEncoder, Device, Extent3d, Instance, MultisampleState, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView, TextureViewDescriptor, COPY_BYTES_PER_ROW_ALIGNMENT};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::error::OsError;
@@ -589,6 +590,11 @@ impl GState {
                 self.update_camera();
                 self.update_lights();
                 self.update_transformations();
+                if(self.mesh_pipeline.txt_mesh.is_dirty){
+                    self.mesh_pipeline.txt_mesh.update_vertexes(&self.device);
+                    self.mesh_pipeline.update_txt_transformations();
+                }
+
 
                 let gw = out.texture.width();
                 let gh = out.texture.height();
@@ -736,6 +742,111 @@ impl GState {
                         }
                     }
 
+                }
+
+                //TXT
+                {
+                    if(!self.mesh_pipeline.txt_mesh.i_txt_buffer_a.is_empty()){
+                        for i in 0..self.mesh_pipeline.txt_mesh.txt_vertex_buffer_a.len() {
+                            let indx_count = (self.mesh_pipeline.txt_mesh.i_txt_buffer_a[i].size() / mem::size_of::<i32>() as u64) as u32;
+                            if (indx_count > 0) {
+                                let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("Render Pass 2"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &smaa_frame,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        },
+                                    })],
+                                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                        view: &depth_view,
+                                        depth_ops: Some(wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        }),
+                                        stencil_ops: None,
+                                    }),
+                                    timestamp_writes: None,
+                                    occlusion_query_set: None,
+                                });
+                                render_pass.set_pipeline(&self.mesh_pipeline.mesh_render_pipeline);
+                                render_pass.set_bind_group(0, &bg, &[]);
+                                render_pass.set_vertex_buffer(0, self.mesh_pipeline.txt_mesh.v_txt_buffer_a[i].slice(..));
+                                render_pass.set_index_buffer(self.mesh_pipeline.txt_mesh.i_txt_buffer_a[i].slice(..), wgpu::IndexFormat::Uint32);
+                                render_pass.draw_indexed(Range { start: 0, end: indx_count }, 0, Range { start: 0, end: 1 });
+                            }
+                        }
+                    }
+
+                    if(!self.mesh_pipeline.txt_mesh.i_txt_buffer_b.is_empty()){
+                        for i in 0..self.mesh_pipeline.txt_mesh.txt_vertex_buffer_b.len() {
+                            let indx_count = (self.mesh_pipeline.txt_mesh.i_txt_buffer_b[i].size() / mem::size_of::<i32>() as u64) as u32;
+                            if (indx_count > 0) {
+                                let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("Render Pass 2"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &smaa_frame,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        },
+                                    })],
+                                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                        view: &depth_view,
+                                        depth_ops: Some(wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        }),
+                                        stencil_ops: None,
+                                    }),
+                                    timestamp_writes: None,
+                                    occlusion_query_set: None,
+                                });
+                                render_pass.set_pipeline(&self.mesh_pipeline.mesh_render_pipeline);
+                                render_pass.set_bind_group(0, &bg, &[]);
+                                render_pass.set_vertex_buffer(0, self.mesh_pipeline.txt_mesh.v_txt_buffer_b[i].slice(..));
+                                render_pass.set_index_buffer(self.mesh_pipeline.txt_mesh.i_txt_buffer_b[i].slice(..), wgpu::IndexFormat::Uint32);
+                                render_pass.draw_indexed(Range { start: 0, end: indx_count }, 0, Range { start: 0, end: 1 });
+                            }
+                        }
+                    }
+
+                    if(!self.mesh_pipeline.txt_mesh.i_txt_buffer_c.is_empty()){
+                        for i in 0..self.mesh_pipeline.txt_mesh.txt_vertex_buffer_c.len() {
+                            let indx_count = (self.mesh_pipeline.txt_mesh.i_txt_buffer_c[i].size() / mem::size_of::<i32>() as u64) as u32;
+                            if (indx_count > 0) {
+                                let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("Render Pass 2"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &smaa_frame,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        },
+                                    })],
+                                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                        view: &depth_view,
+                                        depth_ops: Some(wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: StoreOp::Store,
+                                        }),
+                                        stencil_ops: None,
+                                    }),
+                                    timestamp_writes: None,
+                                    occlusion_query_set: None,
+                                });
+                                render_pass.set_pipeline(&self.mesh_pipeline.mesh_render_pipeline);
+                                render_pass.set_bind_group(0, &bg, &[]);
+                                render_pass.set_vertex_buffer(0, self.mesh_pipeline.txt_mesh.v_txt_buffer_c[i].slice(..));
+                                render_pass.set_index_buffer(self.mesh_pipeline.txt_mesh.i_txt_buffer_c[i].slice(..), wgpu::IndexFormat::Uint32);
+                                render_pass.draw_indexed(Range { start: 0, end: indx_count }, 0, Range { start: 0, end: 1 });
+                            }
+                        }
+                    }
                 }
 
                 self.queue.submit(iter::once(encoder.finish()));
@@ -1120,7 +1231,10 @@ impl GState {
                 }
             }
             PhysicalKey::Code(KeyCode::F7) => {
-
+                self.mesh_pipeline.txt_mesh.set_digit_a(-38);
+                self.mesh_pipeline.txt_mesh.set_digit_b(2369);
+                self.mesh_pipeline.txt_mesh.test_transform_a();
+                self.mesh_pipeline.txt_mesh.test_transform_b();
             }
             PhysicalKey::Code(KeyCode::F8) => {
                 match key.state {

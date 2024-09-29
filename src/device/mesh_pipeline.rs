@@ -9,9 +9,10 @@ use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, FrontFace,
 use wgpu::util::DeviceExt;
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::materials::{Material, MATERIALS_COUNT};
-use crate::device::{calculate_offset_pad, StepVertexBuffer};
-use crate::device::dorn::{Dorn, DORN_AXIS_Y_COLOR, DORN_AXIS_Y_ID, DORN_AXIS_Y_MOVED_ID, DORN_AXIS_Z_COLOR, DORN_AXIS_Z_ID, DORN_AXIS_Z_MOVED_ID, DORN_COLOR_ID, DORN_DEFAULT_RADIUS, DORN_ID, DORN_PARK_POSITION};
+use crate::device::{calculate_offset_pad, txt_mesh, StepVertexBuffer};
+use crate::device::dorn::{Dorn, DORN_AXIS_Y_COLOR, DORN_AXIS_Z_COLOR, DORN_DEFAULT_RADIUS, DORN_PARK_POSITION};
 use crate::device::gstate::{FORWARD_DIR32, UP_DIR32};
+use crate::device::txt_mesh::TxtMesh;
 use crate::trialgo::pathfinder::{CncOps, OpElem, LRACMD};
 
 pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
@@ -20,15 +21,36 @@ const STRIGHT_COLOR: u32 = 76;
 const BEND_COLOR: u32 = 37;
 pub const SELECT_COLOR: u32 = 1;
 
+pub const DORN_COLOR_ID: usize = 56;
+pub const TXT_A_COLOR: u32 = 55;
+pub const TXT_B_COLOR: u32 = 55;
+pub const TXT_C_COLOR: u32 = 55;
+
+
+pub const DORN_ID: usize = 250;
+pub const DORN_AXIS_Y_ID: usize = 251;
+pub const DORN_AXIS_Y_MOVED_ID: usize = 252;
+pub const DORN_AXIS_Z_ID: usize = 253;
+pub const DORN_AXIS_Z_MOVED_ID: usize = 254;
+
+pub const LAST_ID: usize = 246;
+pub const TXT_C_ID: usize = 247;
+pub const TXT_B_ID: usize = 248;
+pub const TXT_A_ID: usize = 249;
+
+
+
 pub struct MeshPipeLine {
     pub metadata: Vec<[i32; 4]>,
     pub metadata_buffer: Buffer,
     pub step_vertex_buffer: Vec<StepVertexBuffer>,
+
     pub camera_buffer: Buffer,
     pub material_buffer: Buffer,
     pub light_buffer: Buffer,
     pub v_buffer: Vec<Buffer>,
     pub i_buffer: Vec<Buffer>,
+
     pub mesh_bind_group_layout: BindGroupLayout,
     pub mesh_render_pipeline: RenderPipeline,
     pub back_ground_pipe_line: BackGroundPipeLine,
@@ -42,12 +64,12 @@ pub struct MeshPipeLine {
     pub feed_translations_buffer: Buffer,
 
     pub ops: CncOps,
-    pub dorn:Dorn,
+    pub dorn: Dorn,
+    pub txt_mesh: TxtMesh,
 
 }
 impl MeshPipeLine {
     pub fn new(device: &Device, format: TextureFormat, w: i32, h: i32) -> Self {
-
         let back_ground_pipe_line = BackGroundPipeLine::new(device, format.clone(), w, h);
 
         let camera_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -70,6 +92,7 @@ impl MeshPipeLine {
         });
         //let step_vertex_buffer: StepVertexBuffer = StepVertexBuffer::default();
         let step_vertex_buffer: Vec<StepVertexBuffer> = vec![];
+        let txt_vertex_buffer: Vec<StepVertexBuffer> = vec![];
 
         let index_buffer: Vec<Buffer> = vec![];
         let vertex_buffer: Vec<Buffer> = vec![];
@@ -81,12 +104,15 @@ impl MeshPipeLine {
                 metadata_default.push([BEND_COLOR as i32, 0, 0, 0]);
             }
         };
-        metadata_default[DORN_ID]=[DORN_COLOR_ID as i32, 0, 0, 0];
+        metadata_default[DORN_ID] = [DORN_COLOR_ID as i32, 0, 0, 0];
+        metadata_default[DORN_AXIS_Y_ID] = [DORN_AXIS_Y_COLOR as i32, 0, 0, 0];
+        metadata_default[DORN_AXIS_Y_MOVED_ID] = [DORN_AXIS_Y_COLOR as i32, 0, 0, 0];
+        metadata_default[DORN_AXIS_Z_ID] = [DORN_AXIS_Z_COLOR as i32, 0, 0, 0];
+        metadata_default[DORN_AXIS_Z_MOVED_ID] = [DORN_AXIS_Z_COLOR as i32, 0, 0, 0];
 
-        metadata_default[DORN_AXIS_Y_ID]=[DORN_AXIS_Y_COLOR as i32, 0, 0, 0];
-        metadata_default[DORN_AXIS_Y_MOVED_ID]=[DORN_AXIS_Y_COLOR as i32, 0, 0, 0];
-        metadata_default[DORN_AXIS_Z_ID]=[DORN_AXIS_Z_COLOR as i32, 0, 0, 0];
-        metadata_default[DORN_AXIS_Z_MOVED_ID]=[DORN_AXIS_Z_COLOR as i32, 0, 0, 0];
+        metadata_default[TXT_A_ID] = [TXT_A_COLOR as i32, 0, 0, 0];
+        metadata_default[TXT_B_ID] = [TXT_B_COLOR as i32, 0, 0, 0];
+        metadata_default[TXT_C_ID] = [TXT_C_COLOR as i32, 0, 0, 0];
 
         let metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(format!("Vertex Mesh Buffer").as_str()),
@@ -94,14 +120,14 @@ impl MeshPipeLine {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let dorn:Dorn=Dorn::default();
+        let dorn: Dorn = Dorn::default();
 
         let mut feed_translations_state: Vec<Matrix4<f32>> = vec![];
         for i in 0..256 {
             let mm: Matrix4<f32> = Matrix4::identity();
             feed_translations_state.push(mm.clone());
         }
-        feed_translations_state[DORN_ID]=dorn.park_translation.clone();
+        feed_translations_state[DORN_ID] = dorn.park_translation.clone();
         let mut feed_translations: Vec<[f32; 16]> = vec![];
         for i in 0..256 {
             let mm: Matrix4<f32> = feed_translations_state[i];
@@ -278,6 +304,7 @@ impl MeshPipeLine {
             mapped_at_creation: false,
         });
 
+        let txt_mesh: TxtMesh = TxtMesh::new();
 
         Self {
             metadata: metadata_default,
@@ -299,7 +326,8 @@ impl MeshPipeLine {
             feed_translations: feed_translations,
             feed_translations_buffer: feed_translations_buffer,
             ops: CncOps::default(),
-            dorn:dorn,
+            dorn: dorn,
+            txt_mesh: txt_mesh,
         }
     }
     pub fn create_bind_group(&self, device: &Device) -> BindGroup {
@@ -376,14 +404,13 @@ impl MeshPipeLine {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
     }
-
     pub fn init_model(&mut self, device: &Device, buff: Vec<StepVertexBuffer>) {
         let mut feed_translations_state: Vec<Matrix4<f32>> = vec![];
         for i in 0..256 {
             let mm: Matrix4<f32> = Matrix4::identity();
             feed_translations_state.push(mm.clone());
         }
-        feed_translations_state[DORN_ID]= self.dorn.park_translation.clone();
+        feed_translations_state[DORN_ID] = self.dorn.park_translation.clone();
         let mut feed_translations: Vec<[f32; 16]> = vec![];
         for i in 0..256 {
             let mm: Matrix4<f32> = feed_translations_state[i];
@@ -397,9 +424,9 @@ impl MeshPipeLine {
         });
 
 
-        self.feed_translations_state= feed_translations_state;
-        self.feed_translations= feed_translations;
-        self.feed_translations_buffer= feed_translations_buffer;
+        self.feed_translations_state = feed_translations_state;
+        self.feed_translations = feed_translations;
+        self.feed_translations_buffer = feed_translations_buffer;
 
         self.step_vertex_buffer = buff;
         self.update_vertexes(device);
@@ -415,8 +442,7 @@ impl MeshPipeLine {
             mapped_at_creation: false,
         });
     }
-
-    pub fn do_step(&mut self, step: usize, t_dorn: Matrix4<f32>, r_dorn: Matrix4<f32>, t_feed: Matrix4<f32>, r_feed: Matrix4<f32>, dorn_head_pos:f32) {
+    pub fn do_step(&mut self, step: usize, t_dorn: Matrix4<f32>, r_dorn: Matrix4<f32>, t_feed: Matrix4<f32>, r_feed: Matrix4<f32>, dorn_head_pos: f32) {
         for i in (0..step) {
             self.feed_translations_state[i] = t_dorn * r_dorn * r_feed * self.feed_translations_state[i];
             self.feed_translations_state[DORN_AXIS_Y_MOVED_ID] = t_dorn * r_dorn;
@@ -429,9 +455,7 @@ impl MeshPipeLine {
         self.feed_translations_state[DORN_ID] = Matrix4::from_translation(Vector3::<f32>::new(0.0, dorn_head_pos, 0.0));
         self.update_transformations();
     }
-
     pub fn calculate_bend_step(&mut self, device: &Device) {
-
         let op: LRACMD = self.ops.do_bend();
 
 
@@ -449,7 +473,7 @@ impl MeshPipeLine {
                     dorn_r,
                     feed_tr,
                     feed_r,
-                    DORN_PARK_POSITION
+                    DORN_PARK_POSITION,
                 );
             }
             1 => {
@@ -486,7 +510,7 @@ impl MeshPipeLine {
                         r_dorn,
                         t_feed,
                         r_feed,
-                        bend_radius
+                        bend_radius,
                     );
                 }
             }
@@ -498,14 +522,26 @@ impl MeshPipeLine {
             let m_ft: &[f32; 16] = self.feed_translations_state[i].as_ref();
             self.feed_translations[i] = (m_ft.clone());
         }
+        self.update_txt_transformations();
+    }
+    pub fn update_txt_transformations(&mut self) {
+        let txt_a: &[f32; 16] = self.txt_mesh.txt_a_transformation.as_ref();
+        self.feed_translations[TXT_A_ID] = txt_a.clone();
+
+        let txt_b: &[f32; 16] = self.txt_mesh.txt_b_transformation.as_ref();
+        self.feed_translations[TXT_B_ID] = txt_b.clone();
+
+        let txt_c: &[f32; 16] = self.txt_mesh.txt_c_transformation.as_ref();
+        self.feed_translations[TXT_C_ID] = txt_c.clone();
     }
 
     pub fn reset_transformations(&mut self) {
         for i in 0..249 {
-            self.feed_translations_state[i]=Matrix4::identity();
+            self.feed_translations_state[i] = Matrix4::identity();
             let m_ft: &[f32; 16] = self.feed_translations_state[i].as_ref();
             self.feed_translations[i] = (m_ft.clone());
         }
+        self.update_txt_transformations();
     }
 }
 

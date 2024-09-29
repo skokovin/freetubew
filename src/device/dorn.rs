@@ -1,20 +1,19 @@
 use cgmath::{Matrix4, Point3, Vector3};
 use wgpu::{Buffer, Device};
 use wgpu::util::DeviceExt;
+use crate::device::mesh_pipeline::{DORN_AXIS_Y_ID, DORN_AXIS_Y_MOVED_ID, DORN_AXIS_Z_ID, DORN_AXIS_Z_MOVED_ID, DORN_ID};
 use crate::device::StepVertexBuffer;
+
 use crate::trialgo::bendpipe::MainCylinder;
 
-pub const DORN_COLOR_ID: usize = 56;
+
 
 const DORN_THICKNESS: f32 = 20.0;
 pub const DORN_PARK_POSITION: f32 = 210.0;
 const DORN_UP: Vector3<f32> = Vector3::new(0.0, 0.0, 1.0);
 const DORN_RIGHT: Vector3<f32> = Vector3::new(0.0, 1.0, 0.0);
-pub const DORN_ID: usize = 250;
-pub const DORN_AXIS_Y_ID: usize = 251;
-pub const DORN_AXIS_Y_MOVED_ID: usize = 252;
-pub const DORN_AXIS_Z_ID: usize = 253;
-pub const DORN_AXIS_Z_MOVED_ID: usize = 254;
+
+
 pub const DORN_DEFAULT_RADIUS: f32 = 20.0;
 pub const AXIS_Y_THICKNESS: f64 = 1.5;
 pub const AXIS_Z_THICKNESS: f64 = 1.7;
@@ -28,6 +27,7 @@ pub struct Dorn {
     pub i_buffer: Vec<Buffer>,
     pub step_vertex_buffer: Vec<StepVertexBuffer>,
     pub park_translation: Matrix4<f32>,
+
 }
 
 impl Dorn {
