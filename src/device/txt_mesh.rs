@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 use crate::device::gstate::{FORWARD_DIR32, UP_DIR32};
 use crate::device::mesh_pipeline::{TXT_A_ID, TXT_B_ID, TXT_C_ID};
 
-pub const FONT_SIZE: f32 = 500.0;
+pub const FONT_SIZE: f32 = 150.0;
 pub const FONT_OFFSET: f32 = 0.4;
 pub const CHARACTERS: [char; 11] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
 
@@ -43,13 +43,6 @@ pub struct TxtMesh {
 
 }
 impl TxtMesh {
-    /* pub fn new() -> TxtMesh{
-
-         Self{
-
-         }
-     }
- */
     pub fn new() -> TxtMesh {
         let font_data = include_bytes!("../fonts/FiraMono-Regular.ttf");
         let mut generator = MeshGenerator::new(font_data);
@@ -72,8 +65,8 @@ impl TxtMesh {
         let id_a = TXT_A_ID as i32;
         let id_b = TXT_B_ID as i32;
         let id_c = TXT_C_ID as i32;
-        let font_size: f32 = 50.0;
-        let font_offset: f32 = font_size * 0.4;
+
+        let font_offset: f32 = FONT_SIZE * 0.4;
         CHARACTERS.iter().for_each(|character| {
             let mut new_idxses: Vec<u32> = vec![];
             let mut new_idx: u32 = 0;
@@ -94,13 +87,13 @@ impl TxtMesh {
 
             let result: IndexedMeshText = generator.generate_glyph(character.clone(), true, None).unwrap();
             result.indices.iter().for_each(|inds| {
-                let y = result.vertices[(inds * 3 + 1) as usize] * font_size;
-                let z = result.vertices[(inds * 3 + 2) as usize] * font_size;
+                let y = result.vertices[(inds * 3 + 1) as usize] * FONT_SIZE;
+                let z = result.vertices[(inds * 3 + 2) as usize] * FONT_SIZE;
 
-                let x_0 = result.vertices[(inds * 3) as usize] * font_size;
-                let x_1 = result.vertices[(inds * 3) as usize] * font_size + font_offset;
-                let x_2 = result.vertices[(inds * 3) as usize] * font_size + font_offset * 2.0;
-                let x_3 = result.vertices[(inds * 3) as usize] * font_size + font_offset * 3.0;
+                let x_0 = result.vertices[(inds * 3) as usize] * FONT_SIZE;
+                let x_1 = result.vertices[(inds * 3) as usize] * FONT_SIZE + font_offset;
+                let x_2 = result.vertices[(inds * 3) as usize] * FONT_SIZE + font_offset * 2.0;
+                let x_3 = result.vertices[(inds * 3) as usize] * FONT_SIZE + font_offset * 3.0;
 
                 new_idxses.push(new_idx);
                 new_idx = new_idx + 1;
@@ -252,7 +245,7 @@ impl TxtMesh {
             txt_vertex_buffer_a: txt_vertex_buffer_a,
             v_txt_buffer_a: vec![],
             i_txt_buffer_a: vec![],
-            txt_a_transformation: Matrix4::identity(),
+            txt_a_transformation: TxtMesh::setup_a_pos(),
 
             digits_atlas_b_0: digits_atlas_b_0,
             digits_atlas_b_1: digits_atlas_b_1,
@@ -274,6 +267,11 @@ impl TxtMesh {
         }
     }
 
+    fn setup_a_pos() -> Matrix4<f32> {
+        let rot: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(Deg(90.0)));
+        rot;
+        Matrix4::identity()
+    }
     pub fn set_digit_a(&mut self, digit: i32) {
         let mut txt_vertex_buffer_a: Vec<StepVertexBuffer> = vec![];
         let mut counter = 0;
@@ -379,7 +377,6 @@ impl TxtMesh {
         self.txt_vertex_buffer_c = txt_vertex_buffer;
         self.is_dirty = true;
     }
-
     pub fn update_vertexes(&mut self, device: &Device) {
         self.i_txt_buffer_a = vec![];
         self.v_txt_buffer_a = vec![];
@@ -440,7 +437,6 @@ impl TxtMesh {
 
         self.is_dirty = false;
     }
-
     pub fn test_transform_a(&mut self) {
         let rot: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(Deg(90.0)));
         self.txt_a_transformation = rot;

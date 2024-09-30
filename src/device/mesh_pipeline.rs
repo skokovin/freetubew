@@ -16,7 +16,7 @@ use crate::device::txt_mesh::TxtMesh;
 use crate::trialgo::pathfinder::{CncOps, OpElem, LRACMD};
 
 pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
-const METADATA_COUNT: u32 = 256;
+const METADATA_COUNT: usize = 256;
 const STRIGHT_COLOR: u32 = 76;
 const BEND_COLOR: u32 = 37;
 pub const SELECT_COLOR: u32 = 1;
@@ -26,12 +26,13 @@ pub const TXT_A_COLOR: u32 = 55;
 pub const TXT_B_COLOR: u32 = 55;
 pub const TXT_C_COLOR: u32 = 55;
 
-
-pub const DORN_ID: usize = 250;
-pub const DORN_AXIS_Y_ID: usize = 251;
-pub const DORN_AXIS_Y_MOVED_ID: usize = 252;
-pub const DORN_AXIS_Z_ID: usize = 253;
-pub const DORN_AXIS_Z_MOVED_ID: usize = 254;
+pub const LAST_PIPE_ID: usize = 200;
+pub const LAST_AXES_ID: usize = 220;
+pub const DORN_ID: usize = 201;
+pub const DORN_AXIS_Y_ID: usize = 202;
+pub const DORN_AXIS_Y_MOVED_ID: usize = 203;
+pub const DORN_AXIS_Z_ID: usize = 204;
+pub const DORN_AXIS_Z_MOVED_ID: usize = 205;
 
 pub const LAST_ID: usize = 246;
 pub const TXT_C_ID: usize = 247;
@@ -448,7 +449,7 @@ impl MeshPipeLine {
             self.feed_translations_state[DORN_AXIS_Y_MOVED_ID] = t_dorn * r_dorn;
             self.feed_translations_state[DORN_AXIS_Z_MOVED_ID] = r_feed;
         }
-        for i in (step)..249 {
+        for i in (step)..LAST_PIPE_ID {
             self.feed_translations_state[i] = self.feed_translations_state[i] * t_feed;
         }
 
@@ -518,7 +519,7 @@ impl MeshPipeLine {
         }
     }
     pub fn update_transformations(&mut self) {
-        for i in 0..256 {
+        for i in 0..LAST_AXES_ID {
             let m_ft: &[f32; 16] = self.feed_translations_state[i].as_ref();
             self.feed_translations[i] = (m_ft.clone());
         }
@@ -536,7 +537,7 @@ impl MeshPipeLine {
     }
 
     pub fn reset_transformations(&mut self) {
-        for i in 0..249 {
+        for i in 0..LAST_AXES_ID {
             self.feed_translations_state[i] = Matrix4::identity();
             let m_ft: &[f32; 16] = self.feed_translations_state[i].as_ref();
             self.feed_translations[i] = (m_ft.clone());
