@@ -432,6 +432,9 @@ impl MeshPipeLine {
         self.step_vertex_buffer = buff;
         self.update_vertexes(device);
         self.dorn.update_vertexes(device);
+        self.txt_mesh.setup();
+        self.update_txt_transformations();
+
     }
     pub fn resize(&mut self, device: &Device, w: i32, h: i32) {
         self.offscreen_width = calculate_offset_pad(w as u32);
@@ -462,6 +465,9 @@ impl MeshPipeLine {
 
         match op.op_code {
             0 => {
+                self.txt_mesh.setup_a_pos(op.value1);
+                self.txt_mesh.setup_b_pos(0.0,0.0);
+                self.txt_mesh.setup_c_pos(op.value0);
                 let r_deg_angle = Deg(op.value1 as f32);
                 let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(op.value0 as f32, 0.0, 0.0));
                 let feed_r: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
@@ -479,11 +485,15 @@ impl MeshPipeLine {
             }
             1 => {
                 if (op.id < self.ops.unbend_offsets.len() as i32) {
+
+                    self.txt_mesh.setup_a_pos(0.0);
+                    self.txt_mesh.setup_b_pos(op.value0,op.value1);
+                    self.txt_mesh.setup_c_pos(0.0);
+
                     let offset = self.ops.unbend_offsets[op.id as usize];
                     let dorn_radius: f32 = op.value1 as f32;
                     let deg_angle = Deg(op.value0 as f32);
                     let bend_radius = dorn_radius + op.pipe_radius as f32;
-                    //let deg_angle = Deg(30.0);
                     let dorn_move_scalar = abs(Rad::from(deg_angle).0 * bend_radius);
 
                     let r_feed: Matrix4<f32> = Matrix4::identity();
@@ -493,7 +503,6 @@ impl MeshPipeLine {
                     let cp: Point3<f32> = Point3::new(0.0, -bend_radius, 0.0);
                     let v = p0 - cp;
                     let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
-                    //let r_dorn: Matrix4<f32> = Matrix4::identity();
                     let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
                     let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (bend_radius - rotated.y), 0.0);
 

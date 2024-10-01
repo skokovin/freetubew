@@ -1,10 +1,13 @@
-use cgmath::{Deg, Matrix4, Rad, SquareMatrix, Vector4};
+use std::f64::consts::PI;
+use cgmath::{Deg, Matrix4, Rad, SquareMatrix, Vector3, Vector4};
+use log::warn;
 use wgpu::{Buffer, Device};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use meshtext::{Glyph, IndexedMeshText, MeshGenerator};
 
 use wgpu::util::DeviceExt;
-use crate::device::gstate::{FORWARD_DIR32, UP_DIR32};
+use crate::device::dorn::SEMI_LENGTH;
+use crate::device::gstate::{FORWARD_DIR32, RIGHT_DIR32, UP_DIR32};
 use crate::device::mesh_pipeline::{TXT_A_ID, TXT_B_ID, TXT_C_ID};
 
 pub const FONT_SIZE: f32 = 150.0;
@@ -220,10 +223,10 @@ impl TxtMesh {
         });
 
         let mut txt_vertex_buffer_a: Vec<StepVertexBuffer> = vec![];
-        txt_vertex_buffer_a.push(digits_atlas_a_0[5].clone());
-        txt_vertex_buffer_a.push(digits_atlas_a_1[6].clone());
-        txt_vertex_buffer_a.push(digits_atlas_a_2[1].clone());
-        txt_vertex_buffer_a.push(digits_atlas_a_3[10].clone());
+        /*      txt_vertex_buffer_a.push(digits_atlas_a_0[5].clone());
+              txt_vertex_buffer_a.push(digits_atlas_a_1[6].clone());
+              txt_vertex_buffer_a.push(digits_atlas_a_2[1].clone());
+              txt_vertex_buffer_a.push(digits_atlas_a_3[10].clone());*/
 
         let mut txt_vertex_buffer_b: Vec<StepVertexBuffer> = vec![];
         txt_vertex_buffer_b.push(digits_atlas_b_0[2].clone());
@@ -232,10 +235,10 @@ impl TxtMesh {
         txt_vertex_buffer_b.push(digits_atlas_b_3[7].clone());
 
         let mut txt_vertex_buffer_c: Vec<StepVertexBuffer> = vec![];
-        txt_vertex_buffer_c.push(digits_atlas_c_0[7].clone());
-        txt_vertex_buffer_c.push(digits_atlas_c_1[7].clone());
-        txt_vertex_buffer_c.push(digits_atlas_c_2[8].clone());
-        txt_vertex_buffer_c.push(digits_atlas_c_3[1].clone());
+        /*        txt_vertex_buffer_c.push(digits_atlas_c_0[7].clone());
+                txt_vertex_buffer_c.push(digits_atlas_c_1[7].clone());
+                txt_vertex_buffer_c.push(digits_atlas_c_2[8].clone());
+                txt_vertex_buffer_c.push(digits_atlas_c_3[1].clone());*/
         Self {
             is_dirty: true,
             digits_atlas_a_0: digits_atlas_a_0,
@@ -245,7 +248,7 @@ impl TxtMesh {
             txt_vertex_buffer_a: txt_vertex_buffer_a,
             v_txt_buffer_a: vec![],
             i_txt_buffer_a: vec![],
-            txt_a_transformation: TxtMesh::setup_a_pos(),
+            txt_a_transformation: Matrix4::identity(),
 
             digits_atlas_b_0: digits_atlas_b_0,
             digits_atlas_b_1: digits_atlas_b_1,
@@ -267,113 +270,166 @@ impl TxtMesh {
         }
     }
 
-    fn setup_a_pos() -> Matrix4<f32> {
-        let rot: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(Deg(90.0)));
-        rot;
-        Matrix4::identity()
+    pub fn setup(&mut self) {
+        self.setup_a_pos(0.0);
+        self.setup_b_pos(0.0, 0.0);
+        self.setup_c_pos(0.0);
+    }
+
+    pub fn setup_a_pos(&mut self, angle_deg: f64) {
+        let glyph_count: usize = (angle_deg as i32).to_string().len();
+        let middle_point = -(glyph_count as f32 / 4.0 * FONT_SIZE + (glyph_count as f32 - 1.0) * FONT_OFFSET);
+        let tr_middle_point = Matrix4::from_translation(Vector3::new(middle_point, 0.0, 0.0));
+        let rad = angle_deg.to_radians();
+        let rot1: Matrix4<f32> = Matrix4::from_axis_angle(RIGHT_DIR32, Rad::from(Deg(90.0)));
+        let rot2: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(Deg(90.0)));
+        let v: Vector3<f32> = Vector3::new(0.0, 0.0, SEMI_LENGTH as f32);
+        let rot3: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad((rad / 2.0) as f32));
+        let tr = Matrix4::from_translation(v);
+        self.txt_a_transformation = rot3 * tr * rot2 * rot1 * tr_middle_point;
+        self.set_digit_a(angle_deg as i32);
+    }
+
+    pub fn setup_b_pos(&mut self, angle_deg: f64, dorn_radius: f64) {
+        let dorn_offset: Matrix4<f32> = Matrix4::from_translation(Vector3::new(0.0, dorn_radius as f32, 0.0));
+        warn!("BEND ANGLE {:?}",angle_deg);
+        let glyph_count: usize = (angle_deg as i32).to_string().len();
+        let middle_point = -(glyph_count as f32 / 4.0 * FONT_SIZE + (glyph_count as f32 - 1.0) * FONT_OFFSET);
+        let tr_middle_point = Matrix4::from_translation(Vector3::new(middle_point, 0.0, 0.0));
+        let rad = angle_deg.to_radians();
+        let rot1: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(Deg(180.0)));
+        //let rot2: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(Deg(90.0)));
+        let v: Vector3<f32> = Vector3::new(0.0, -SEMI_LENGTH as f32, 0.0);
+        let rot3: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad((rad / 2.0) as f32));
+        let tr = Matrix4::from_translation(v);
+        self.txt_b_transformation = rot3 * tr * dorn_offset * rot1 * tr_middle_point; //Matrix4::identity();
+        self.set_digit_b(angle_deg as i32);
+    }
+
+    pub fn setup_c_pos(&mut self, angle_deg: f64) {
+        let dorn_offset: Matrix4<f32> = Matrix4::from_translation(Vector3::new(angle_deg as f32 / 2.0, 0.0, 0.0));
+        warn!("BEND ANGLE {:?}",angle_deg);
+        let glyph_count: usize = (angle_deg as i32).to_string().len();
+        let middle_point = -(glyph_count as f32 / 4.0 * FONT_SIZE + (glyph_count as f32 - 1.0) * FONT_OFFSET);
+        let tr_middle_point = Matrix4::from_translation(Vector3::new(middle_point, 0.0, 0.0));
+        let rad = angle_deg.to_radians();
+        let rot1: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(Deg(180.0)));
+        //let rot2: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(Deg(90.0)));
+        let v: Vector3<f32> = Vector3::new(0.0, -SEMI_LENGTH as f32, 0.0);
+        let rot3: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad((rad / 2.0) as f32));
+        let tr = Matrix4::from_translation(v);
+        self.txt_c_transformation = tr * dorn_offset * rot1 * tr_middle_point; //Matrix4::identity();
+        self.set_digit_c(angle_deg as i32);
     }
     pub fn set_digit_a(&mut self, digit: i32) {
         let mut txt_vertex_buffer_a: Vec<StepVertexBuffer> = vec![];
-        let mut counter = 0;
-        digit.to_string().chars().for_each(|character| {
-            let char_indx: usize = {
-                match character {
-                    '0' => { 0 }
-                    '1' => { 1 }
-                    '2' => { 2 }
-                    '3' => { 3 }
-                    '4' => { 4 }
-                    '5' => { 5 }
-                    '6' => { 6 }
-                    '7' => { 7 }
-                    '8' => { 8 }
-                    '9' => { 9 }
-                    '-' => { 10 }
-                    _ => { 100 }
-                }
-            };
+        if (digit != 0) {
+            let mut counter = 0;
+            digit.to_string().chars().for_each(|character| {
+                let char_indx: usize = {
+                    match character {
+                        '0' => { 0 }
+                        '1' => { 1 }
+                        '2' => { 2 }
+                        '3' => { 3 }
+                        '4' => { 4 }
+                        '5' => { 5 }
+                        '6' => { 6 }
+                        '7' => { 7 }
+                        '8' => { 8 }
+                        '9' => { 9 }
+                        '-' => { 10 }
+                        _ => { 100 }
+                    }
+                };
 
-            if (char_indx != 100) {
-                match counter {
-                    0 => { txt_vertex_buffer_a.push(self.digits_atlas_a_0[char_indx].clone()); }
-                    1 => { txt_vertex_buffer_a.push(self.digits_atlas_a_1[char_indx].clone()); }
-                    2 => { txt_vertex_buffer_a.push(self.digits_atlas_a_2[char_indx].clone()); }
-                    3 => { txt_vertex_buffer_a.push(self.digits_atlas_a_3[char_indx].clone()); }
-                    _ => {}
+                if (char_indx != 100) {
+                    match counter {
+                        0 => { txt_vertex_buffer_a.push(self.digits_atlas_a_0[char_indx].clone()); }
+                        1 => { txt_vertex_buffer_a.push(self.digits_atlas_a_1[char_indx].clone()); }
+                        2 => { txt_vertex_buffer_a.push(self.digits_atlas_a_2[char_indx].clone()); }
+                        3 => { txt_vertex_buffer_a.push(self.digits_atlas_a_3[char_indx].clone()); }
+                        _ => {}
+                    }
                 }
-            }
-            counter = counter + 1;
-        });
+                counter = counter + 1;
+            });
+        }
         self.txt_vertex_buffer_a = txt_vertex_buffer_a;
         self.is_dirty = true;
     }
     pub fn set_digit_b(&mut self, digit: i32) {
         let mut txt_vertex_buffer: Vec<StepVertexBuffer> = vec![];
-        let mut counter = 0;
-        digit.to_string().chars().for_each(|character| {
-            let char_indx: usize = {
-                match character {
-                    '0' => { 0 }
-                    '1' => { 1 }
-                    '2' => { 2 }
-                    '3' => { 3 }
-                    '4' => { 4 }
-                    '5' => { 5 }
-                    '6' => { 6 }
-                    '7' => { 7 }
-                    '8' => { 8 }
-                    '9' => { 9 }
-                    '-' => { 10 }
-                    _ => { 100 }
-                }
-            };
+        if (digit != 0) {
+            let mut counter = 0;
+            digit.to_string().chars().for_each(|character| {
+                let char_indx: usize = {
+                    match character {
+                        '0' => { 0 }
+                        '1' => { 1 }
+                        '2' => { 2 }
+                        '3' => { 3 }
+                        '4' => { 4 }
+                        '5' => { 5 }
+                        '6' => { 6 }
+                        '7' => { 7 }
+                        '8' => { 8 }
+                        '9' => { 9 }
+                        '-' => { 10 }
+                        _ => { 100 }
+                    }
+                };
 
-            if (char_indx != 100) {
-                match counter {
-                    0 => { txt_vertex_buffer.push(self.digits_atlas_b_0[char_indx].clone()); }
-                    1 => { txt_vertex_buffer.push(self.digits_atlas_b_1[char_indx].clone()); }
-                    2 => { txt_vertex_buffer.push(self.digits_atlas_b_2[char_indx].clone()); }
-                    3 => { txt_vertex_buffer.push(self.digits_atlas_b_3[char_indx].clone()); }
-                    _ => {}
+                if (char_indx != 100) {
+                    match counter {
+                        0 => { txt_vertex_buffer.push(self.digits_atlas_b_0[char_indx].clone()); }
+                        1 => { txt_vertex_buffer.push(self.digits_atlas_b_1[char_indx].clone()); }
+                        2 => { txt_vertex_buffer.push(self.digits_atlas_b_2[char_indx].clone()); }
+                        3 => { txt_vertex_buffer.push(self.digits_atlas_b_3[char_indx].clone()); }
+                        _ => {}
+                    }
                 }
-            }
-            counter = counter + 1;
-        });
+                counter = counter + 1;
+            });
+        }
         self.txt_vertex_buffer_b = txt_vertex_buffer;
         self.is_dirty = true;
     }
     pub fn set_digit_c(&mut self, digit: i32) {
         let mut txt_vertex_buffer: Vec<StepVertexBuffer> = vec![];
-        let mut counter = 0;
-        digit.to_string().chars().for_each(|character| {
-            let char_indx: usize = {
-                match character {
-                    '0' => { 0 }
-                    '1' => { 1 }
-                    '2' => { 2 }
-                    '3' => { 3 }
-                    '4' => { 4 }
-                    '5' => { 5 }
-                    '6' => { 6 }
-                    '7' => { 7 }
-                    '8' => { 8 }
-                    '9' => { 9 }
-                    '-' => { 10 }
-                    _ => { 100 }
-                }
-            };
+        if (digit != 0) {
+            let mut counter = 0;
+            digit.to_string().chars().for_each(|character| {
+                let char_indx: usize = {
+                    match character {
+                        '0' => { 0 }
+                        '1' => { 1 }
+                        '2' => { 2 }
+                        '3' => { 3 }
+                        '4' => { 4 }
+                        '5' => { 5 }
+                        '6' => { 6 }
+                        '7' => { 7 }
+                        '8' => { 8 }
+                        '9' => { 9 }
+                        '-' => { 10 }
+                        _ => { 100 }
+                    }
+                };
 
-            if (char_indx != 100) {
-                match counter {
-                    0 => { txt_vertex_buffer.push(self.digits_atlas_c_0[char_indx].clone()); }
-                    1 => { txt_vertex_buffer.push(self.digits_atlas_c_1[char_indx].clone()); }
-                    2 => { txt_vertex_buffer.push(self.digits_atlas_c_2[char_indx].clone()); }
-                    3 => { txt_vertex_buffer.push(self.digits_atlas_c_3[char_indx].clone()); }
-                    _ => {}
+                if (char_indx != 100) {
+                    match counter {
+                        0 => { txt_vertex_buffer.push(self.digits_atlas_c_0[char_indx].clone()); }
+                        1 => { txt_vertex_buffer.push(self.digits_atlas_c_1[char_indx].clone()); }
+                        2 => { txt_vertex_buffer.push(self.digits_atlas_c_2[char_indx].clone()); }
+                        3 => { txt_vertex_buffer.push(self.digits_atlas_c_3[char_indx].clone()); }
+                        _ => {}
+                    }
                 }
-            }
-            counter = counter + 1;
-        });
+                counter = counter + 1;
+            });
+        }
+
         self.txt_vertex_buffer_c = txt_vertex_buffer;
         self.is_dirty = true;
     }

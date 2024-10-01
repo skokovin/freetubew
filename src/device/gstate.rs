@@ -50,6 +50,7 @@ const FRAME_COUNT_DIVIDER: u64 = 100000;
 const CANVAS_ID: &str = "canvas3dwindow";
 pub const UP_DIR32: Vector3<f32> = Vector3::new(0.0, 0.0, 1.0);
 pub const FORWARD_DIR32: Vector3<f32> = Vector3::new(1.0, 0.0, 0.0);
+pub const RIGHT_DIR32: Vector3<f32> = Vector3::new(0.0, 1.0, 0.0);
 //#[cfg(target_arch = "wasm32")]
 #[cfg(not(target_arch = "wasm32"))]
 async fn create_primary(rc_window: Arc<Window>) -> Option<(Instance, Surface<'static>, Adapter)> {
