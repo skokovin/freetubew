@@ -21,7 +21,8 @@ const STRIGHT_COLOR: u32 = 76;
 const BEND_COLOR: u32 = 37;
 pub const SELECT_COLOR: u32 = 1;
 
-pub const DORN_COLOR_ID: usize = 56;
+pub const DORN_COLOR_ID: usize =56;
+
 pub const TXT_A_COLOR: u32 = 55;
 pub const TXT_B_COLOR: u32 = 55;
 pub const TXT_C_COLOR: u32 = 55;

@@ -229,10 +229,10 @@ impl TxtMesh {
               txt_vertex_buffer_a.push(digits_atlas_a_3[10].clone());*/
 
         let mut txt_vertex_buffer_b: Vec<StepVertexBuffer> = vec![];
-        txt_vertex_buffer_b.push(digits_atlas_b_0[2].clone());
+/*        txt_vertex_buffer_b.push(digits_atlas_b_0[2].clone());
         txt_vertex_buffer_b.push(digits_atlas_b_1[0].clone());
         txt_vertex_buffer_b.push(digits_atlas_b_2[4].clone());
-        txt_vertex_buffer_b.push(digits_atlas_b_3[7].clone());
+        txt_vertex_buffer_b.push(digits_atlas_b_3[7].clone());*/
 
         let mut txt_vertex_buffer_c: Vec<StepVertexBuffer> = vec![];
         /*        txt_vertex_buffer_c.push(digits_atlas_c_0[7].clone());
@@ -302,7 +302,7 @@ impl TxtMesh {
         let v: Vector3<f32> = Vector3::new(0.0, -SEMI_LENGTH as f32, 0.0);
         let rot3: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad((rad / 2.0) as f32));
         let tr = Matrix4::from_translation(v);
-        self.txt_b_transformation = rot3 * tr * dorn_offset * rot1 * tr_middle_point; //Matrix4::identity();
+        self.txt_b_transformation =dorn_offset* rot3*tr  * rot1 * tr_middle_point; //Matrix4::identity();
         self.set_digit_b(angle_deg as i32);
     }
 
