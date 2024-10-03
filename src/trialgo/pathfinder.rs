@@ -139,6 +139,7 @@ pub struct CncOps {
     pub commands: Vec<LRACLR>,
     pub opcodes: Vec<LRACMD>,
     pub unbend_offsets: Vec<f32>,
+    pub is_sym_ready:bool,
 }
 impl CncOps {
     pub fn default() -> Self {
@@ -148,6 +149,7 @@ impl CncOps {
             commands: vec![],
             opcodes: vec![],
             unbend_offsets: vec![],
+            is_sym_ready:false,
         }
     }
 
@@ -156,7 +158,17 @@ impl CncOps {
         self.commands = self.calculate_lraclr();
         self.unbend_offsets = unbend_offsets;
         self.current_step=0;
+        self.is_sym_ready=true;
     }
+
+    pub fn set_value_no_animation(&mut self, value: CncOps, unbend_offsets: Vec<f32>) {
+        self.ops = value.ops;
+        self.commands = self.calculate_lraclr();
+        self.unbend_offsets = unbend_offsets;
+        self.current_step=0;
+        self.is_sym_ready=false;
+    }
+
     pub fn curr_op(&self) -> OpElem {
         self.ops[self.current_step].clone()
     }
@@ -266,6 +278,7 @@ impl CncOps {
             commands: vec![],
             opcodes: vec![],
             unbend_offsets: vec![],
+            is_sym_ready:false,
         }
     }
     fn fix_dirs(opers: &mut Vec<OpElem>) {
@@ -675,6 +688,7 @@ impl CncOps {
     }
 
     pub fn calculate_lraclr(&mut self) -> Vec<LRACLR> {
+        self.is_sym_ready=false;
         let mut cncs: Vec<LRACLR> = vec![];
         let mut opcodes: Vec<LRACMD> = vec![];
         if (self.ops.len() > 1 && self.ops.len().is_odd()) {
@@ -795,129 +809,7 @@ impl CncOps {
         self.commands.clone()
     }
 
-    pub fn calculate_lraclr_old(&mut self) -> Vec<LRACLR> {
-        let mut cncs: Vec<LRACLR> = vec![];
-        let mut opcodes: Vec<LRACMD> = vec![];
-        if (self.ops.len() > 1 && self.ops.len().is_odd()) {
-            let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));
-            let last_op: OpElem = self.ops.last().unwrap().clone();
-            let mut pair_arr: Vec<OpElem> = vec![];
-            for i in 0..self.ops.len() - 1 {
-                pair_arr.push(self.ops[i].clone());
-            }
-            let mut it_first = true;
-            let mut outd: f64 = 0.0;
-            let mut counter = 1;
-            pair_arr.chunks(2).for_each(|ops| {
-                let op1 = &ops[0];
-                let op2 = &ops[1];
-                let mut cnc: LRACLR = LRACLR::default();
-                match op1 {
-                    OpElem::CYL(c) => {
-                        cnc.id1 = counter;
-                        counter = counter + 1;
-                        cnc.l = c.h;
-                        outd = c.r;
-                        cnc.outd = outd;
-                    }
-                    OpElem::TOR(t) => {}
-                    OpElem::Nothing => {}
-                }
-                match op2 {
-                    OpElem::CYL(c) => {}
-                    OpElem::TOR(t) => {
-                        let mut r_rad = 0.0;
-                        match op1 {
-                            OpElem::CYL(c) => {
-                                let r: Rad<f64> = if (it_first) {
-                                    let new_plane = Plane::new(t.bend_center_point, t.ca.loc, t.cb.loc);
-                                    plane = new_plane;
-                                    it_first = false;
-                                    Rad(0.0)
-                                } else {
-                                    let new_plane = Plane::new(t.bend_center_point, t.ca.loc, t.cb.loc);
-                                    let rot_axe: Vector3 = c.cb.loc.sub(c.ca.loc);
-                                    let prev_vec = plane.normal();
-                                    let prev_right = rot_axe.cross(prev_vec);
-                                    let curr_vec = new_plane.normal();
-                                    let cp = c.cb.loc.clone();
-                                    let prev_p = cp.clone() + prev_vec * c.r;
-                                    let curr_p = cp.clone() + curr_vec * c.r;
-                                    let ccw_vec = curr_p.sub(prev_p);
-                                    let rot_angle = prev_vec.angle(curr_vec);
 
-                                    let k: f64 = {
-                                        if (rot_angle == Rad(PI) || rot_angle == Rad(2.0 * PI)) {
-                                            -1.0
-                                        } else if (prev_right.dot(ccw_vec) < 0.0) {
-                                            1.0
-                                        } else {
-                                            1.0
-                                        }
-                                    };
-                                    warn!("ROT ANGLE {:?} {:?}",k,rot_angle);
-                                    plane = new_plane;
-                                    rot_angle * k
-                                };
-                                r_rad = r.0;
-                                cnc.r = Deg::from(r).0;
-                            }
-                            OpElem::TOR(t) => {}
-                            OpElem::Nothing => {}
-                        }
-
-                        cnc.clr = t.bend_radius;
-                        cnc.id2 = counter;
-                        counter = counter + 1;
-                        let ba = t.ca.loc.sub(t.bend_center_point);
-                        let bb = t.cb.loc.sub(t.bend_center_point);
-                        let bend_angle = ba.angle(bb);
-                        cnc.lt = r_rad * t.bend_radius;
-                        cnc.a = Deg::from(bend_angle).0;
-                    }
-                    OpElem::Nothing => {}
-                }
-                cnc.outd = outd;
-                cncs.push(cnc);
-            });
-            match last_op {
-                OpElem::CYL(c) => {
-                    let mut cnc: LRACLR = LRACLR::default();
-                    cnc.id1 = counter;
-                    cnc.l = c.h;
-                    cnc.outd = outd;
-                    cncs.push(cnc);
-                }
-                OpElem::TOR(_) => {}
-                OpElem::Nothing => {}
-            }
-        }
-
-        let mut counter = 0;
-        cncs.iter().for_each(|cnc| {
-            let opc1: LRACMD = LRACMD {
-                id: counter,
-                op_code: 0,
-                pipe_radius: cnc.outd,
-                value0: cnc.l,
-                value1: cnc.r,
-            };
-            counter = counter + 1;
-            let opc2: LRACMD = LRACMD {
-                id: counter,
-                op_code: 1,
-                pipe_radius: cnc.outd,
-                value0: cnc.a,
-                value1: cnc.clr,
-            };
-            counter = counter + 1;
-            opcodes.push(opc1);
-            opcodes.push(opc2);
-        });
-        self.opcodes = opcodes;
-        self.commands = cncs;
-        self.commands.clone()
-    }
     pub fn calculate_lra(&self) -> Vec<i32> {
         let mut cmnds: Vec<LRACMD> = vec![];
         let mut plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0), Point3::new(0.0, 1.0, 0.0));
@@ -1115,6 +1007,7 @@ impl CncOps {
             commands: vec![],
             opcodes: vec![],
             unbend_offsets: vec![],
+            is_sym_ready: false,
         };
         ret.calculate_lraclr();
         ret

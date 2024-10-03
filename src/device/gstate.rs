@@ -33,7 +33,7 @@ use crate::remote::{RemoteCommand, COMMANDS, IS_OFFSCREEN_READY};
 use crate::remote::{pipe_bend_ops, pipe_obj_file};
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowExtWebSys;
-
+use crate::device::dt_state::DeltaTimeState;
 use crate::trialgo::analyzepl::analyze_bin;
 use crate::trialgo::pathfinder::{CncOps, OpElem, LRACLR};
 
@@ -143,6 +143,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             frame_counter: 0,
             instant: Instant::now(),
             render_mode:RenderMode::Bend,
+
         }
     }
 }
@@ -538,6 +539,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=GState> +
             frame_counter: 0,
             instant: Instant::now(),
             render_mode:RenderMode::Bend,
+
         }
     }
 }
@@ -580,6 +582,7 @@ pub struct GState {
     frame_counter: u64,
     instant:Instant,
     render_mode: RenderMode,
+
 }
 
 impl GState {
@@ -1080,6 +1083,15 @@ impl GState {
 
 
     fn check_commands(&mut self) {
+
+        if(self.mesh_pipeline.ops.is_sym_ready){
+            let dt=self.mesh_pipeline.delta_time_state.dt();
+            if(dt>0.0){
+                self.mesh_pipeline.animate_bend_step(&self.device,dt);
+            }
+        }
+
+
         match COMMANDS.try_lock() {
             Ok(mut s) => {
                 match s.get_first() {
@@ -1153,6 +1165,8 @@ impl GState {
             }
             Err(_) => { warn!("CANT_LOCK") }
         }
+
+
     }
     fn on_keyboard(&mut self, _d: DeviceId, key: KeyEvent, _is_synth: bool, proxy: &EventLoopProxy<GEvent>) {
         match key.physical_key {
@@ -1188,8 +1202,23 @@ impl GState {
                 match key.state {
                     ElementState::Pressed => {}
                     ElementState::Released => {
-                        self.mesh_pipeline.select_by_id(&self.device, self.test_counter);
-                        self.test_counter = self.test_counter + 1;
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/5.stp")).as_slice());
+                        //let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/ypm_e71042.stp")).as_slice());
+                        #[cfg(target_arch = "wasm32")]
+                        let stp: Vec<u8> = vec![];
+                        match analyze_bin(&stp) {
+                            None => {}
+                            Some(ops) => {
+                                self.render_mode=RenderMode::UnBend;
+                                let prerender_bent: PreRender =  ops.to_render_data(vec![]);
+                                let prerender: PreRender =  ops.generate_unbend_model_from_cl();
+                                self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
+                                self.camera.calculate_tot_bbx_at_zero_point(prerender_bent.tot_bbx);
+                                self.camera.move_camera_to_bbx_limits();
+                                self.mesh_pipeline.ops.set_value(ops,prerender.unbend_offsets);
+                            }
+                        };
                     }
                 }
             }
@@ -1212,11 +1241,9 @@ impl GState {
                                 self.mesh_pipeline.init_model(&self.device,prerender.steps_data);
                                 self.camera.calculate_tot_bbx_at_zero_point(prerender_bent.tot_bbx);
                                 self.camera.move_camera_to_bbx_limits();
-                                self.mesh_pipeline.ops.set_value(ops,prerender.unbend_offsets);
+                                self.mesh_pipeline.ops.set_value_no_animation(ops,prerender.unbend_offsets);
                             }
                         };
-                        warn!("F5 Released");
-
                     }
                 }
             }
