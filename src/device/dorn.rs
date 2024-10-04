@@ -67,7 +67,7 @@ impl Dorn {
 
 
         self.step_vertex_buffer=vec![];
-        self.step_vertex_buffer.extend(dorn_symbol);
+        //self.step_vertex_buffer.extend(dorn_symbol);
         self.step_vertex_buffer.extend(dorn_z_symbol);
         self.step_vertex_buffer.extend(mc_y);
         self.step_vertex_buffer.extend(mc_y_moved);

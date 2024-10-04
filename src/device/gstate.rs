@@ -1084,7 +1084,8 @@ impl GState {
 
     fn check_commands(&mut self) {
 
-        if(self.mesh_pipeline.ops.is_sym_ready){
+        if(self.mesh_pipeline.ops.is_sym_ready && self.test_counter==0){
+            self.test_counter=10;
             let dt=self.mesh_pipeline.delta_time_state.dt();
             if(dt>0.0){
                 self.mesh_pipeline.animate_bend_step(&self.device,dt);
@@ -1170,6 +1171,14 @@ impl GState {
     }
     fn on_keyboard(&mut self, _d: DeviceId, key: KeyEvent, _is_synth: bool, proxy: &EventLoopProxy<GEvent>) {
         match key.physical_key {
+            PhysicalKey::Code(KeyCode::F1) => {
+                match key.state {
+                    ElementState::Pressed => {}
+                    ElementState::Released => {
+                        self.test_counter=0;
+                    }
+                }
+            }
             PhysicalKey::Code(KeyCode::F2) => {
                 match key.state {
                     ElementState::Pressed => {}
@@ -1242,6 +1251,7 @@ impl GState {
                                 self.camera.calculate_tot_bbx_at_zero_point(prerender_bent.tot_bbx);
                                 self.camera.move_camera_to_bbx_limits();
                                 self.mesh_pipeline.ops.set_value_no_animation(ops,prerender.unbend_offsets);
+
                             }
                         };
                     }

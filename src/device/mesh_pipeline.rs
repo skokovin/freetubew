@@ -559,7 +559,7 @@ impl MeshPipeLine {
             DORN_PARK_POSITION,
         );
     }
-    fn animate_bend(&mut self, device: &Device, op: LRACMD) {
+    fn animate_bend(&mut self, device: &Device, op: LRACMD, acc_angle:f64) {
 
             if (op.id < self.ops.unbend_offsets.len() as i32) {
                 self.txt_mesh.setup_a_pos(0.0);
@@ -567,6 +567,7 @@ impl MeshPipeLine {
                 self.txt_mesh.setup_c_pos(0.0);
 
                 let offset = self.ops.unbend_offsets[op.id as usize];
+                let prev_offset = self.ops.unbend_offsets[(op.id-1) as usize];
                 let dorn_radius: f32 = op.value1 as f32;
                 let deg_angle = Deg(op.value0 as f32);
                 let bend_radius = dorn_radius + op.pipe_radius as f32;
@@ -584,7 +585,9 @@ impl MeshPipeLine {
 
                 let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
 
-                let new_buff: StepVertexBuffer = CncOps::generate_tor_by_cnc(&op, offset as f64);
+                let new_buff: StepVertexBuffer =
+                    CncOps::generate_tor_by_cnc_animation(&op, offset as f64, prev_offset as f64, acc_angle);
+
 
                 self.step_vertex_buffer[op.id as usize] = new_buff;
                 self.update_vertexes(device);
@@ -602,43 +605,10 @@ impl MeshPipeLine {
 
     }
 
-    fn animate_bend2(&mut self, device: &Device, op: LRACMD) {
-        self.txt_mesh.setup_a_pos(0.0);
-        self.txt_mesh.setup_b_pos(op.value0, op.value1);
-        self.txt_mesh.setup_c_pos(0.0);
-        let offset = self.ops.unbend_offsets[op.id as usize];
-        let dorn_radius: f32 = op.value1 as f32;
-        let deg_angle = Deg(op.value0 as f32);
-        let bend_radius = dorn_radius + op.pipe_radius as f32;
-        let dorn_move_scalar = abs(Rad::from(deg_angle).0 * bend_radius);
-        let r_feed: Matrix4<f32> = Matrix4::identity();
-        let t_feed: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar, 0.0, 0.0));
-        let p0: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
-        let cp: Point3<f32> = Point3::new(0.0, -bend_radius, 0.0);
-        let v = p0 - cp;
-        let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
-        let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
-        let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (bend_radius - rotated.y), 0.0);
-        let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
-        let new_buff: StepVertexBuffer = CncOps::generate_tor_by_cnc(&op, offset as f64);
-        self.step_vertex_buffer[op.id as usize] = new_buff;
-        self.update_vertexes(device);
-        self.dorn.set_dorn(dorn_radius);
-        self.dorn.update_vertexes(device);
-        self.do_step(
-            op.id as usize,
-            t_dorn,
-            r_dorn,
-            t_feed,
-            r_feed,
-            bend_radius,
-        );
-    }
-
 
     pub fn animate_bend_step(&mut self, device: &Device, dt: f64) {
         let tmp_delta_move = 100.0;
-        let tmp_delta_angle = 15.0;
+        let tmp_delta_angle =5.0;
         match &self.delta_time_state.op {
             None => {
                 self.delta_time_state.op = Some(self.ops.do_bend().clone());
@@ -685,10 +655,10 @@ impl MeshPipeLine {
                         }
                     }
                     1 => {
-                        if (self.delta_time_state.curr_value0 + tmp_delta_angle > op.value0) {
-                            self.delta_time_state.curr_value0 = op.value0;
+                        if (self.delta_time_state.curr_value0 + tmp_delta_angle >= op.value0) {
                             let value0=op.value0-self.delta_time_state.curr_value0;
-                            //warn!("BEND V0 {:?} of {:?} V1 {:?} of {:?}", self.delta_time_state.curr_value0,op.value0, self.delta_time_state.curr_value1,op.value1);
+                            self.delta_time_state.curr_value0 = op.value0;
+                            //warn!("BEND V0 {:?} of {:?} V1 {:?} of {:?}", value0,op.value0, self.delta_time_state.curr_value1,op.value1);
                             let n_op: LRACMD = LRACMD {
                                 id,
                                 op_code: op.op_code,
@@ -696,7 +666,7 @@ impl MeshPipeLine {
                                 value0: value0,
                                 value1: op.value1,
                             };
-                            self.animate_bend(device, n_op);
+                            self.animate_bend(device, n_op,self.delta_time_state.curr_value0);
                             self.delta_time_state.op = None;
                             self.delta_time_state.curr_value0 = 0.0;
                             self.delta_time_state.curr_value1 = 0.0;
@@ -709,7 +679,7 @@ impl MeshPipeLine {
                                 value0: tmp_delta_angle,
                                 value1: op.value1,
                             };
-                            self.animate_bend(device, n_op);
+                            self.animate_bend(device, n_op,self.delta_time_state.curr_value0);
                         }
                     }
                     _ => {}
