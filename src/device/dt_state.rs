@@ -3,7 +3,7 @@ use log::warn;
 use web_time::{Instant, SystemTime};
 use crate::trialgo::pathfinder::LRACMD;
 
-const PAUSE:f64 = 25.0;
+const PAUSE:f64 = 100.0;
 pub struct DeltaTimeState{
     inst_prew:Instant,
     delta_time:Duration,
@@ -26,7 +26,6 @@ impl DeltaTimeState {
     pub fn dt(&mut self) -> f64{
         let dt=self.inst_prew.elapsed().as_millis() as f64;
         if(dt>PAUSE){
-            warn!("KeyFrame {}",dt);
             self.inst_prew = Instant::now();
             dt
         }else{

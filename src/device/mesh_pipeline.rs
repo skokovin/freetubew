@@ -651,8 +651,9 @@ impl MeshPipeLine {
     }
 
     pub fn animate_bend_step(&mut self, device: &Device, dt: f64) {
-        let tmp_delta_move = 10.0;
-        let tmp_delta_angle =1.0;
+        let tmp_delta_move = dt*0.1;
+        let tmp_delta_angle =dt*0.01;
+
         match &self.delta_time_state.op {
             None => {
                 self.delta_time_state.op = Some(self.ops.do_bend().clone());
