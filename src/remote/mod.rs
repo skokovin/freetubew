@@ -32,6 +32,7 @@ pub enum RemoteCommand {
     OnSelectById(i32),
     OnInitBend((Vec<u8>)),
     OnDoBend,
+    OnAnimateBend,
 }
 
 /*#[cfg(target_arch = "wasm32")]

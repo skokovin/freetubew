@@ -1160,6 +1160,11 @@ impl GState {
                                     self.mesh_pipeline.calculate_bend_step(&self.device);
                                 }
                             }
+                            RemoteCommand::OnAnimateBend => {
+                                if(!self.mesh_pipeline.ops.ops.is_empty()){
+                                    //self.mesh_pipeline.animate_bend_step(&self.device, 0.0);
+                                }
+                            }
                         }
                     }
                 }
@@ -1212,7 +1217,7 @@ impl GState {
                     ElementState::Pressed => {}
                     ElementState::Released => {
                         #[cfg(not(target_arch = "wasm32"))]
-                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/5.stp")).as_slice());
+                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/9.stp")).as_slice());
                         //let stp: Vec<u8> = Vec::from((include_bytes!("d:/pipe_project/worked/ypm_e71042.stp")).as_slice());
                         #[cfg(target_arch = "wasm32")]
                         let stp: Vec<u8> = vec![];
