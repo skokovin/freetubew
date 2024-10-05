@@ -7,7 +7,6 @@ use crate::device::StepVertexBuffer;
 use crate::trialgo::bendpipe::MainCylinder;
 
 
-
 const DORN_THICKNESS: f32 = 20.0;
 pub const DORN_PARK_POSITION: f32 = 210.0;
 const DORN_UP: Vector3<f32> = Vector3::new(0.0, 0.0, 1.0);
@@ -20,7 +19,7 @@ pub const AXIS_Z_THICKNESS: f64 = 1.7;
 pub const SEMI_LENGTH: f64 = 300.0;
 
 pub const DORN_AXIS_Y_COLOR: usize = 89;
-pub const DORN_AXIS_Z_COLOR: usize =10;
+pub const DORN_AXIS_Z_COLOR: usize = 10;
 
 pub struct Dorn {
     pub v_buffer: Vec<Buffer>,
@@ -47,8 +46,8 @@ impl Dorn {
             Point3::new(0.0, 0.0, DORN_THICKNESS as f64),
             Point3::new(0.0, 0.0, -DORN_THICKNESS as f64), dorn_radius as f64, DORN_ID as u32);
         let dorn_z_symbol = MainCylinder::by_2points_r(
-            Point3::new(0.0, 0.0, (DORN_THICKNESS+20.0) as f64),
-            Point3::new(0.0, 0.0, -(DORN_THICKNESS+20.0) as f64), AXIS_Y_THICKNESS , DORN_ID as u32);
+            Point3::new(0.0, 0.0, (DORN_THICKNESS + 20.0) as f64),
+            Point3::new(0.0, 0.0, -(DORN_THICKNESS + 20.0) as f64), AXIS_Y_THICKNESS, DORN_ID as u32);
 
         let mc_y = MainCylinder::by_2points_r(
             Point3::new(0.0, -SEMI_LENGTH, 0.0),
@@ -58,16 +57,15 @@ impl Dorn {
             Point3::new(0.0, SEMI_LENGTH, 0.0), AXIS_Y_THICKNESS, DORN_AXIS_Y_MOVED_ID as u32);
 
         let mc_z = MainCylinder::by_2points_r(
-            Point3::new(0.0, 0.0,-SEMI_LENGTH),
-            Point3::new(0.0,  0.0,SEMI_LENGTH,), AXIS_Z_THICKNESS, DORN_AXIS_Z_ID as u32);
+            Point3::new(0.0, 0.0, -SEMI_LENGTH),
+            Point3::new(0.0, 0.0, SEMI_LENGTH), AXIS_Z_THICKNESS, DORN_AXIS_Z_ID as u32);
         let mc_z_moved = MainCylinder::by_2points_r(
-            Point3::new(0.0, 0.0,-SEMI_LENGTH),
-            Point3::new(0.0, 0.0,SEMI_LENGTH), AXIS_Z_THICKNESS, DORN_AXIS_Z_MOVED_ID as u32);
+            Point3::new(0.0, 0.0, -SEMI_LENGTH),
+            Point3::new(0.0, 0.0, SEMI_LENGTH), AXIS_Z_THICKNESS, DORN_AXIS_Z_MOVED_ID as u32);
 
 
-
-        self.step_vertex_buffer=vec![];
-        //self.step_vertex_buffer.extend(dorn_symbol);
+        self.step_vertex_buffer = vec![];
+        self.step_vertex_buffer.extend(dorn_symbol);
         self.step_vertex_buffer.extend(dorn_z_symbol);
         self.step_vertex_buffer.extend(mc_y);
         self.step_vertex_buffer.extend(mc_y_moved);
@@ -95,5 +93,4 @@ impl Dorn {
             index = index + 1;
         });
     }
-
 }

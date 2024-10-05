@@ -1085,7 +1085,7 @@ impl GState {
     fn check_commands(&mut self) {
 
         if(self.mesh_pipeline.ops.is_sym_ready && self.test_counter==0){
-            self.test_counter=10;
+            //self.test_counter=10;
             let dt=self.mesh_pipeline.delta_time_state.dt();
             if(dt>0.0){
                 self.mesh_pipeline.animate_bend_step(&self.device,dt);

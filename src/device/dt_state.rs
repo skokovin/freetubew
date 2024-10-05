@@ -3,7 +3,7 @@ use log::warn;
 use web_time::{Instant, SystemTime};
 use crate::trialgo::pathfinder::LRACMD;
 
-const PAUSE:f64 = 500.0;
+const PAUSE:f64 = 25.0;
 pub struct DeltaTimeState{
     inst_prew:Instant,
     delta_time:Duration,

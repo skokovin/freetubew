@@ -292,13 +292,12 @@ impl TxtMesh {
 
     pub fn setup_b_pos(&mut self, angle_deg: f64, dorn_radius: f64) {
         let dorn_offset: Matrix4<f32> = Matrix4::from_translation(Vector3::new(0.0, dorn_radius as f32, 0.0));
-        warn!("BEND ANGLE {:?}",angle_deg);
+
         let glyph_count: usize = (angle_deg as i32).to_string().len();
         let middle_point = -(glyph_count as f32 / 4.0 * FONT_SIZE + (glyph_count as f32 - 1.0) * FONT_OFFSET);
         let tr_middle_point = Matrix4::from_translation(Vector3::new(middle_point, 0.0, 0.0));
         let rad = angle_deg.to_radians();
         let rot1: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(Deg(180.0)));
-        //let rot2: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(Deg(90.0)));
         let v: Vector3<f32> = Vector3::new(0.0, -SEMI_LENGTH as f32, 0.0);
         let rot3: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad((rad / 2.0) as f32));
         let tr = Matrix4::from_translation(v);
@@ -308,7 +307,6 @@ impl TxtMesh {
 
     pub fn setup_c_pos(&mut self, angle_deg: f64) {
         let dorn_offset: Matrix4<f32> = Matrix4::from_translation(Vector3::new(angle_deg as f32 / 2.0, 0.0, 0.0));
-        warn!("BEND ANGLE {:?}",angle_deg);
         let glyph_count: usize = (angle_deg as i32).to_string().len();
         let middle_point = -(glyph_count as f32 / 4.0 * FONT_SIZE + (glyph_count as f32 - 1.0) * FONT_OFFSET);
         let tr_middle_point = Matrix4::from_translation(Vector3::new(middle_point, 0.0, 0.0));

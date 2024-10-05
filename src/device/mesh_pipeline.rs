@@ -449,11 +449,24 @@ impl MeshPipeLine {
             mapped_at_creation: false,
         });
     }
-    pub fn do_step(&mut self, step: usize, t_dorn: Matrix4<f32>, r_dorn: Matrix4<f32>, t_feed: Matrix4<f32>, r_feed: Matrix4<f32>, dorn_head_pos: f32) {
+    pub fn do_step(&mut self,
+                   step: usize,
+                   t_dorn: Matrix4<f32>,
+                   r_dorn: Matrix4<f32>,
+                   t_feed: Matrix4<f32>,
+                   r_feed: Matrix4<f32>,
+                   dorn_head_pos: f32,
+                   t_dorn_acc: Matrix4<f32>,
+                   r_dorn_acc: Matrix4<f32>,
+                   r_feed_acc: Matrix4<f32>,
+
+    ) {
         for i in (0..step) {
             self.feed_translations_state[i] = t_dorn * r_dorn * r_feed * self.feed_translations_state[i];
-            self.feed_translations_state[DORN_AXIS_Y_MOVED_ID] = t_dorn * r_dorn;
-            self.feed_translations_state[DORN_AXIS_Z_MOVED_ID] = r_feed;
+            //self.feed_translations_state[DORN_AXIS_Y_MOVED_ID] = t_dorn * r_dorn;
+            //self.feed_translations_state[DORN_AXIS_Z_MOVED_ID] = r_feed;
+            self.feed_translations_state[DORN_AXIS_Y_MOVED_ID] = t_dorn_acc * r_dorn_acc;
+            self.feed_translations_state[DORN_AXIS_Z_MOVED_ID] = r_feed_acc;
         }
         for i in (step)..LAST_PIPE_ID {
             self.feed_translations_state[i] = self.feed_translations_state[i] * t_feed;
@@ -462,7 +475,6 @@ impl MeshPipeLine {
         self.feed_translations_state[DORN_ID] = Matrix4::from_translation(Vector3::<f32>::new(0.0, dorn_head_pos, 0.0));
         self.update_transformations();
     }
-
 
     pub fn calculate_bend_step(&mut self, device: &Device) {
         let op: LRACMD = self.ops.do_bend();
@@ -484,6 +496,9 @@ impl MeshPipeLine {
                     feed_tr,
                     feed_r,
                     DORN_PARK_POSITION,
+                    dorn_tr,
+                    dorn_r,
+                    feed_r,
                 );
             }
             1 => {
@@ -523,6 +538,9 @@ impl MeshPipeLine {
                         t_feed,
                         r_feed,
                         bend_radius,
+                        t_dorn,
+                        r_dorn,
+                        r_feed,
                     );
                 }
             }
@@ -530,12 +548,19 @@ impl MeshPipeLine {
         }
     }
 
-    fn animate_move(&mut self, device: &Device, dt: f64, step: usize) {
+    fn animate_move(&mut self, device: &Device, dt: f64, step: usize, dt_acc: f64,) {
         self.txt_mesh.setup_b_pos(0.0, 0.0);
-        self.txt_mesh.setup_c_pos(dt);
+        self.txt_mesh.setup_c_pos(dt_acc);
+        self.txt_mesh.setup_a_pos(0.0);
+
         let feed_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dt as f32, 0.0, 0.0));
         let dorn_tr: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dt as f32, 0.0, 0.0));
         let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+        let t_dorn_acc: Matrix4<f32> =Matrix4::from_translation(Vector3::<f32>::new(dt_acc as f32, 0.0, 0.0));
+        let r_dorn_acc: Matrix4<f32>= Matrix4::identity();
+        let r_feed_acc: Matrix4<f32>= Matrix4::from_translation(Vector3::<f32>::new(dt_acc as f32, 0.0, 0.0));
+
         self.do_step(
             step,
             dorn_tr,
@@ -543,13 +568,24 @@ impl MeshPipeLine {
             feed_tr,
             Matrix4::identity(),
             DORN_PARK_POSITION,
+            t_dorn_acc,
+            r_dorn_acc,
+            r_feed_acc
         );
     }
-    fn animate_rotate(&mut self, device: &Device, dt: f64, step: usize) {
-        self.txt_mesh.setup_a_pos(dt);
+    fn animate_rotate(&mut self, device: &Device, dt: f64, step: usize, dt_acc: f64,) {
+        self.txt_mesh.setup_b_pos(0.0, 0.0);
+        self.txt_mesh.setup_c_pos(0.0);
+        self.txt_mesh.setup_a_pos(dt_acc);
+
         let r_deg_angle = Deg(dt as f32);
         let feed_r: Matrix4<f32> = Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(r_deg_angle));
         let dorn_r: Matrix4<f32> = Matrix4::identity();
+
+        let t_dorn_acc: Matrix4<f32> =Matrix4::identity();
+        let r_dorn_acc: Matrix4<f32>= Matrix4::identity();
+        let r_feed_acc: Matrix4<f32>= Matrix4::from_axis_angle(FORWARD_DIR32, Rad::from(Deg(dt_acc as f32)));
+
         self.do_step(
             step,
             Matrix4::identity(),
@@ -557,13 +593,16 @@ impl MeshPipeLine {
             Matrix4::identity(),
             feed_r,
             DORN_PARK_POSITION,
+            t_dorn_acc,
+            r_dorn_acc,
+            r_feed_acc
         );
     }
     fn animate_bend(&mut self, device: &Device, op: LRACMD, acc_angle:f64) {
 
             if (op.id < self.ops.unbend_offsets.len() as i32) {
                 self.txt_mesh.setup_a_pos(0.0);
-                self.txt_mesh.setup_b_pos(op.value0, op.value1);
+                self.txt_mesh.setup_b_pos(acc_angle, op.value1);
                 self.txt_mesh.setup_c_pos(0.0);
 
                 let offset = self.ops.unbend_offsets[op.id as usize];
@@ -582,13 +621,16 @@ impl MeshPipeLine {
                 let r_dorn: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle));
                 let rotated: Vector4<f32> = r_dorn * v.extend(1.0);
                 let new_vec: Vector3<f32> = Vector3::new(-rotated.x, (bend_radius - rotated.y), 0.0);
-
                 let t_dorn: Matrix4<f32> = Matrix4::from_translation(new_vec);
+
+                let deg_angle_acc = Deg(acc_angle as f32);
+                let dorn_move_scalar_acc = abs(Rad::from(deg_angle_acc).0 * bend_radius);
+                let r_dorn_acc: Matrix4<f32> = Matrix4::from_axis_angle(UP_DIR32, Rad::from(deg_angle_acc));
+
+                let t_feed_acc: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(dorn_move_scalar_acc, 0.0, 0.0));
 
                 let new_buff: StepVertexBuffer =
                     CncOps::generate_tor_by_cnc_animation(&op, offset as f64, prev_offset as f64, acc_angle);
-
-
                 self.step_vertex_buffer[op.id as usize] = new_buff;
                 self.update_vertexes(device);
                 self.dorn.set_dorn(dorn_radius);
@@ -600,15 +642,17 @@ impl MeshPipeLine {
                     t_feed,
                     r_feed,
                     bend_radius,
+                    r_dorn_acc,
+                    t_feed_acc,
+                    Matrix4::identity(),
                 );
             }
 
     }
 
-
     pub fn animate_bend_step(&mut self, device: &Device, dt: f64) {
-        let tmp_delta_move = 100.0;
-        let tmp_delta_angle =5.0;
+        let tmp_delta_move = 10.0;
+        let tmp_delta_angle =1.0;
         match &self.delta_time_state.op {
             None => {
                 self.delta_time_state.op = Some(self.ops.do_bend().clone());
@@ -622,36 +666,31 @@ impl MeshPipeLine {
                         if (self.delta_time_state.curr_value0 + tmp_delta_move > op.value0) {
                             let delta = op.value0 - self.delta_time_state.curr_value0;
                             self.delta_time_state.curr_value0 = op.value0;
-                            warn!("ID {:?} MOVE V0 {:?} of {:?} V1 {:?} of {:?}",id, self.delta_time_state.curr_value0,op.value0, self.delta_time_state.curr_value1,op.value1);
                             dm = delta;
                         } else {
                             self.delta_time_state.curr_value0 = self.delta_time_state.curr_value0 + tmp_delta_move;
-                            warn!("ID {:?} MOVE V0 {:?} of {:?} V1 {:?} of {:?}",id, self.delta_time_state.curr_value0,op.value0, self.delta_time_state.curr_value1,op.value1);
                             dm = tmp_delta_move;
-                            //self.animate_move(device, tmp_delta, id as usize);
+
                         }
 
                         if (self.delta_time_state.curr_value0 == op.value0) {
                             if (self.delta_time_state.curr_value1 + tmp_delta_angle > op.value1) {
                                 self.delta_time_state.curr_value1 = op.value1;
-
                                 dr = op.value1 - self.delta_time_state.curr_value1;
-                                // self.animate_rotate(device, self.delta_time_state.curr_value1, id as usize);
                                 self.delta_time_state.op = None;
                                 self.delta_time_state.curr_value0 = 0.0;
                                 self.delta_time_state.curr_value1 = 0.0;
                             } else {
                                 self.delta_time_state.curr_value1 = self.delta_time_state.curr_value1 + tmp_delta_angle;
                                 dr = tmp_delta_angle;
-                                //self.animate_rotate(device, self.delta_time_state.curr_value1, id as usize);
                             }
                         }
 
                         if (dm > 0.0) {
-                            self.animate_move(device, dm, id as usize);
+                            self.animate_move(device, dm, id as usize,self.delta_time_state.curr_value0);
                         }
                         if (dr > 0.0) {
-                            self.animate_rotate(device, dr, id as usize);
+                            self.animate_rotate(device, dr, id as usize,self.delta_time_state.curr_value1);
                         }
                     }
                     1 => {
