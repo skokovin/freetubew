@@ -139,7 +139,7 @@ pub struct CncOps {
     pub commands: Vec<LRACLR>,
     pub opcodes: Vec<LRACMD>,
     pub unbend_offsets: Vec<f32>,
-    pub is_sym_ready:bool,
+    pub is_sym_ready: bool,
 }
 impl CncOps {
     pub fn default() -> Self {
@@ -149,7 +149,7 @@ impl CncOps {
             commands: vec![],
             opcodes: vec![],
             unbend_offsets: vec![],
-            is_sym_ready:false,
+            is_sym_ready: false,
         }
     }
 
@@ -157,16 +157,16 @@ impl CncOps {
         self.ops = value.ops;
         self.commands = self.calculate_lraclr();
         self.unbend_offsets = unbend_offsets;
-        self.current_step=0;
-        self.is_sym_ready=true;
+        self.current_step = 0;
+        self.is_sym_ready = true;
     }
 
     pub fn set_value_no_animation(&mut self, value: CncOps, unbend_offsets: Vec<f32>) {
         self.ops = value.ops;
         self.commands = self.calculate_lraclr();
         self.unbend_offsets = unbend_offsets;
-        self.current_step=0;
-        self.is_sym_ready=false;
+        self.current_step = 0;
+        self.is_sym_ready = false;
     }
 
     pub fn curr_op(&self) -> OpElem {
@@ -278,7 +278,7 @@ impl CncOps {
             commands: vec![],
             opcodes: vec![],
             unbend_offsets: vec![],
-            is_sym_ready:false,
+            is_sym_ready: false,
         }
     }
     fn fix_dirs(opers: &mut Vec<OpElem>) {
@@ -688,7 +688,7 @@ impl CncOps {
     }
 
     pub fn calculate_lraclr(&mut self) -> Vec<LRACLR> {
-        self.is_sym_ready=false;
+        self.is_sym_ready = false;
         let mut cncs: Vec<LRACLR> = vec![];
         let mut opcodes: Vec<LRACMD> = vec![];
         if (self.ops.len() > 1 && self.ops.len().is_odd()) {
@@ -757,7 +757,7 @@ impl CncOps {
                                 let ba = t.ca.loc.sub(t.bend_center_point);
                                 let bb = t.cb.loc.sub(t.bend_center_point);
                                 let bend_angle = ba.angle(bb);
-                                cnc.lt = abs(bend_angle.0) * (t.bend_radius+t.r);
+                                cnc.lt = abs(bend_angle.0) * (t.bend_radius + t.r);
                                 cnc.a = Deg::from(bend_angle).0;
                             }
                             _ => {}
@@ -773,7 +773,7 @@ impl CncOps {
                 OpElem::CYL(c) => {
                     let mut cnc: LRACLR = LRACLR::default();
                     cnc.id1 = counter;
-                    cnc.id2 = counter+1;
+                    cnc.id2 = counter + 1;
                     cnc.l = c.h;
                     cnc.outd = outd;
                     cncs.push(cnc);
@@ -1202,9 +1202,9 @@ impl CncOps {
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), a);
         let r = opcode.pipe_radius;
         let bend_radius = opcode.pipe_radius + opcode.value1;
-        let rotated_point=rotation.rotate_point(Point3::new(0.0, bend_radius, 0.0));
+        let rotated_point = rotation.rotate_point(Point3::new(0.0, bend_radius, 0.0));
         let p0: Point3 = Point3::new(0.0, 0.0, 0.0);
-        let p1: Point3 = Point3::new(rotated_point.x, rotated_point.y-bend_radius, 0.0);
+        let p1: Point3 = Point3::new(rotated_point.x, rotated_point.y - bend_radius, 0.0);
         let v = p0.sub(p1);
 
         let forward_dir = Vector3::new(-1.0, 0.0, 0.0);
@@ -1284,16 +1284,15 @@ impl CncOps {
         sv
     }
     pub fn generate_tor_by_cnc(opcode: &LRACMD, x_movement: f64) -> StepVertexBuffer {
-
         let a = Rad::from(Deg(opcode.value0 as f64));
         let r = opcode.pipe_radius;
 
 
         let bend_radius = opcode.pipe_radius + opcode.value1;
-        let bend_l=a.0*bend_radius;
+        let bend_l = a.0 * bend_radius;
         warn!("bend_l {:?}",bend_l);
-        let p0: Point3 = Point3::new(-359.679-bend_l, 0.0, 0.0);
-        let p1: Point3 = Point3::new(-359.679-bend_l, bend_radius, 0.0);
+        let p0: Point3 = Point3::new(-359.679 - bend_l, 0.0, 0.0);
+        let p1: Point3 = Point3::new(-359.679 - bend_l, bend_radius, 0.0);
         let v = p0.sub(p1);
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), a);
         let forward_dir = Vector3::new(1.0, 0.0, 0.0);
@@ -1302,7 +1301,7 @@ impl CncOps {
         let end_p = p1 + new_v;
 
         let mut tor: BendToro = BendToro {
-            id: (opcode.id as u64)-1,
+            id: (opcode.id as u64) - 1,
             r,
             bend_radius,
             bend_center_point: p1,
@@ -1372,17 +1371,155 @@ impl CncOps {
         sv
     }
 
-    pub fn generate_tor_by_cnc_animation(opcode: &LRACMD, x_movement: f64, prev_x_movement: f64,acc_angle: f64) -> StepVertexBuffer {
-
+    pub fn generate_tor_by_cnc_animation(opcode: &LRACMD, x_movement: f64, prev_x_movement: f64, acc_angle: f64) -> StepVertexBuffer {
         let a = Rad::from(Deg(acc_angle as f64));
         let r = opcode.pipe_radius;
 
 
         let bend_radius = opcode.pipe_radius + opcode.value1;
-        let bend_l=a.0*bend_radius;
+        let bend_l = a.0 * bend_radius;
         warn!("bend_l {:?} acc_angle {:?}",bend_l,acc_angle);
-        let p0: Point3 = Point3::new(prev_x_movement-bend_l, 0.0, 0.0);
-        let p1: Point3 = Point3::new(prev_x_movement-bend_l, bend_radius, 0.0);
+        let p0: Point3 = Point3::new(prev_x_movement - bend_l, 0.0, 0.0);
+        let p1: Point3 = Point3::new(prev_x_movement - bend_l, bend_radius, 0.0);
+        let v = p0.sub(p1);
+        let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), a);
+        let forward_dir = Vector3::new(1.0, 0.0, 0.0);
+        let new_v = rotation.rotate_vector(v);
+        let new_forward_dir = rotation.rotate_vector(forward_dir);
+        let end_p = p1 + new_v;
+
+        let mut bbxs: Vec<f32> = vec![];
+        let mut index: u32 = 0;
+        let mut indxes: Vec<u32> = vec![];
+        let mut buffer: Vec<MeshVertex> = vec![];
+
+        {
+            let mut tor: BendToro = BendToro {
+                id: (opcode.id as u64),
+                r,
+                bend_radius,
+                bend_center_point: p1,
+                bend_plane_norm: Vector3::new(0.0, 0.0, 1.0),
+                radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                ca: MainCircle {
+                    id: random(),
+                    radius: r,
+                    loc: p0,
+                    dir: Vector3::new(1.0, 0.0, 0.0),
+                    radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                },
+                cb: MainCircle {
+                    id: random(),
+                    radius: r,
+                    loc: end_p,
+                    dir: new_forward_dir,
+                    radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                },
+                r_gr_id: 0,
+                triangles: vec![],
+            };
+            tor.triangulate(&forward_dir);
+            let pm = tor.to_polygon_mesh();
+            let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+            let mesh = RawMesh {
+                id: tor.id.clone() as i32,
+                vertex_normal: verts,
+                indx: indx,
+                bbx: bbx,
+                triangles: triangles,
+            };
+            let bbx: &BoundingBox<Point3> = &mesh.bbx;
+            bbxs.push(bbx.min().x as f32);
+            bbxs.push(bbx.min().y as f32);
+            bbxs.push(bbx.min().z as f32);
+            bbxs.push(bbx.max().x as f32);
+            bbxs.push(bbx.max().y as f32);
+            bbxs.push(bbx.max().z as f32);
+            mesh.vertex_normal.chunks(6).for_each(|vn| {
+                let mv = MeshVertex {
+                    position: [vn[0], vn[1], vn[2], 1.0],
+                    normal: [vn[3], vn[4], vn[5], 0.0],
+                    id: mesh.id,
+                };
+                buffer.push(mv);
+                indxes.push(index);
+                index = index + 1;
+            });
+        }
+
+        {
+            let pc0: Point3 = Point3::new(prev_x_movement - bend_l, 0.0, 0.0);
+            let pc1: Point3 = Point3::new(x_movement, 0.0, 0.0);
+            let mut mc: MainCylinder = MainCylinder {
+                id: (opcode.id as u64),
+                ca: MainCircle {
+                    id: random(),
+                    radius: r,
+                    loc: pc0,
+                    dir: Vector3::new(-1.0, 0.0, 0.0),
+                    radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                },
+                cb: MainCircle {
+                    id: random(),
+                    radius: r,
+                    loc: pc1,
+                    dir: Vector3::new(-1.0, 0.0, 0.0),
+                    radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                },
+                h: pc0.distance(pc1),
+                r: r,
+                r_gr_id: 0,
+                ca_tor: 0,
+                cb_tor: 0,
+                triangles: vec![],
+            };
+            mc.triangulate();
+            let pm = mc.to_polygon_mesh();
+            let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
+            let mesh = RawMesh {
+                id: mc.id.clone() as i32,
+                vertex_normal: verts,
+                indx: indx,
+                bbx: bbx,
+                triangles: triangles,
+            };
+            let bbx: &BoundingBox<Point3> = &mesh.bbx;
+            bbxs.push(bbx.min().x as f32);
+            bbxs.push(bbx.min().y as f32);
+            bbxs.push(bbx.min().z as f32);
+            bbxs.push(bbx.max().x as f32);
+            bbxs.push(bbx.max().y as f32);
+            bbxs.push(bbx.max().z as f32);
+            mesh.vertex_normal.chunks(6).for_each(|vn| {
+                let mv = MeshVertex {
+                    position: [vn[0], vn[1], vn[2], 1.0],
+                    normal: [vn[3], vn[4], vn[5], 0.0],
+                    id: mesh.id,
+                };
+                buffer.push(mv);
+                indxes.push(index);
+                index = index + 1;
+            });
+        }
+
+        let sv = StepVertexBuffer {
+            buffer,
+            indxes,
+        };
+
+        sv
+    }
+
+    pub fn generate_tor_by_cnc_animation_old(opcode: &LRACMD, x_movement: f64, prev_x_movement: f64, acc_angle: f64) -> StepVertexBuffer {
+        let a = Rad::from(Deg(acc_angle as f64));
+        let r = opcode.pipe_radius;
+
+
+        let bend_radius = opcode.pipe_radius + opcode.value1;
+        let bend_l = a.0 * bend_radius;
+        warn!("bend_l {:?} acc_angle {:?}",bend_l,acc_angle);
+        let p0: Point3 = Point3::new(prev_x_movement - bend_l, 0.0, 0.0);
+        let p1: Point3 = Point3::new(prev_x_movement - bend_l, bend_radius, 0.0);
         let v = p0.sub(p1);
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), a);
         let forward_dir = Vector3::new(1.0, 0.0, 0.0);
@@ -1462,90 +1599,6 @@ impl CncOps {
     }
 
 
-    pub fn generate_tor_by_cncA(opcode: &LRACMD, x_movement: f64) -> StepVertexBuffer {
-
-        let a = Rad::from(Deg(opcode.value0 as f64));
-        let r = opcode.pipe_radius;
-        let bend_radius = opcode.pipe_radius + opcode.value1;
-        let p0: Point3 = Point3::new(x_movement, 0.0, 0.0);
-        let p1: Point3 = Point3::new(x_movement, bend_radius, 0.0);
-        let v = p0.sub(p1);
-        let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), a);
-        let forward_dir = Vector3::new(1.0, 0.0, 0.0);
-        let new_v = rotation.rotate_vector(v);
-        let new_forward_dir = rotation.rotate_vector(forward_dir);
-        let end_p = p1 + new_v;
-
-        let mut tor: BendToro = BendToro {
-            id: opcode.id as u64,
-            r,
-            bend_radius,
-            bend_center_point: p1,
-            bend_plane_norm: Vector3::new(0.0, 0.0, 1.0),
-            radius_dir: Vector3::new(0.0, 0.0, 1.0),
-            ca: MainCircle {
-                id: random(),
-                radius: r,
-                loc: p0,
-                dir: Vector3::new(1.0, 0.0, 0.0),
-                radius_dir: Vector3::new(0.0, 0.0, 1.0),
-            },
-            cb: MainCircle {
-                id: random(),
-                radius: r,
-                loc: end_p,
-                dir: new_forward_dir,
-                radius_dir: Vector3::new(0.0, 0.0, 1.0),
-            },
-            r_gr_id: 0,
-            triangles: vec![],
-        };
-        tor.triangulate(&forward_dir);
-
-        let pm = tor.to_polygon_mesh();
-        let (verts, indx, bbx, triangles) = CncOps::convert_polymesh(&pm);
-
-        let mesh = RawMesh {
-            id: tor.id.clone() as i32,
-            vertex_normal: verts,
-            indx: indx,
-            bbx: bbx,
-            triangles: triangles,
-        };
-
-        let mut bbxs: Vec<f32> = vec![];
-
-
-        let mut index: u32 = 0;
-        let mut indxes: Vec<u32> = vec![];
-        let mut buffer: Vec<MeshVertex> = vec![];
-
-
-        let bbx: &BoundingBox<Point3> = &mesh.bbx;
-        bbxs.push(bbx.min().x as f32);
-        bbxs.push(bbx.min().y as f32);
-        bbxs.push(bbx.min().z as f32);
-        bbxs.push(bbx.max().x as f32);
-        bbxs.push(bbx.max().y as f32);
-        bbxs.push(bbx.max().z as f32);
-        mesh.vertex_normal.chunks(6).for_each(|vn| {
-            let mv = MeshVertex {
-                position: [vn[0], vn[1], vn[2], 1.0],
-                normal: [vn[3], vn[4], vn[5], 0.0],
-                id: mesh.id,
-            };
-            buffer.push(mv);
-            indxes.push(index);
-            index = index + 1;
-        });
-
-        let sv = StepVertexBuffer {
-            buffer,
-            indxes,
-        };
-
-        sv
-    }
     pub fn do_bend(&mut self) -> LRACMD {
         if (self.current_step < self.opcodes.len()) {
             let oc: LRACMD = self.opcodes[self.current_step].clone();
