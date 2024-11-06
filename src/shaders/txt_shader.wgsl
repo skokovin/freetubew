@@ -53,7 +53,11 @@ struct LightUniforms {
 
 @binding(5) @group(0) var<uniform> dorn_translate : mat4x4<f32>;
 
+@binding(6) @group(0)
+var t_diffuse: texture_2d<f32>;
 
+@binding(7) @group(0)
+var s_diffuse: sampler;
 
 
 struct Output {
@@ -62,6 +66,7 @@ struct Output {
     @location(1) world_position : vec4<f32>,
     @location(2) @interpolate(flat)  mat_id: i32,
     @location(3) originalpos : vec4<f32>,
+    @location(4) tex_coords: vec2<f32>,
 };
 
 @vertex
@@ -92,52 +97,19 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
 
     output.world_position = in.position;
 
+    output.tex_coords = in.tex_coords;
+
     //
 
     return output;
 }
 
+
 @fragment
 fn fs_main(in:Output) ->  @location(0) vec4<f32> {
-      var metadata:vec4<i32>=vertex_meta_data0[in.mat_id];
-
-
-
-
-      var material:LightUniforms=light_uniformsArray[metadata.x];
-      if(metadata.y!=0){
-        material=light_uniformsArray[metadata.y];
-      }
-
-      if(in.mat_id==dorn_id){
-        material=light_uniformsArray[69];
-      }
-
-      let kd:f32=material.diffuse_intensity;
-      let ks:f32=material.specular_intensity;
-      let specular_factor:f32=material.specular_shininess;
-      let diffuze_color =vec4<f32>(material.color);
-      let light_color =vec4<f32>(material.specular_color);
-
-      let view_dir:vec3<f32> = normalize(camera_uniforms.eye_position.xyz - in.world_position.xyz);
-            let head_light =  vec4<f32>(camera_uniforms.eye_position.xyz,1.0);
-            let light_dir_head_vec:vec3<f32>=head_light.xyz - in.world_position.xyz;
-            let light_dir_head_light:vec3<f32> = normalize(light_dir_head_vec);
-            let half_dir_head_light:vec3<f32> = normalize(view_dir + light_dir_head_light);
-            let diffuse_strength_head_light:f32= max(dot(in.world_normal.xyz, half_dir_head_light), 0.0);
-            let diffuse_color_head_light:vec4<f32> = diffuze_color * diffuse_strength_head_light;
-            let specular_strength_head_light:f32 = pow(max(dot(in.world_normal.xyz, half_dir_head_light), 0.0), specular_factor);//8 is specular round
-            let specular_color_head_light:vec4<f32> =light_color*specular_strength_head_light ;
-            let head_light_contribution:vec4<f32>=diffuse_color_head_light*kd + specular_color_head_light*ks+def_color;
-
-           if(diffuze_color.a==1.0){
-               return vec4<f32>(head_light_contribution.xyz,1.0);
-           }else{
-               return vec4<f32>(head_light_contribution);
-           }
-
-
-
+   var v:vec4<f32>=textureSample(t_diffuse, s_diffuse, in.tex_coords);
+   //var v1:vec4<f32>=vec4<f32>(v.x,v.y,v.z,v.w);
+   return v;
     //FOR WASM
    //return vec4<f32>(1.0,1.0,1.0,0.0);
 }

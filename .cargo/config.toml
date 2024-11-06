@@ -3,6 +3,11 @@
 # check status at https://developer.mozilla.org/en-US/docs/Web/API/Clipboard#browser_compatibility
 # we don't use `[build]` because of rust analyzer's build cache invalidation https://github.com/emilk/eframe_template/issues/93
 
+#[target.wasm32-unknown-unknown]
+#rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+mutable-globals"]
+#[unstable]
+#build-std = ["panic_abort", "std"]
+
 #[toolchain]
 #channel = "nightly"
 
@@ -17,7 +22,7 @@
 
 #target_arch="wasm32"
 #target = "aarch64-linux-android"
-#target = "wasm32-unknown-unknown"
+target = "wasm32-unknown-unknown"
 #[package.metadata.wasm-pack.profile.release]
 #wasm-opt = false
 
