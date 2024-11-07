@@ -9,6 +9,7 @@ use shipyard::{EntitiesViewMut, EntityId, Unique, UniqueViewMut, ViewMut, World}
 use smaa::{SmaaFrame, SmaaMode, SmaaTarget};
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::Vector3;
+use web_sys::HtmlCanvasElement;
 use wgpu::{Adapter, BindGroup, BindingResource, Buffer, CommandEncoder, Device, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView, TextureViewDescriptor};
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
@@ -143,7 +144,7 @@ pub struct Graphics {
     pub window: Arc<Window>,
     pub surface: Surface<'static>,
     pub surface_config: SurfaceConfiguration,
-    pub window_size: PhysicalSize<u32>,
+    //pub window_size: PhysicalSize<u32>,
     pub background_pipe_line: BackGroundPipeLine,
     pub camera: Camera,
     pub mesh_pipe_line: MeshPipeLine,
@@ -156,8 +157,8 @@ pub fn init_graphics(world: &World, gr: Graphics) {
     let smaa_target: SmaaTarget = SmaaTarget::new(
         &gr.device,
         &gr.queue,
-        gr.window_size.width,
-        gr.window_size.height,
+        gr.surface_config.width,
+        gr.surface_config.height,
         gr.surface_config.format,
         SmaaMode::Smaa1X,
     );
@@ -204,15 +205,14 @@ pub fn set_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
 pub fn unset_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
     gs.is_right_mouse_pressed = false;
 }
-
-pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>,) {
+#[cfg(not(target_arch = "wasm32"))]
+pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>) {
     if new_size.width > 0 && new_size.height > 0 {
         graphics.camera.resize(new_size.width, new_size.height);
-        graphics.window_size = new_size;
         graphics.surface_config.width = new_size.width;
         graphics.surface_config.height = new_size.height;
         graphics.surface.configure(&graphics.device, &graphics.surface_config);
-        gs.smaa_target.resize(&graphics.device,new_size.width,new_size.height);
+        gs.smaa_target.resize(&graphics.device, new_size.width, new_size.height);
         let arr: [i32; 4] = [new_size.width as i32, new_size.height as i32, 0, 0];
         graphics.background_pipe_line.add_data_buffer = graphics.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(format!("AddData Uniform Buffer").as_str()),
@@ -221,6 +221,27 @@ pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Gr
         });
     }
 }
+#[cfg(target_arch = "wasm32")]
+pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>) {
+    use winit::platform::web::WindowExtWebSys;
+    match graphics.window.canvas() {
+        None => {}
+        Some(canvas) => {
+            graphics.camera.resize(canvas.client_width() as u32, canvas.client_height() as u32);
+            graphics.surface_config.width = canvas.client_width() as u32;
+            graphics.surface_config.height = canvas.client_height() as u32;
+            graphics.surface.configure(&graphics.device, &graphics.surface_config);
+            gs.smaa_target.resize(&graphics.device, canvas.client_width() as u32, canvas.client_height() as u32);
+            let arr: [i32; 4] = [canvas.client_width() as i32, canvas.client_height() as i32, 0, 0];
+            graphics.background_pipe_line.add_data_buffer = graphics.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(format!("AddData Uniform Buffer").as_str()),
+                contents: bytemuck::cast_slice(&arr),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        }
+    }
+}
+
 
 pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                  mut gs: UniqueViewMut<GlobalState>,
@@ -373,8 +394,7 @@ pub fn render(mut graphics: UniqueViewMut<Graphics>,
               mut gs: UniqueViewMut<GlobalState>,
               mut cyls_comps: ViewMut<MainCylinder>,
               mut tor_comps: ViewMut<BendToro>, ) {
-    
-    if (gs.is_next_frame_ready) {
+    //if (gs.is_next_frame_ready) {
         match graphics.surface.get_current_texture() {
             Ok(out) => {
                 g_scene.dorn.update(&graphics.device);
@@ -387,8 +407,9 @@ pub fn render(mut graphics: UniqueViewMut<Graphics>,
                 graphics.queue.write_buffer(&graphics.mesh_pipe_line.camera_buffer, 64, bytemuck::cast_slice(graphics.camera.get_norm_buffer()));
                 graphics.queue.write_buffer(&graphics.mesh_pipe_line.camera_buffer, 128, bytemuck::cast_slice(graphics.camera.get_forward_dir_buffer()));
                 //graphics.queue.write_buffer(&graphics.mesh_pipe_line.material_buffer, 0, bytemuck::cast_slice(&&graphics.mesh_pipe_line.materials));
-
-                let resolution: [f32; 4] = [graphics.window_size.width as f32, graphics.window_size.height as f32, 0.0, 0.0];
+                let gw = out.texture.width();
+                let gh = out.texture.height();
+                let resolution: [f32; 4] = [gw as f32, gh as f32, 0.0, 0.0];
                 let light_position: &[f32; 3] = graphics.camera.eye.as_ref();
                 let eye_position: &[f32; 3] = graphics.camera.eye.as_ref();
                 graphics.queue.write_buffer(&graphics.mesh_pipe_line.light_buffer, 0, bytemuck::cast_slice(light_position));
@@ -396,8 +417,6 @@ pub fn render(mut graphics: UniqueViewMut<Graphics>,
                 graphics.queue.write_buffer(&graphics.mesh_pipe_line.light_buffer, 32, bytemuck::cast_slice(&resolution));
 
 
-                let gw = out.texture.width();
-                let gh = out.texture.height();
                 let texture_view_descriptor = TextureViewDescriptor::default();
                 let view: TextureView = out.texture.create_view(&texture_view_descriptor);
                 let depth_texture: Texture = graphics.device.create_texture(&wgpu::TextureDescriptor {
@@ -416,7 +435,7 @@ pub fn render(mut graphics: UniqueViewMut<Graphics>,
                 });
                 let depth_view: TextureView = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                let smaa_frame: SmaaFrame =  gs.smaa_target.start_frame(&graphics.device, &graphics.queue, &view);
+                let smaa_frame: SmaaFrame = gs.smaa_target.start_frame(&graphics.device, &graphics.queue, &view);
 
                 let mut encoder: CommandEncoder = graphics.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Render Encoder D"),
@@ -902,9 +921,9 @@ pub fn render(mut graphics: UniqueViewMut<Graphics>,
                 smaa_frame.resolve();
                 out.present();
             }
-            Err(e) => {warn!("no surf {:?}",e)}
+            Err(e) => { warn!("no surf {:?}",e) }
         }
-    }
+    //}
 }
 pub fn on_keyboard(event: KeyEvent,
                    mut graphics: UniqueViewMut<Graphics>,

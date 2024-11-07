@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use log::{info, warn};
 use shipyard::{UniqueView, UniqueViewMut, World};
-use wasm_bindgen::JsCast;
+//use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlCanvasElement};
 use wgpu::{Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture, TextureFormat};
 
@@ -56,8 +56,11 @@ impl ApplicationHandler<Graphics> for App {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Graphics) {
-        init_graphics(&self.world, event);
         self.is_world_up = true;
+        let w=event.window.clone();
+        init_graphics(&self.world, event);
+        w.request_redraw();
+       
         //self.world.add_unique(event);
     }
 
@@ -198,19 +201,19 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics>
         info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
         info!("SURFACE ATTRIBS {:?}",surface_config);
         surface.configure(&device, &surface_config);
-        let window_size: PhysicalSize<u32> = rc_window.inner_size().clone();
+        //let window_size: PhysicalSize<u32> = rc_window.inner_size().clone();
         let format: TextureFormat = surface.get_current_texture().unwrap().texture.format();
         let background_pipe_line: BackGroundPipeLine = BackGroundPipeLine::new(&device,
                                                                                &format,
-                                                                               window_size.width as i32, window_size.height as i32);
+                                                                               wsize.width as i32, wsize.height as i32);
 
         let mesh_pipe_line = MeshPipeLine::new(&device,
                                                &format,
-                                               window_size.width as i32, window_size.height as i32);
+                                               wsize.width as i32, wsize.height as i32);
 
         let txt_pipe_line = TxtPipeLine::new(&device, &queue,
                                              &format,
-                                             window_size.width as i32, window_size.height as i32);
+                                             wsize.width as i32, wsize.height as i32);
 
         queue.write_buffer(&mesh_pipe_line.material_buffer, 0, bytemuck::cast_slice(&mesh_pipe_line.materials));
 
@@ -221,7 +224,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics>
             window: rc_window,
             surface: surface,
             surface_config: surface_config,
-            window_size: window_size,
+            //window_size: window_size,
             background_pipe_line: background_pipe_line,
             camera: Camera::default(),
             mesh_pipe_line: mesh_pipe_line,
@@ -304,7 +307,7 @@ async fn create_secondary() -> Option<(Instance, Adapter)> {
 fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics> + 'static {
     use winit::platform::web::WindowAttributesExtWebSys;
     use winit::platform::web::WindowExtWebSys;
-    let (window, canvas) = match web_sys::window() {
+    let window:winit::window::Window = match web_sys::window() {
         None => { panic!("Cant WWASM WINDOW") }
         Some(win) => {
             match win.document() {
@@ -315,6 +318,109 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics>
                         Some(dst) => {
                             let sw = dst.client_width();
                             let sh = dst.client_height();
+                            
+                            use wasm_bindgen::JsCast;
+                            let canvas = web_sys::window()
+                                .unwrap()
+                                .document()
+                                .unwrap()
+                                .get_element_by_id("cws_main_p")
+                                .unwrap()
+                                .dyn_into::<web_sys::HtmlCanvasElement>().ok();
+                            warn!("HTML ROOM SIZE IS {} {}",sw,sh);
+                            let attr: WindowAttributes =winit::window::Window::default_attributes().with_canvas(canvas);
+                            match event_loop.create_window(attr) {
+                                Ok(window) => { window }
+                                Err(e) => { panic!("CANT BUILD WINDOWS {:?}", e) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    let rc_window: Arc<winit::window::Window> = Arc::new(window);
+    async move {
+       match rc_window.canvas() {
+           None => {panic!("NO CANVAS")}
+           Some(canvas) => {
+               let (instanse, adapter): (Instance, Adapter) = {
+                   match create_primary().await {
+                       None => {
+                           match create_secondary().await {
+                               None => { panic!("NOT POSSIBLE TO FOUND SUITABLE GPU") }
+                               Some((instanse, adapter)) => {
+                                   (instanse, adapter)
+                               }
+                           }
+                       }
+                       Some((instanse, adapter)) => {
+                           (instanse, adapter)
+                       }
+                   }
+               };
+               let (device, queue): (Device, Queue) = adapter.request_device(&wgpu::DeviceDescriptor {
+                   label: None,
+                   required_features: Default::default(),
+                   required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                   memory_hints: Default::default(),
+               }, None, ).await.unwrap();
+               let surface: Surface = instanse.create_surface(rc_window.clone()).unwrap();
+               let surface_config: SurfaceConfiguration = surface
+                   .get_default_config(&adapter, canvas.client_width() as u32, canvas.client_height() as u32)
+                   .unwrap();
+               info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
+               info!("SURFACE ATTRIBS {:?}",surface_config);
+               surface.configure(&device, &surface_config);
+
+               let format: TextureFormat = surface.get_current_texture().unwrap().texture.format();
+               let background_pipe_line: BackGroundPipeLine = BackGroundPipeLine::new(&device,
+                                                                                      &format,
+                                                                                      canvas.client_width() as i32, canvas.client_height() as i32);
+
+               let mesh_pipe_line = MeshPipeLine::new(&device,
+                                                      &format,
+                                                      canvas.client_width() as i32, canvas.client_height() as i32);
+
+               let txt_pipe_line = TxtPipeLine::new(&device, &queue,
+                                                    &format,
+                                                    canvas.client_width() as i32, canvas.client_height() as i32);
+               queue.write_buffer(&mesh_pipe_line.material_buffer, 0, bytemuck::cast_slice(&mesh_pipe_line.materials));
+               Graphics {
+                   device: device,
+                   adapter: adapter,
+                   queue: queue,
+                   window: rc_window,
+                   surface: surface,
+                   surface_config: surface_config,
+                   background_pipe_line: background_pipe_line,
+                   camera: Camera::default(),
+                   mesh_pipe_line: mesh_pipe_line,
+                   txt_pipe_line: txt_pipe_line,
+               }
+               
+           }
+       }
+
+
+    }
+}
+#[cfg(target_arch = "wasm32")]
+fn create_graphics_old2(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics> + 'static {
+    use winit::platform::web::WindowAttributesExtWebSys;
+    use winit::platform::web::WindowExtWebSys;
+    let (window, canvas) = match web_sys::window() {
+        None => { panic!("Cant WWASM WINDOW") }
+        Some(win) => {
+            match win.document() {
+                None => { panic!("Cant GET DOC") }
+                Some(doc) => {
+                    match doc.get_element_by_id("wasm3dwindow") {
+                        None => { panic!("NO ID wasm3dwindow") }
+                        Some(dst) => {
+                            let sw = dst.client_width()-150;
+                            let sh = dst.client_height()-150;
                             warn!("HTML ROOM SIZE IS {} {}",sw,sh);
                              let ws: LogicalSize<u32> = LogicalSize::new(sw as u32, sh as u32);
                              let attr: WindowAttributes =winit::window::Window::default_attributes().with_inner_size(ws);
@@ -337,6 +443,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics>
                                                     let _sh = &canvas.client_height();
 
                                                     warn! {"Window SIZE is :{:?} {:?}",window.inner_size().width,window.inner_size().height}
+                                                    window.request_inner_size(ws);
                                                     (window, canvas)
                                                 }
                                             }
@@ -353,6 +460,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics>
     };
     let _sw = canvas.client_width().clone() as u32;
     let _sh = canvas.client_height().clone() as u32;
+    let _sww = window.inner_size();
+    //let _shw = canvas.client_height().clone() as u32;
     let rc_window: Arc<winit::window::Window> = Arc::new(window);
     async move {
         let (instanse, adapter): (Instance, Adapter) = {
@@ -384,8 +493,12 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics>
 
         info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
         info!("SURFACE ATTRIBS {:?}",surface_config);
+
+        info!("SIZE {:?} {:?} {:?} {:?}",_sw,_sh,_sww.width,_sww.height);
+        
+        
         surface.configure(&device, &surface_config);
-        let window_size: PhysicalSize<u32> = rc_window.inner_size().clone();
+        let window_size: PhysicalSize<u32> =PhysicalSize::new(_sw as u32, _sh as u32);// rc_window.inner_size().clone();
         let format: TextureFormat = surface.get_current_texture().unwrap().texture.format();
         let background_pipe_line: BackGroundPipeLine = BackGroundPipeLine::new(&device,
                                                                                &format,
@@ -408,7 +521,6 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output=Graphics>
             window: rc_window,
             surface: surface,
             surface_config: surface_config,
-            window_size: window_size,
             background_pipe_line: background_pipe_line,
             camera: Camera::default(),
             mesh_pipe_line: mesh_pipe_line,
@@ -502,19 +614,19 @@ fn create_graphics_old(event_loop: &ActiveEventLoop) -> impl Future<Output=Graph
         info!("ADAPTER ATTRIBS {:?}",adapter.get_info());
         info!("SURFACE ATTRIBS {:?}",surface_config);
         surface.configure(&device, &surface_config);
-        let window_size: PhysicalSize<u32> = rc_window.inner_size().clone();
+       
         let format: TextureFormat = surface.get_current_texture().unwrap().texture.format();
         let background_pipe_line: BackGroundPipeLine = BackGroundPipeLine::new(&device,
                                                                                &format,
-                                                                               window_size.width as i32, window_size.height as i32);
+                                                                               _sw as i32, _sh as i32);
 
         let mesh_pipe_line = MeshPipeLine::new(&device,
                                                &format,
-                                               window_size.width as i32, window_size.height as i32);
+                                               _sw as i32,_sh as i32);
 
         let txt_pipe_line = TxtPipeLine::new(&device, &queue,
                                              &format,
-                                             window_size.width as i32, window_size.height as i32);
+                                             _sw as i32, _sh as i32);
 
         queue.write_buffer(&mesh_pipe_line.material_buffer, 0, bytemuck::cast_slice(&mesh_pipe_line.materials));
 
@@ -525,7 +637,6 @@ fn create_graphics_old(event_loop: &ActiveEventLoop) -> impl Future<Output=Graph
             window: rc_window,
             surface: surface,
             surface_config: surface_config,
-            window_size: window_size,
             background_pipe_line: background_pipe_line,
             camera: Camera::default(),
             mesh_pipe_line: mesh_pipe_line,
