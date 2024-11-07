@@ -1,6 +1,7 @@
 mod device;
 mod algo;
 mod utils;
+mod remote;
 //mod libw;
 
 use env_logger::{Builder, Target};

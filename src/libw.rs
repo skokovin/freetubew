@@ -3,7 +3,7 @@
 mod device;
 mod algo;
 mod utils;
-
+mod remote;
 
 use log::Level;
 use web_sys::wasm_bindgen::prelude::wasm_bindgen;
