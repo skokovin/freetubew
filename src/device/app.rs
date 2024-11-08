@@ -15,10 +15,12 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::{update_camera_by_mouse, Camera};
-use crate::device::graphics::{check_remote, init_graphics, key_frame, on_keyboard, render, resize_window, set_right_mouse_pressed, unset_right_mouse_pressed, GlobalState, Graphics};
+use crate::device::graphics::{init_graphics, key_frame, on_keyboard, render, resize_window, set_right_mouse_pressed, unset_right_mouse_pressed, GlobalState, Graphics};
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::txt_pipeline::TxtPipeLine;
-
+#[cfg(target_arch = "wasm32")]
+use crate::device::graphics::check_remote;
+                       
 pub struct App {
     pub world: World,
     pub event_loop_proxy: Arc<EventLoopProxy<Graphics>>,

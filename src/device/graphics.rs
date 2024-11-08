@@ -19,15 +19,17 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
 use crate::algo::cnc::{cnc_to_poly, LRACLR};
-use crate::algo::{analyze_bin, cnc, BendToro, MainCylinder};
+use crate::algo::{analyze_bin, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
 use crate::device::graphics::States::{ChangeDornDir, FullAnimate, ReadyToLoad, ReverseLRACLR};
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::txt_pipeline::TxtPipeLine;
-use crate::remote::in_state::{pipe_bend_ops, InCmd};
 use crate::utils::dim::{DimB, DimX, DimZ};
 use crate::utils::dorn::Dorn;
+
+#[cfg(target_arch = "wasm32")]
+use crate::remote::in_state::{pipe_bend_ops, InCmd};
 
 const STRIGHT_SPEED: f64 = 100.0;
 const ROTATE_SPEED: f64 = 10.0;
@@ -177,7 +179,7 @@ pub fn init_graphics(world: &World, gr: Graphics) {
         tor_candidates: vec![],
         idmaps: HashMap::new(),
         anim_state: AnimState::default(),
-        v_up_orign: Vector3::new(0.0, 0.0, -1.0),
+        v_up_orign: P_UP_REVERSE,
         instant: Instant::now(),
         dt: 0.0,
         is_next_frame_ready: false,
@@ -269,9 +271,8 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                 States::ReadyToLoad((lraclr)) => {
                     cyls_comps.clear();
                     tor_comps.clear();
-                    let lraclr_cloned = lraclr.clone();
-                    gs.lraclr_arr = lraclr_cloned.clone();
-                    gs.lraclr_arr_reversed = cnc::reverse_lraclr(lraclr_cloned.clone());
+                    gs.lraclr_arr = lraclr.clone();
+                    gs.lraclr_arr_reversed = cnc::reverse_lraclr(&gs.lraclr_arr);
                     let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign);
                     gs.tor_candidates = tors;
                     gs.cyl_candidates = cyls;
@@ -453,9 +454,9 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                 }
                 States::ChangeDornDir =>{
                     if (signum(gs.v_up_orign.z) < 0.0) {
-                        gs.v_up_orign = Vector3::new(0.0, 0.0, 1.0);
+                        gs.v_up_orign = P_UP;
                     } else {
-                        gs.v_up_orign = Vector3::new(0.0, 0.0, -1.0);
+                        gs.v_up_orign = P_UP_REVERSE;
                     }
                     cyls_comps.clear();
                     tor_comps.clear();
@@ -1052,7 +1053,7 @@ pub fn render(mut graphics: UniqueViewMut<Graphics>,
     }
     //}
 }
-
+#[cfg(target_arch = "wasm32")]
 pub fn check_remote(
     mut g_scene: UniqueViewMut<GlobalScene>,
     mut gs: UniqueViewMut<GlobalState>,
@@ -1062,7 +1063,7 @@ pub fn check_remote(
         match cmd.check_curr_command() {
             States::StandBy => {}
             ReadyToLoad(v) => {
-                gs.v_up_orign = Vector3::new(0.0, 0.0, -1.0);
+                gs.v_up_orign = P_UP_REVERSE;
                 g_scene.bend_step = 1;
                 #[cfg(target_arch = "wasm32")]{
                     let lraclr_arr_i32 = LRACLR::to_array(&v);
@@ -1112,7 +1113,7 @@ pub fn on_keyboard(event: KeyEvent,
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
                                 //let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
                                 gs.state = ReadyToLoad((lraclr_arr));
-                                gs.v_up_orign = Vector3::new(0.0, 0.0, -1.0);
+                                gs.v_up_orign = P_UP_REVERSE;
                                 //let obj_file = ops.all_to_one_obj_bin();
                                 //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
                             }
@@ -1128,14 +1129,16 @@ pub fn on_keyboard(event: KeyEvent,
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         g_scene.bend_step = 1;
-                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/9.stp")).as_slice());
+                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
                         match analyze_bin(&stp) {
                             None => {}
                             Some(mut ops) => {
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-                                let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(lraclr_arr.clone());
-                                gs.state = ReadyToLoad(lraclr_arr_reversed);
-                                gs.v_up_orign = Vector3::new(0.0, 0.0, -1.0);
+                                //let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(lraclr_arr.clone());
+                      
+                                
+                                gs.state = ReadyToLoad(lraclr_arr);
+                                gs.v_up_orign = P_UP_REVERSE;
 
 
                                 //gs.state = ReadyToLoad((prerender,lraclr_arr_reversed));

@@ -6,16 +6,10 @@ use cgmath::{Basis3, Deg, InnerSpace, Matrix, Matrix3, MetricSpace, Rad, Rotatio
 use cgmath::num_traits::{abs, signum};
 use is_odd::IsOdd;
 use itertools::Itertools;
-use log::warn;
 use rand::random;
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::{Point3, Vector3};
-use truck_geometry::prelude::Plane;
-use truck_geotrait::algo::curve::presearch;
-use truck_geotrait::Invertible;
-use truck_polymesh::{obj, Faces, PolygonMesh, StandardAttributes, StandardVertex};
-use zerocopy::PointerMetadata;
-use crate::algo::{export_to_pt, project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, RawMesh, Triangle, EXTRA_LEN_CALC, EXTRA_R_CALC, TOLE, Z_FIGHTING_FACTOR};
+use crate::algo::{project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, TOLE};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use crate::device::graphics::{AnimState, BendParameters};
 
@@ -86,43 +80,7 @@ impl Display for LRACLR {
         write!(f, "L {} R {} A {} CLR {}", self.l, self.r, self.a, self.clr)
     }
 }
-#[derive(Debug, Clone)]
-pub struct LRACMD {
-    pub id: i32,
-    pub op_code: i32,
-    pub pipe_radius: f64,
-    pub value0: f64,
-    pub value1: f64,
-}
-impl Display for LRACMD {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "id {} PR {} OPC {} V0 {} V1{}", self.id, self.pipe_radius, self.op_code, self.value0, self.value1)
-    }
-}
-impl LRACMD {
-    pub fn to_array(cmnd: &Vec<LRACMD>) -> Vec<i32> {
-        let mut arr: Vec<i32> = vec![];
-        cmnd.iter().for_each(|cmd| {
-            let rounded0: i32 = (round_by_dec(cmd.value0, 3) * 1000.0) as i32;
-            let rounded1: i32 = (round_by_dec(cmd.value1, 3) * 1000.0) as i32;
-            arr.push(cmd.id);
-            arr.push(cmd.op_code);
-            arr.push(rounded0);
-            arr.push(rounded1);
-        });
-        arr
-    }
 
-    pub fn default() -> Self {
-        Self {
-            id: 0,
-            op_code: 0,
-            pipe_radius: 0.0,
-            value0: 0.0,
-            value1: 0.0,
-        }
-    }
-}
 #[derive(Clone)]
 pub enum OpElem {
     CYL((MainCylinder)),
@@ -133,22 +91,9 @@ pub enum OpElem {
 pub struct CncOps {
     pub ops: Vec<OpElem>,
     pub current_step: usize,
-    pub commands: Vec<LRACLR>,
-    pub opcodes: Vec<LRACMD>,
-    pub unbend_offsets: Vec<f32>,
-    pub is_sym_ready: bool,
+
 }
 impl CncOps {
-    pub fn default() -> Self {
-        Self {
-            ops: vec![],
-            current_step: 0,
-            commands: vec![],
-            opcodes: vec![],
-            unbend_offsets: vec![],
-            is_sym_ready: false,
-        }
-    }
     pub fn new(cyls: &Vec<MainCylinder>, bends: &Vec<BendToro>) -> Self {
         let mut tot_ops: Vec<OpElem> = vec![];
         if (!cyls.is_empty() && !bends.is_empty()) {
@@ -251,10 +196,6 @@ impl CncOps {
         Self {
             ops: tot_ops,
             current_step: 0,
-            commands: vec![],
-            opcodes: vec![],
-            unbend_offsets: vec![],
-            is_sym_ready: false,
         }
     }
     fn fix_dirs(opers: &mut Vec<OpElem>) {
@@ -404,90 +345,11 @@ impl CncOps {
         let mut ret = CncOps {
             ops: new_ops,
             current_step: 0,
-            commands: vec![],
-            opcodes: vec![],
-            unbend_offsets: vec![],
-            is_sym_ready: false,
         };
-        ret.calculate_lraclr();
         ret
-    }
-    pub fn convert_polymesh(mesh: &PolygonMesh) -> (Vec<f32>, Vec<i32>, BoundingBox<cgmath::Point3<f64>>, Vec<Triangle>) {
-        let mut vertsu8: Vec<f32> = vec![];
-        let mut indxu8: Vec<i32> = vec![];
-        let mut triangles: Vec<Triangle> = vec![];
-        let mut bin_bbxu8: BoundingBox<Point3> = BoundingBox::default();
-        let mut is_valid = true;
-        let vrtx: &Vec<Point3> = mesh.positions();
-        let norms: &Vec<Vector3> = mesh.normals();
-        let mut vs: Vec<cgmath::Vector3<f32>> = vec![];
-        let mut nms: Vec<cgmath::Vector3<f32>> = vec![];
-        let mut is: Vec<i32> = vec![];
-        let mut counter = 0;
-        mesh.tri_faces().iter().for_each(|f| {
-            f.iter().for_each(|sv| {
-                let v = vrtx[sv.pos];
-                let n = norms[sv.nor.unwrap()];
-                is.push(counter);
-                vs.push(cgmath::Vector3::new(v.x as f32, v.y as f32, v.z as f32));
-                nms.push(cgmath::Vector3::new(n.x as f32, n.y as f32, n.z as f32));
-                counter = counter + 1;
-            });
-        });
-        bin_bbxu8 = mesh.bounding_box();
-
-        let bbx: BoundingBox<Point3> = BoundingBox::from_iter([bin_bbxu8.min().mul(Z_FIGHTING_FACTOR as f64), bin_bbxu8.max().mul(Z_FIGHTING_FACTOR as f64)]);
-        if (is_valid) {
-            is.chunks(3).for_each(|tri| {
-                let i0 = tri[0];
-                let v0 = vs[i0 as usize];
-                let n0 = nms[i0 as usize];
-
-                let i1 = tri[1];
-                let v1 = vs[i1 as usize];
-                let n1 = nms[i1 as usize];
-
-                let i2 = tri[2];
-                let v2 = vs[i2 as usize];
-                let n2 = nms[i2 as usize];
-                let triangle: Triangle = Triangle::new(
-                    cgmath::Point3::<f32>::new((v0[0] * Z_FIGHTING_FACTOR) as f32, (v0[1] * Z_FIGHTING_FACTOR) as f32, (v0[2] * Z_FIGHTING_FACTOR) as f32),
-                    cgmath::Point3::<f32>::new((v1[0] * Z_FIGHTING_FACTOR) as f32, (v1[1] * Z_FIGHTING_FACTOR) as f32, (v1[2] * Z_FIGHTING_FACTOR) as f32),
-                    cgmath::Point3::<f32>::new((v2[0] * Z_FIGHTING_FACTOR) as f32, (v2[1] * Z_FIGHTING_FACTOR) as f32, (v2[2] * Z_FIGHTING_FACTOR) as f32),
-                );
-                triangles.push(triangle);
-                vertsu8.push(v0.x * Z_FIGHTING_FACTOR);
-                vertsu8.push(v0.y * Z_FIGHTING_FACTOR);
-                vertsu8.push(v0.z * Z_FIGHTING_FACTOR);
-                vertsu8.push(n0.x);
-                vertsu8.push(n0.y);
-                vertsu8.push(n0.z);
-                indxu8.push(i0);
-
-                vertsu8.push(v1.x * Z_FIGHTING_FACTOR);
-                vertsu8.push(v1.y * Z_FIGHTING_FACTOR);
-                vertsu8.push(v1.z * Z_FIGHTING_FACTOR);
-                vertsu8.push(n1.x);
-                vertsu8.push(n1.y);
-                vertsu8.push(n1.z);
-                indxu8.push(i1);
-
-                vertsu8.push(v2.x * Z_FIGHTING_FACTOR);
-                vertsu8.push(v2.y * Z_FIGHTING_FACTOR);
-                vertsu8.push(v2.z * Z_FIGHTING_FACTOR);
-                vertsu8.push(n2.x);
-                vertsu8.push(n2.y);
-                vertsu8.push(n2.z);
-                indxu8.push(i2);
-            });
-        } else {
-            println!("NOT VALID V={:?}  N={:?}  I={:?}", vs.len(), nms.len(), is.len());
-        }
-        (vertsu8, indxu8, bbx, triangles)
     }
     pub fn calculate_lraclr(&mut self) -> Vec<LRACLR> {
         let mut cncs: Vec<LRACLR> = vec![];
-        let mut opcodes: Vec<LRACMD> = vec![];
         if (self.ops.len() > 1 && self.ops.len().is_odd()) {
             let last_op: OpElem = self.ops.last().unwrap().clone();
             let mut pair_arr: Vec<OpElem> = vec![];
@@ -497,8 +359,8 @@ impl CncOps {
             let mut it_first = true;
             let mut outd: f64 = 0.0;
             let mut counter = 0;
-            let mut prev: Vector3 = Vector3::new(0.0, 0.0, 1.0);
-            let mut prev_fwd: Vector3 = Vector3::new(1.0, 0.0, 0.0);
+            let mut prev: Vector3 = P_UP;
+            let mut prev_fwd: Vector3 = P_FORWARD;
             pair_arr.chunks(2).for_each(|ops| {
                 let op1 = &ops[0];
                 let op2 = &ops[1];
@@ -576,73 +438,9 @@ impl CncOps {
                 OpElem::Nothing => {}
             }
         }
-        let mut counter = 0;
-        cncs.iter().for_each(|cnc| {
-            let opc1: LRACMD = LRACMD {
-                id: counter,
-                op_code: 0,
-                pipe_radius: cnc.pipe_radius,
-                value0: cnc.l,
-                value1: cnc.r,
-            };
-            counter = counter + 1;
-            let opc2: LRACMD = LRACMD {
-                id: counter,
-                op_code: 1,
-                pipe_radius: cnc.pipe_radius,
-                value0: cnc.a,
-                value1: cnc.clr,
-            };
-            counter = counter + 1;
-            opcodes.push(opc1);
-            opcodes.push(opc2);
-            // warn!("cnc {:?}", cnc);
-        });
-        self.opcodes = opcodes;
-        self.commands = cncs.clone();
+
         optimize_lraclr(&mut cncs);
         cncs
-    }
-    pub fn reverse_lraclr(lraclr: &Vec<LRACLR>) -> Vec<LRACLR> {
-        let mut ret: Vec<LRACLR> = vec![];
-        let mut ops: Vec<LRACLR> = lraclr.clone();
-        ops.reverse();
-        let mut is_first = false;
-        let mut last_l: f64 = 0.0;
-        let mut counter = 0;
-        ops.iter().for_each(|op| {
-            if (!is_first) {
-                last_l = op.l;
-                is_first = true;
-            } else {
-                let new_l = op.l;
-                let id1 = counter;
-                counter = counter + 1;
-                let id2 = counter;
-                counter = counter + 1;
-                let mut new_lraclr = op.clone();
-                new_lraclr.l = last_l;
-                new_lraclr.id1 = id1;
-                new_lraclr.id2 = id2;
-                last_l = new_l;
-                ret.push(new_lraclr);
-            }
-        });
-        let id1 = counter;
-        counter = counter + 1;
-        let id2 = counter;
-        let last: LRACLR = LRACLR {
-            id1: id1,
-            id2: id2,
-            l: last_l,
-            lt: 0.0,
-            r: 0.0,
-            a: 0.0,
-            clr: 0.0,
-            pipe_radius: 0.0,
-        };
-        ret.push(last);
-        ret
     }
     pub fn generate_cyl(h: f64, radius: f64) -> MainCylinder {
         let mut mc: MainCylinder = MainCylinder {
@@ -651,15 +449,15 @@ impl CncOps {
                 id: random(),
                 radius: radius,
                 loc: Point3::new(0.0, 0.0, 0.0),
-                dir: Vector3::new(1.0, 0.0, 0.0),
-                radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                dir: P_FORWARD,
+                radius_dir: P_UP,
             },
             cb: MainCircle {
                 id: random(),
                 radius: radius,
                 loc: Point3::new(h, 0.0, 0.0),
-                dir: Vector3::new(1.0, 0.0, 0.0),
-                radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                dir: P_FORWARD,
+                radius_dir: P_UP,
             },
             h: h,
             r: radius,
@@ -672,31 +470,6 @@ impl CncOps {
         mc.triangulate();
         mc
     }
-    pub fn do_bend(&mut self) -> LRACMD {
-        if (self.current_step < self.opcodes.len()) {
-            let oc: LRACMD = self.opcodes[self.current_step].clone();
-            self.current_step = self.current_step + 1;
-            oc
-        } else {
-            LRACMD::default()
-        }
-    }
-    pub fn flush_to_pt_file(&self) {
-        let mut counter = 0;
-        self.ops.iter().for_each(|op| {
-            match op {
-                OpElem::CYL(c) => {
-                    export_to_pt(&c.gen_points(), counter);
-                    counter = counter + 1;
-                }
-                OpElem::TOR(tor) => {
-                    export_to_pt(&tor.gen_points(), counter);
-                    counter = counter + 1;
-                }
-                OpElem::Nothing => {}
-            }
-        });
-    }
 }
 
 fn generate_dummy_cyl(id: u64, stright_len: f64, radius: f64) -> MainCylinder {
@@ -705,8 +478,8 @@ fn generate_dummy_cyl(id: u64, stright_len: f64, radius: f64) -> MainCylinder {
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(-stright_len, 0.0, 0.0),
         radius,
-        Vector3::new(-1.0, 0.0, 0.0),
-        Vector3::new(0.0, 0.0, 1.0),
+        P_FORWARD_REVERSE,
+        P_UP,
     )
 }
 fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: Vector3, up_dir: Vector3) -> MainCylinder {
@@ -747,7 +520,7 @@ fn tot_pipe_len(lraclr_arr: &Vec<LRACLR>) -> f64 {
     ret
 }
 
-pub fn reverse_lraclr(lraclr: Vec<LRACLR>) -> Vec<LRACLR> {
+pub fn reverse_lraclr(lraclr: &Vec<LRACLR>) -> Vec<LRACLR> {
     let mut ret: Vec<LRACLR> = vec![];
     let mut ops: Vec<LRACLR> = lraclr.clone();
     ops.reverse();
@@ -844,7 +617,7 @@ pub fn cnc_to_poly_v(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_up_orig
                             let cyl = CncOps::generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
                             out_cyls.push(cyl);
                         } else {
-                            let reversed: Vec<LRACLR> = reverse_lraclr(anim_lra);
+                            let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
                             let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                             out_cyls = cyls;
                             out_tors = tors;
@@ -867,7 +640,7 @@ pub fn cnc_to_poly_v(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_up_orig
                             let cyl = CncOps::generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
                             out_cyls.push(cyl);
                         } else {
-                            let reversed: Vec<LRACLR> = reverse_lraclr(anim_lra);
+                            let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
                             let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                             out_cyls = cyls;
                             out_tors = tors;
@@ -888,7 +661,7 @@ pub fn cnc_to_poly_v(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_up_orig
                         });
 
 
-                        let mut reversed: Vec<LRACLR> = reverse_lraclr(anim_lra);
+                        let mut reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
                         reversed[0].r = curr_r;
                         let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                         out_cyls = cyls;
@@ -904,7 +677,7 @@ pub fn cnc_to_poly_v(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_up_orig
                             anim_lra.push(lr.clone());
                         });
 
-                        let mut reversed: Vec<LRACLR> = reverse_lraclr(anim_lra);
+                        let mut reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
                         reversed[0].r = next_stage.value;
                         let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                         out_cyls = cyls;
@@ -940,7 +713,7 @@ pub fn cnc_to_poly_v(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_up_orig
             dumb.l = 0.5;
             anim_lra.push(dumb);
 
-            let reversed: Vec<LRACLR> = reverse_lraclr(anim_lra);
+            let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
 
             let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
             out_cyls = cyls;
@@ -964,7 +737,7 @@ pub fn cnc_to_poly_v(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_up_orig
             let mut dumb: LRACLR = lraclr_arr.last().unwrap().clone();
             dumb.l = 0.5;
             anim_lra.push(dumb);
-            let mut reversed: Vec<LRACLR> = reverse_lraclr(anim_lra);
+            let mut reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
             reversed[0].a = next_stage.value;
 
             let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
@@ -982,8 +755,8 @@ pub fn cnc_to_poly(lraclr_arr: &Vec<LRACLR>, v_up_orign: &Vector3) -> (Vec<MainC
     let mut current_step = 0;
     let mut sp: Point3 = Point3::new(0.0, 0.0, 0.0);
     let mut v_up: Vector3 = v_up_orign.clone();
-    let mut v_frw = Vector3::new(1.0, 0.0, 0.0);
-    let mut v_right = Vector3::new(0.0, 1.0, 0.0);
+    let mut v_frw = P_FORWARD;
+    let mut v_right = P_RIGHT;
     let mut cyls: Vec<MainCylinder> = vec![];
     let mut tors: Vec<BendToro> = vec![];
     lraclr_arr.iter().for_each(|lracl| {
@@ -1070,7 +843,7 @@ pub fn optimize_lraclr(lraclrs: &mut Vec<LRACLR>) {
     lraclrs.iter_mut().for_each(|lracl| {
         if (abs(lracl.r) >= 360.0) {
             let rounds = abs(lracl.r as i64 / 360);
-            lracl.r == (abs(lracl.r) - 360.0 * rounds as f64) * signum(lracl.r);
+            lracl.r = (abs(lracl.r) - 360.0 * rounds as f64) * signum(lracl.r);
         }
         if (abs(lracl.r) > 180.0) {
             lracl.r = -((360.0 - abs(lracl.r)) * signum(lracl.r));
@@ -1078,25 +851,5 @@ pub fn optimize_lraclr(lraclrs: &mut Vec<LRACLR>) {
     });
 }
 
-pub fn optimize_lraclr_old(lraclrs: &mut Vec<LRACLR>) {
-    lraclrs.iter_mut().for_each(|lracl| {
-        let before = lracl.r;
-        if (abs(lracl.r) >= 360.0) {
-            let rounds = lracl.r as u64 / 360;
-            let new_r = (lracl.r - 360.0 * rounds as f64) * signum(lracl.r);
-            if (abs(new_r) > 180.0) {
-                let new_r2 = -((360.0 - abs(new_r)) * signum(new_r));
-                lracl.r = new_r2;
-            } else {
-                lracl.r = new_r;
-            }
-        } else if (abs(lracl.r) > 180.0) {
-            let new_r2 = -((360.0 - abs(lracl.r)) * signum(lracl.r));
-            lracl.r = new_r2;
-        }
-        let after = lracl.r;
 
-        warn!("before {:?} after {:?}", before as i64, after as i64);
-    });
-}
 

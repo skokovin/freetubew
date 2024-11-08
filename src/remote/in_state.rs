@@ -3,13 +3,15 @@ use std::sync::Mutex;
 use log::{info, warn, Level};
 use once_cell::sync::Lazy;
 use shipyard::Unique;
-use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen_futures::js_sys::Int32Array;
 use web_sys::js_sys::Uint8Array;
 use crate::algo::analyze_bin;
 use crate::algo::cnc::LRACLR;
 use crate::device::graphics::{Graphics, States};
 use crate::device::graphics::States::{ChangeDornDir, FullAnimate, ReadyToLoad, ReverseLRACLR, StandBy};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::wasm_bindgen;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::js_sys::Int32Array;
 
 static COMMANDS: Lazy<Mutex<CommandState>> = Lazy::new(|| Mutex::new(CommandState::new()));
 

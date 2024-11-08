@@ -1,3 +1,4 @@
+use std::ops::Mul;
 use cgmath::{Matrix4, Point3, SquareMatrix, Vector3};
 use log::warn;
 use rand::random;
@@ -5,7 +6,7 @@ use shipyard::{Unique};
 use truck_base::bounding_box::BoundingBox;
 use wgpu::{BindingResource, Buffer, Device};
 use wgpu::util::DeviceExt;
-use crate::algo::{MainCircle, MainCylinder};
+use crate::algo::{MainCircle, MainCylinder, P_FORWARD, P_RIGHT, P_UP_REVERSE};
 use crate::algo::cnc::LRACLR;
 use crate::device::{StepVertexBuffer};
 use crate::device::graphics::AnimState;
@@ -40,7 +41,9 @@ impl Dorn {
             contents: bytemuck::cast_slice(m.as_ref()),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let mut m_translate: Matrix4<f32> = Matrix4::from_translation(Vector3::<f32>::new(0.0, DORN_PARK_POSITION as f32 * v_up_orign.z as f32, 0.0));
+        let mut m_translate: Matrix4<f32> = Matrix4::from_translation(
+            Vector3::<f32>::new(P_RIGHT.x as f32,P_RIGHT.y as f32,P_RIGHT.z as f32).mul(DORN_PARK_POSITION as f32 * v_up_orign.z as f32)
+        );
         let mt: &[f32; 16] = m_translate.as_ref();
         let translate_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(format!("dorn translate Buffer").as_str()),
@@ -51,15 +54,15 @@ impl Dorn {
             id: random(),
             radius: 1.0,
             loc: Point3::new(0.0, 0.0, 0.5),
-            dir: Vector3::new(0.0, 0.0, -1.0),
-            radius_dir: Vector3::new(1.0, 0.0, 0.0),
+            dir: P_UP_REVERSE,
+            radius_dir: P_FORWARD,
         };
         let cb = MainCircle {
             id: random(),
             radius: 1.0,
             loc: Point3::new(0.0, 0.0, -0.5),
-            dir: Vector3::new(0.0, 0.0, -1.0),
-            radius_dir: Vector3::new(1.0, 0.0, 0.0),
+            dir: P_UP_REVERSE,
+            radius_dir: P_FORWARD,
         };
         let mut mc = MainCylinder {
             id: DORN_ID,
@@ -125,12 +128,17 @@ impl Dorn {
     }
 
     pub fn update_dorn_position(&mut self, y: f64, v_up_orign: &Vector3<f64>) {
-        self.translate = Matrix4::from_translation(Vector3::<f32>::new(0.0, y as f32 * v_up_orign.z as f32, 0.0));
+        self.translate = Matrix4::from_translation(
+            Vector3::<f32>::new(P_RIGHT.x as f32,P_RIGHT.y as f32,P_RIGHT.z as f32).mul(y as f32 * v_up_orign.z as f32)
+        );
         self.is_translate_dirty = true;
     }
 
     pub fn set_dorn_park(&mut self,v_up_orign: &Vector3<f64>) {
-        self.translate = Matrix4::from_translation(Vector3::<f32>::new(0.0, DORN_PARK_POSITION as f32*v_up_orign.z as f32, 0.0));
+        
+        self.translate = Matrix4::from_translation(
+            Vector3::<f32>::new(P_RIGHT.x as f32,P_RIGHT.y as f32,P_RIGHT.z as f32).mul(DORN_PARK_POSITION as f32 * v_up_orign.z as f32)
+        );
         self.is_translate_dirty = true;
     }
 

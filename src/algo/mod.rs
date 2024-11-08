@@ -26,15 +26,18 @@ use truck_stepio::r#in::{Axis2Placement3dHolder, Axis2PlacementHolder, BSplineCu
 use crate::algo::cnc::CncOps;
 use crate::device::{MeshVertex, StepVertexBuffer};
 
+pub const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
+pub const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
+pub const P_RIGHT: Vector3 = Vector3::new(0.0, 1.0, 0.0);
+pub const P_RIGHT_REVERSE: Vector3 = Vector3::new(0.0, -1.0, 0.0);
+pub const P_UP: Vector3 = Vector3::new(0.0, 0.0, 1.0);
+pub const P_UP_REVERSE: Vector3 = Vector3::new(0.0, 0.0, -1.0);
+
 pub const TESS_TOL_ANGLE: f64 = 18.0;
 pub const TESS_TOL_TOR_ANGLE: f64 = 18.0;
 pub const TESS_TOR_STEP: u64 = 20;
 pub const Z_FIGHTING_FACTOR: f32 = 1.0;
 const CAP_TRIANGULATION: Rad<f64> = Rad(PI / 180.0);
-const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
-const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
-const P_RIGHT: Vector3 = Vector3::new(0.0, 1.0, 0.0);
-const P_UP: Vector3 = Vector3::new(0.0, 0.0, 1.0);
 pub const TOLE: f64 = 0.01;
 pub const EXTRA_LEN_CALC: f64 = 3.0;
 pub const EXTRA_R_CALC: f64 = 1.2;
@@ -79,34 +82,6 @@ impl Triangle {
             p: [p0, p1, p2],
             normal: normal,
         }
-    }
-
-    pub fn fromX64(
-        p0: truck_base::cgmath64::Point3,
-        p1: truck_base::cgmath64::Point3,
-        p2: truck_base::cgmath64::Point3,
-        n: truck_base::cgmath64::Vector3,
-    ) -> Self {
-        let normal: cgmath::Vector3<f32> = cgmath::Vector3::new(n.x as f32, n.y as f32, n.z as f32);
-        Self {
-            p: [
-                cgmath::Point3::new(p0.x as f32, p0.y as f32, p0.z as f32),
-                cgmath::Point3::new(p1.x as f32, p1.y as f32, p1.z as f32),
-                cgmath::Point3::new(p2.x as f32, p2.y as f32, p2.z as f32)],
-            normal: normal,
-        }
-    }
-
-
-    pub fn from_coords(
-        x0: f32, y0: f32, z0: f32,
-        x1: f32, y1: f32, z1: f32,
-        x2: f32, y2: f32, z2: f32,
-    ) -> Self {
-        let p0: cgmath::Point3<f32> = cgmath::Point3::new(x0, y0, z0);
-        let p1: cgmath::Point3<f32> = cgmath::Point3::new(x1, y1, z1);
-        let p2: cgmath::Point3<f32> = cgmath::Point3::new(x2, y2, z2);
-        Triangle::new(p0, p1, p2)
     }
 
     pub fn as_p64(&self) -> [truck_base::cgmath64::Point3; 3] {
@@ -163,36 +138,6 @@ impl MainCircle {
         pts_a.extend(pts_b);
         pts_a.push(first);
         pts_a
-    }
-
-    pub fn gen_points_with_tol_orig(&self, step_size: f64) -> Vec<Point3> {
-        let mut pts_a: Vec<Point3> = vec![];
-        let mut pts_b: Vec<Point3> = vec![];
-        float_range(0.0, PI, step_size).for_each(|angle| {
-            let rotation: Basis3<f64> = Rotation3::from_axis_angle(self.dir, Rad(angle));
-            let nv = rotation.rotate_vector(self.radius_dir);
-            let p_a = self.loc.clone() + nv * self.radius;
-            pts_a.push(p_a);
-            let p_b = self.loc.clone() + nv * -self.radius;
-            pts_b.push(p_b);
-        });
-        let first = pts_a[0].clone();
-        pts_b.remove(0);
-        pts_a.extend(pts_b);
-        pts_a.push(first);
-        pts_a
-    }
-    
-    pub fn to_pts_file(&self) {
-        let mut pts: Vec<Point3> = vec![];
-        float_range(0.0, PI * 2.0, PI / 18.0).for_each(|angle| {
-            let rotation: Basis3<f64> = Rotation3::from_axis_angle(self.dir, Rad(angle));
-            let nv = rotation.rotate_vector(self.radius_dir.clone());
-            let p = self.loc.clone() + nv * self.radius;
-            pts.push(p);
-        });
-        pts.push(self.loc.clone());
-        export_to_pt(&pts, self.id as i32);
     }
     fn find_next(&self, others: &Vec<MainCircle>) -> Option<MainCircle> {
         let mut candidates: Vec<(f64, MainCircle)> = vec![];
@@ -328,16 +273,6 @@ impl MainCylinder {
         pts.push(self.ca.loc.clone());
         pts.push(self.cb.loc.clone());
         pts
-    }
-    pub fn to_pts_file(&self) {
-        let mut pts: Vec<Point3> = self.gen_points();
-        let id = nanoid!(4);
-        export_to_pt_str(&pts, id.as_str());
-    }
-    pub fn to_pts_file_with_id(&self) {
-        let mut pts: Vec<Point3> = self.gen_points();
-
-        export_to_pt_str(&pts, &self.id.to_string());
     }
     pub fn merge_me(&self, other: &MainCylinder) -> Option<MainCylinder> {
         if (self.id != other.id && self.r_gr_id == other.r_gr_id) {
@@ -655,19 +590,6 @@ impl MainCylinder {
         });
         ret.extend_from_slice(merged.as_slice());
         ret
-    }
-    pub fn flush_to_pt_files(cyls: &Vec<MainCylinder>) {
-        cyls.iter().for_each(|cyl| {
-            //println!("{:?}", cyl.r_gr_id);
-            cyl.to_pts_file_with_id();
-        });
-    }
-    pub fn flush_to_one_pt_files(cyls: &Vec<MainCylinder>) {
-        let mut pts: Vec<Point3> = vec![];
-        cyls.iter().for_each(|cyl| {
-            pts.extend_from_slice(cyl.gen_points().as_slice());
-        });
-        export_to_pt(&pts, 9999);
     }
     pub fn reverse_my_points(&mut self) {
         let tmp = self.ca.clone();
@@ -1198,7 +1120,7 @@ impl BendToro {
     pub fn from_angle(radians_angle: f64, bend_radius: f64, r: f64, id: u32) -> BendToro {
         let start_point: Point3 = Point3::new(0.0, 0.0, 0.0);
         let dorn_point: Point3 = Point3::new(0.0, r + bend_radius, 0.0);
-        let bend_plane_norm: Vector3 = Vector3::new(0.0, 0.0, 1.0);
+        let bend_plane_norm: Vector3 = P_UP;
 
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(bend_plane_norm, -Rad(radians_angle));
         let p_tmp = rotation.rotate_point(Point3::new(0.0, -r - bend_radius, 0.0));
@@ -1239,39 +1161,6 @@ impl BendToro {
         let sv = self.ca.loc.sub(self.bend_center_point);
         let ev = self.cb.loc.sub(self.bend_center_point);
         sv.angle(ev)
-    }
-    pub fn gen_points(&self) -> Vec<Point3> {
-        let mut pts: Vec<Point3> = vec![];
-        float_range(0.0, PI * 2.0, PI / 18.0).for_each(|angle| {
-            let rotation: Basis3<f64> = Rotation3::from_axis_angle(self.ca.dir, Rad(angle));
-            let nv = rotation.rotate_vector(self.ca.radius_dir.clone());
-            let p = self.ca.loc.clone() + nv * self.ca.radius;
-            pts.push(p);
-        });
-
-        float_range(0.0, PI * 2.0, PI / 18.0).for_each(|angle| {
-            let rotation: Basis3<f64> = Rotation3::from_axis_angle(self.cb.dir, Rad(angle));
-            let nv = rotation.rotate_vector(self.cb.radius_dir.clone());
-            let p = self.cb.loc.clone() + nv * self.cb.radius;
-            pts.push(p);
-        });
-        pts.push(self.ca.loc.clone());
-        pts.push(self.cb.loc.clone());
-        pts
-    }
-    pub fn to_pts_file(&self) {
-        let mut pts: Vec<Point3> = self.gen_points();
-        let id = nanoid!(4);
-        export_to_pt_str(&pts, id.as_str());
-    }
-    pub fn to_pts_file_with_id(&self) {
-        let mut pts: Vec<Point3> = self.gen_points();
-        export_to_pt_str(&pts, &self.id.to_string());
-    }
-    pub fn all_to_pt_file(bents: &Vec<BendToro>) {
-        bents.iter().for_each(|bend| {
-            bend.to_pts_file_with_id();
-        });
     }
     pub fn is_same_pos(&self, other: &BendToro) -> bool {
         if (self.r_gr_id == other.r_gr_id) {
@@ -1643,7 +1532,6 @@ impl BendToro {
             indxes,
         };
     }
-
     pub fn triangulate_with_start_index(&mut self, index: u32) -> u32 {
         let mut index: u32 = index;
         let mut indxes: Vec<u32> = vec![];
@@ -1872,286 +1760,13 @@ impl BendToro {
         index
     }
 
-    pub fn triangulate_with_start_index_old(&mut self, prev_dir: &Vector3, index: u32) -> u32 {
-        let mut index: u32 = index;
-        let mut indxes: Vec<u32> = vec![];
-        let mut buffer: Vec<MeshVertex> = vec![];
-
-        let bend_s_dir = self.ca.loc.sub(self.bend_center_point);
-        let bend_e_dir = self.cb.loc.sub(self.bend_center_point);
-        let bend_diag_dir = self.cb.loc.sub(self.ca.loc).normalize();
-        //println!("ANGLE {:?}", bend_e_dir.angle(bend_s_dir).0);
-        let angle_step = bend_s_dir.angle(bend_e_dir).0 / TESS_TOR_STEP as f64;
-        let angle_step_rev = (2.0 * PI - bend_s_dir.angle(bend_e_dir).0) / TESS_TOR_STEP as f64;
-        let up_dir = self.up_dir().normalize();
-
-        let mut anchors: Vec<Point3> = {
-            let mut anchors_stright: Vec<Point3> = vec![];
-            let mut anchors_rev: Vec<Point3> = vec![];
-
-            let mut curr_angle_stright = 0.0;
-            for i in 0..=TESS_TOR_STEP {
-                let rotation: Basis3<f64> = Rotation3::from_axis_angle(up_dir, Rad(curr_angle_stright));
-                let nv = rotation.rotate_vector(bend_s_dir.clone());
-                let p = self.bend_center_point.clone() + nv;
-                anchors_stright.push(p);
-                curr_angle_stright = curr_angle_stright + angle_step;
-            }
-
-            let mut curr_angle_rev = 0.0;
-            for i in 0..=TESS_TOR_STEP {
-                let rotation: Basis3<f64> = Rotation3::from_axis_angle(up_dir, Rad(-curr_angle_rev));
-                let nv = rotation.rotate_vector(bend_s_dir.clone());
-                let p = self.bend_center_point.clone() + nv;
-                anchors_rev.push(p);
-                curr_angle_rev = curr_angle_rev + angle_step_rev;
-            }
-
-            let p_dir_stright = anchors_stright[1].sub(anchors_stright[0]);
-
-            let is_coplanar = p_dir_stright.dot(prev_dir.clone());
-            if (is_coplanar < 0.0) {
-                anchors_rev
-            } else {
-                anchors_stright
-            }
-        };
-
-        let mut circles: Vec<MainCircle> = vec![];
-        for i in 0..anchors.len() - 1 {
-            let pc0 = anchors[i];
-            let pc1 = anchors[i + 1];
-            let c_dir_0 = self.bend_center_point.clone().sub(pc0).normalize();
-            let c_dir_1 = self.bend_center_point.clone().sub(pc1).normalize();
-
-            let r_dir_0 = ((pc0.clone() + up_dir * self.r).sub(pc0)).normalize();
-            let r_dir_1 = ((pc1.clone() + up_dir * self.r).sub(pc1)).normalize();
-            let cdir0 = up_dir.cross(c_dir_0).normalize();
-            let cdir1 = up_dir.cross(c_dir_1).normalize();
-            let mc0 = MainCircle {
-                id: random(),
-                radius: self.r,
-                loc: pc0,
-                dir: cdir0,
-                radius_dir: r_dir_0,
-            };
-            let mc1 = MainCircle {
-                id: random(),
-                radius: self.r,
-                loc: pc1,
-                dir: cdir1,
-                radius_dir: r_dir_1,
-            };
-            circles.push(mc0);
-            circles.push(mc1);
-        }
-        for i in 0..circles.len() - 1 {
-            //let c0 = circles[i].gen_points();
-            //let c1 = circles[i + 1].gen_points();
-
-            let c0 = circles[i].gen_points_with_tol(PI / TESS_TOL_TOR_ANGLE);
-            let c1 = circles[i + 1].gen_points_with_tol(PI / TESS_TOL_TOR_ANGLE);
-
-            for j in 0..c0.len() - 1 {
-                let p0 = c0[j];
-                let p1 = c0[j + 1];
-                let p2 = c1[j];
-                let p3 = c1[j + 1];
-                self.bbx.push(p0);
-                self.bbx.push(p1);
-                self.bbx.push(p2);
-                self.bbx.push(p3);
-
-                let plane = Plane::new(p0.clone(), p3.clone(), p1.clone());
-                let n = plane.normal().normalize();
-                let n_arr = [n.x as f32, n.y as f32, n.z as f32, 0.0];
-                let r_dir = p0.sub(circles[i].loc);
-                let is_coplanar = n.dot(r_dir);
-                if (is_coplanar > 0.0) {
-                    {
-                        let mv0 = MeshVertex {
-                            position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv0);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv1 = MeshVertex {
-                            position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv1);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv2 = MeshVertex {
-                            position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv2);
-                        indxes.push(index);
-                        index = index + 1;
-                    }
-                    {
-                        let mv0 = MeshVertex {
-                            position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv0);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv1 = MeshVertex {
-                            position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv1);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv2 = MeshVertex {
-                            position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv2);
-                        indxes.push(index);
-                        index = index + 1;
-                    }
-                } else {
-                    {
-                        let mv0 = MeshVertex {
-                            position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv0);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv1 = MeshVertex {
-                            position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv1);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv2 = MeshVertex {
-                            position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv2);
-                        indxes.push(index);
-                        index = index + 1;
-                    }
-                    {
-                        let mv0 = MeshVertex {
-                            position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv0);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv1 = MeshVertex {
-                            position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv1);
-                        indxes.push(index);
-                        index = index + 1;
-
-                        let mv2 = MeshVertex {
-                            position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
-                            normal: n_arr,
-                            id: self.id as i32,
-                            tex_coords: [0.0,0.0],
-                        };
-                        buffer.push(mv2);
-                        indxes.push(index);
-                        index = index + 1;
-                    }
-                }
-            }
-        }
-        self.step_vertex_buffer = StepVertexBuffer {
-            buffer,
-            indxes,
-        };
-        index
-    }
 }
 
-pub fn extract_cylinders(circles: &Vec<MainCircle>) -> Vec<MainCylinder> {
-    let mut cyls: Vec<MainCylinder> = vec![];
-    let mut counter = 1;
-    let divider = 100000000.0;
-    circles.iter().for_each(|c| {
-        let hashr: u64 = (round_by_dec(c.radius, 5) * divider) as u64;
-        match c.find_next(&circles) {
-            None => {}
-            Some(other) => {
-                let h = c.loc.distance(other.loc);
-                let mc: MainCylinder = MainCylinder {
-                    id: counter,
-                    ca: c.clone(),
-                    cb: other.clone(),
-                    h: h,
-                    r: c.radius,
-                    r_gr_id: hashr,
-                    ca_tor: u64::MAX,
-                    cb_tor: u64::MAX,
-                    step_vertex_buffer: StepVertexBuffer::default(),
-                    bbx: BoundingBox::default(),
-                };
-                cyls.push(mc);
-                counter = counter + 1;
-            }
-        }
-    });
-    cyls
-}
 pub fn float_range(start: f64, threshold: f64, step_size: f64) -> impl Iterator<Item=f64> {
     std::iter::successors(Some(start), move |&prev| {
         let next = prev + step_size;
         (next < threshold).then_some(next)
     })
-}
-pub fn export_to_pt(points: &Vec<cgmath::Point3<f64>>, counter: i32) {
-    let path = format!("d:\\pipe_project\\{}.pt", counter);
-    match File::create(path) {
-        Ok(file) => {
-            let mut writer = BufWriter::new(file);
-            points.iter().for_each(|p| {
-                let line = format!("{} {} {} \r\n", p.x, p.y, p.z);
-                writer.write_all(&line.as_bytes());
-            });
-            writer.flush();
-        }
-        Err(_) => {}
-    }
 }
 
 pub fn intersect_line_by_plane(cylinder_dir_vec: &Vector3, radius_vec: &Vector3, plane_point: &Point3, line_p0: &Point3, line_p1: &Point3) -> Point3 {
@@ -2182,182 +1797,7 @@ pub fn round_by_dec(x: f64, decimals: u32) -> f64 {
     let y = 10i64.pow(decimals);
     (x * y as f64).round() / y as f64
 }
-pub fn polygon_mesh_from_triangles(triangles: &Vec<Triangle>) -> PolygonMesh {
-    let mut positions: Vec<Point3> = vec![];
-    let mut tri_normals: Vec<Vector3> = vec![];
-    let mut indx: Vec<[StandardVertex; 3]> = vec![];
-    triangles.iter().for_each(|tri| {
-        positions.extend_from_slice(tri.as_p64().as_slice());
-        let n: Vector3 = Vector3::new(tri.normal.x as f64, tri.normal.y as f64, tri.normal.z as f64);
-        tri_normals.push(n.clone());
-        tri_normals.push(n.clone());
-        tri_normals.push(n.clone());
-    });
 
-
-    (0..positions.len()).chunks(3).into_iter().for_each(|ch| {
-        let ii = ch.collect_vec();
-        indx.push([ii[0].into(), ii[1].into(), ii[2].into()]);
-    });
-
-    let mut polymesh = PolygonMesh::new(
-        StandardAttributes {
-            positions: positions,
-            normals: tri_normals,
-            ..Default::default()
-        },
-        Faces::from_tri_and_quad_faces(
-            indx,
-            Vec::new(),
-        ),
-    );
-
-    polymesh.triangulate()
-        .normalize_normals()
-        .remove_unused_attrs()
-        .remove_degenerate_faces()
-        .add_smooth_normals(std::f64::consts::PI / 6.0, true)
-        .remove_unused_attrs();
-    polymesh
-}
-pub fn gen_cap(cp: Point3, dir_up: Vector3, dir_radius: Vector3, r: f64, id: i32, reverse_normal: bool) -> StepVertexBuffer {
-    let mut triangles: Vec<Triangle> = vec![];
-    let dir_radius_normalized = dir_radius.normalize();
-    let step = 4;
-    for i in (0..360).step_by(step) {
-        let start_ang: Rad<f64> = Rad::from(Deg(i as f64));
-        let end_ang: Rad<f64> = Rad::from(Deg((i + step) as f64));
-
-        let rotation_s: Basis3<f64> = Rotation3::from_axis_angle(dir_up, start_ang);
-        let rotation_e: Basis3<f64> = Rotation3::from_axis_angle(dir_up, end_ang);
-        let s_angle = rotation_s.rotate_vector(dir_radius_normalized);
-        let e_angle = rotation_e.rotate_vector(dir_radius_normalized);
-        let p1 = cp + s_angle * r;
-        let p2 = cp + e_angle * r;
-        if (reverse_normal) {
-            triangles.push(Triangle::from_f64_without_normals(cp, p1, p2));
-        } else {
-            triangles.push(Triangle::from_f64_without_normals(cp, p2, p1));
-        }
-    }
-    let pm = polygon_mesh_from_triangles(&triangles);
-    let (verts, indx, bbx, triangles) = convert_polymesh(&pm);
-
-    let mesh = RawMesh {
-        id: id as i32,
-        vertex_normal: verts,
-        indx: indx,
-        bbx: bbx,
-        triangles: triangles,
-    };
-    let mut index: u32 = 0;
-    let mut indxes: Vec<u32> = vec![];
-    let mut buffer: Vec<MeshVertex> = vec![];
-    mesh.vertex_normal.chunks(6).for_each(|vn| {
-        let mv = MeshVertex {
-            position: [vn[0], vn[1], vn[2], 1.0],
-            normal: [vn[3], vn[4], vn[5], 0.0],
-            id: id as i32,
-            tex_coords: [0.0,0.0],
-        };
-        buffer.push(mv);
-        indxes.push(index);
-        index = index + 1;
-    });
-    let sv = StepVertexBuffer {
-        buffer,
-        indxes,
-    };
-    sv
-}
-pub fn convert_polymesh(mesh: &PolygonMesh) -> (Vec<f32>, Vec<i32>, BoundingBox<cgmath::Point3<f64>>, Vec<Triangle>) {
-    let mut vertsu8: Vec<f32> = vec![];
-    let mut indxu8: Vec<i32> = vec![];
-    let mut triangles: Vec<Triangle> = vec![];
-    let mut bin_bbxu8: BoundingBox<Point3> = BoundingBox::default();
-    let mut is_valid = true;
-    let vrtx: &Vec<Point3> = mesh.positions();
-    let norms: &Vec<Vector3> = mesh.normals();
-    let mut vs: Vec<cgmath::Vector3<f32>> = vec![];
-    let mut nms: Vec<cgmath::Vector3<f32>> = vec![];
-    let mut is: Vec<i32> = vec![];
-    let mut counter = 0;
-    mesh.tri_faces().iter().for_each(|f| {
-        f.iter().for_each(|sv| {
-            let v = vrtx[sv.pos];
-            let n = norms[sv.nor.unwrap()];
-            is.push(counter);
-            vs.push(cgmath::Vector3::new(v.x as f32, v.y as f32, v.z as f32));
-            nms.push(cgmath::Vector3::new(n.x as f32, n.y as f32, n.z as f32));
-            counter = counter + 1;
-        });
-    });
-    bin_bbxu8 = mesh.bounding_box();
-
-    let bbx: BoundingBox<Point3> =
-        BoundingBox::from_iter([bin_bbxu8.min().mul(Z_FIGHTING_FACTOR as f64), bin_bbxu8.max().mul(Z_FIGHTING_FACTOR as f64)]);
-    if (is_valid) {
-        is.chunks(3).for_each(|tri| {
-            let i0 = tri[0];
-            let v0 = vs[i0 as usize];
-            let n0 = nms[i0 as usize];
-
-            let i1 = tri[1];
-            let v1 = vs[i1 as usize];
-            let n1 = nms[i1 as usize];
-
-            let i2 = tri[2];
-            let v2 = vs[i2 as usize];
-            let n2 = nms[i2 as usize];
-            let triangle: Triangle = Triangle::new(
-                cgmath::Point3::<f32>::new((v0[0] * Z_FIGHTING_FACTOR) as f32, (v0[1] * Z_FIGHTING_FACTOR) as f32, (v0[2] * Z_FIGHTING_FACTOR) as f32),
-                cgmath::Point3::<f32>::new((v1[0] * Z_FIGHTING_FACTOR) as f32, (v1[1] * Z_FIGHTING_FACTOR) as f32, (v1[2] * Z_FIGHTING_FACTOR) as f32),
-                cgmath::Point3::<f32>::new((v2[0] * Z_FIGHTING_FACTOR) as f32, (v2[1] * Z_FIGHTING_FACTOR) as f32, (v2[2] * Z_FIGHTING_FACTOR) as f32),
-            );
-            triangles.push(triangle);
-            vertsu8.push(v0.x * Z_FIGHTING_FACTOR);
-            vertsu8.push(v0.y * Z_FIGHTING_FACTOR);
-            vertsu8.push(v0.z * Z_FIGHTING_FACTOR);
-            vertsu8.push(n0.x);
-            vertsu8.push(n0.y);
-            vertsu8.push(n0.z);
-            indxu8.push(i0);
-
-            vertsu8.push(v1.x * Z_FIGHTING_FACTOR);
-            vertsu8.push(v1.y * Z_FIGHTING_FACTOR);
-            vertsu8.push(v1.z * Z_FIGHTING_FACTOR);
-            vertsu8.push(n1.x);
-            vertsu8.push(n1.y);
-            vertsu8.push(n1.z);
-            indxu8.push(i1);
-
-            vertsu8.push(v2.x * Z_FIGHTING_FACTOR);
-            vertsu8.push(v2.y * Z_FIGHTING_FACTOR);
-            vertsu8.push(v2.z * Z_FIGHTING_FACTOR);
-            vertsu8.push(n2.x);
-            vertsu8.push(n2.y);
-            vertsu8.push(n2.z);
-            indxu8.push(i2);
-        });
-    } else {
-        println!("NOT VALID V={:?}  N={:?}  I={:?}", vs.len(), nms.len(), is.len());
-    }
-    (vertsu8, indxu8, bbx, triangles)
-}
-pub fn export_to_pt_str(points: &Vec<cgmath::Point3<f64>>, counter: &str) {
-    let path = format!("d:\\pipe_project\\{}.pt", counter);
-    match File::create(path) {
-        Ok(file) => {
-            let mut writer = BufWriter::new(file);
-            points.iter().for_each(|p| {
-                let line = format!("{} {} {} \r\n", p.x, p.y, p.z);
-                writer.write_all(&line.as_bytes());
-            });
-            writer.flush();
-        }
-        Err(_) => {}
-    }
-}
 pub fn extract_vertex(t: &Table, vertex: &PlaceHolder<VertexPointHolder>) -> Option<Point3> {
     match vertex {
         Ref(name) => {

@@ -12,7 +12,7 @@ use truck_geometry::prelude::Plane;
 use web_sys::console::warn;
 use wgpu::{Buffer, Device, Queue, Sampler, Texture, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
-use crate::algo::{angle_with_sign, BendToro, MainCircle, MainCylinder, TESS_TOL_ANGLE};
+use crate::algo::{angle_with_sign, BendToro, MainCircle, MainCylinder, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, TESS_TOL_ANGLE};
 use crate::algo::cnc::LRACLR;
 use crate::device::{MeshVertex, StepVertexBuffer};
 
@@ -276,10 +276,10 @@ impl DimX {
         let r_arrow_up = Point3::new(cp.x + 3.0 * scale * dir, cp.y + 0.8038 * scale * dir, 0.0);
         let r_arrow_down = Point3::new(cp.x + 3.0 * scale * dir, cp.y - 0.8038 * scale * dir, 0.0);
 
-        let n1: [f32; 4] = [0.0, 0.0, 1.0, 0.0];
-        let n2: [f32; 4] = [0.0, 0.0, -1.0, 0.0];
-        let n_b: [f32; 4] = [1.0 * dir as f32, 0.0, 0.0, 0.0];
-        let fwd_dir: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0);
+        let n1: [f32; 4] = [0.0, 0.0, P_UP.z as f32, 0.0];
+        let n2: [f32; 4] = [0.0, 0.0, P_UP_REVERSE.z as f32, 0.0];
+        let n_b: [f32; 4] = [(P_FORWARD.x * dir) as f32, 0.0, 0.0, 0.0];
+        let fwd_dir: Vector3<f64> = P_UP;
         let n1_v = fwd_dir.cross(r_arrow_up.sub(cp).normalize());
         let n2_v = r_arrow_down.sub(cp).normalize().cross(fwd_dir);
         let n_a: [f32; 4] = [n1_v.x as f32, n1_v.y as f32, n1_v.z as f32, 0.0];
@@ -543,15 +543,15 @@ impl DimX {
             id: random(),
             radius: DIM_REF_L_RADIUS,
             loc: Point3::new(0.0, -len, 0.0),
-            dir: Vector3::new(1.0, 0.0, 0.0),
-            radius_dir: Vector3::new(0.0, 0.0, 1.0),
+            dir: P_FORWARD,
+            radius_dir: P_UP,
         };
         let cb = MainCircle {
             id: random(),
             radius: DIM_REF_L_RADIUS,
             loc: Point3::new(x, -len, 0.0),
-            dir: Vector3::new(1.0, 0.0, 0.0),
-            radius_dir: Vector3::new(0.0, 0.0, 1.0),
+            dir: P_FORWARD,
+            radius_dir: P_UP,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -575,15 +575,15 @@ impl DimX {
             id: random(),
             radius: DIM_REF_L_RADIUS,
             loc: Point3::new(x, 0.0, 0.0),
-            dir: Vector3::new(0.0, -1.0, 0.0),
-            radius_dir: Vector3::new(1.0, 0.0, 0.0),
+            dir: P_RIGHT_REVERSE,
+            radius_dir: P_FORWARD,
         };
         let cb = MainCircle {
             id: random(),
             radius: DIM_REF_L_RADIUS,
             loc: Point3::new(x, -len, 0.0),
-            dir: Vector3::new(0.0, -1.0, 0.0),
-            radius_dir: Vector3::new(1.0, 0.0, 0.0),
+            dir: P_RIGHT_REVERSE,
+            radius_dir: P_FORWARD,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -850,11 +850,11 @@ impl DimZ {
         let r = Rad::from(Deg(r_deg));
         let cp: Point3<f64> = Point3::new(0.0, 0.0, 0.0);
 
-        let mut ref_line_a_dir: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0);
+        let mut ref_line_a_dir: Vector3<f64> =P_UP;
         let mut pa: Point3<f64> = cp + ref_line_a_dir.mul(len);
-        let mut a_dir: Vector3<f64> = Vector3::new(0.0, 1.0, 0.0).mul(signum(r_deg));
+        let mut a_dir: Vector3<f64> = P_RIGHT.mul(signum(r_deg));
 
-        let rot_axe: Vector3<f64> = Vector3::new(1.0, 0.0, 0.0).mul(signum(r_deg));
+        let rot_axe: Vector3<f64> = P_FORWARD.mul(signum(r_deg));
         let step = Rad::from(Deg(ROTATION_STEP_ANGLE));
         let deg_step = abs((r.0 / step.0) as i64);
         let mut b_dir: Vector3<f64> = a_dir;
@@ -870,14 +870,14 @@ impl DimZ {
                 radius: DIM_REF_L_RADIUS,
                 loc: pa,
                 dir: a_dir,
-                radius_dir: Vector3::new(1.0, 0.0, 0.0),
+                radius_dir: P_FORWARD,
             };
             let cb = MainCircle {
                 id: random(),
                 radius: DIM_REF_L_RADIUS,
                 loc: pb,
                 dir: b_dir,
-                radius_dir: Vector3::new(1.0, 0.0, 0.0),
+                radius_dir: P_FORWARD,
             };
 
             let arr_a: Vec<Point3<f64>> = ca.gen_points_with_tol(PI / 8.0);
@@ -966,8 +966,8 @@ impl DimZ {
             a_dir = b_dir;
         }
 
-        let parrow1 = cp + Vector3::new(0.0, 0.0, 1.0).mul(len);
-        let (buffer_a1, indxes_a1, last_index_a1) = DimZ::generate_arrow_a_y(id, Vector3::new(0.0, 1.0, 0.0).mul(signum(r_deg)), arrow_scale, parrow1, index);
+        let parrow1 = cp +P_UP.mul(len);
+        let (buffer_a1, indxes_a1, last_index_a1) = DimZ::generate_arrow_a_y(id, P_RIGHT.mul(signum(r_deg)), arrow_scale, parrow1, index);
         index = last_index_a1;
         indxes.extend_from_slice(indxes_a1.as_slice());
         buffer.extend_from_slice(buffer_a1.as_slice());
@@ -985,8 +985,8 @@ impl DimZ {
         let len = calc_ref_len(pipe_radius);
 
 
-        let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(1.0, 0.0, 0.0), r);
-        let dir_z = rotation.rotate_vector(Vector3::new(0.0, 0.0, 1.0));
+        let rotation: Basis3<f64> = Rotation3::from_axis_angle(P_FORWARD, r);
+        let dir_z = rotation.rotate_vector(P_UP);
         let pe: Point3<f64> = Point3::new(0.0, 0.0, 0.0) + dir_z.mul(len);
 
 
@@ -994,15 +994,15 @@ impl DimZ {
             id: random(),
             radius: DIM_REF_L_RADIUS,
             loc: Point3::new(0.0, 0.0, 0.0),
-            dir: Vector3::new(0.0, 0.0, 1.0),
-            radius_dir: Vector3::new(1.0, 0.0, 0.0),
+            dir: P_UP,
+            radius_dir: P_FORWARD,
         };
         let cb = MainCircle {
             id: random(),
             radius: DIM_REF_L_RADIUS,
             loc: pe,
-            dir: Vector3::new(0.0, 0.0, 1.0),
-            radius_dir: Vector3::new(1.0, 0.0, 0.0),
+            dir: P_UP,
+            radius_dir: P_FORWARD,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -1024,7 +1024,7 @@ impl DimZ {
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
         let mut buffer: Vec<MeshVertex> = vec![];
-        let fwd_dir = Vector3::new(1.0, 0.0, 0.0);
+        let fwd_dir = P_FORWARD;
         let up_dir = dir.cross(fwd_dir);
 
         let cp = position;
@@ -1297,7 +1297,7 @@ impl DimZ {
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
         let mut buffer: Vec<MeshVertex> = vec![];
-        let fwd_dir = Vector3::new(1.0, 0.0, 0.0);
+        let fwd_dir = P_FORWARD;
         let up_dir = dir.cross(fwd_dir);
 
         let cp = position;
@@ -1811,8 +1811,8 @@ impl DimB {
         let cp: Point3<f64> = Point3::new(0.0, y*v_up_orign.z, 0.0);
         let len = calc_ref_len(pipe_radius)*v_up_orign.z;
 
-        let rotation: Basis3<f64> = Rotation3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0*v_up_orign.z), r);
-        let dir_y = rotation.rotate_vector(Vector3::new(0.0, -1.0, 0.0));
+        let rotation: Basis3<f64> = Rotation3::from_axis_angle(P_UP.mul(v_up_orign.z), r);
+        let dir_y = rotation.rotate_vector(P_RIGHT_REVERSE);
         let pe: Point3<f64> = cp + dir_y.mul(len);
 
         let ca = MainCircle {
@@ -1820,14 +1820,14 @@ impl DimB {
             radius: DIM_REF_L_RADIUS,
             loc: cp,
             dir: dir_y,
-            radius_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius_dir: P_UP,
         };
         let cb = MainCircle {
             id: random(),
             radius: DIM_REF_L_RADIUS,
             loc: pe,
             dir: dir_y,
-            radius_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius_dir: P_UP,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -1850,7 +1850,7 @@ impl DimB {
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
         let mut buffer: Vec<MeshVertex> = vec![];
-        let fwd_dir = Vector3::new(0.0, 0.0, 1.0);
+        let fwd_dir = P_UP;
         let up_dir = dir.cross(fwd_dir);
 
         let cp = position;
@@ -1859,8 +1859,8 @@ impl DimB {
         let r_arrow_up = tmp_p + 0.8038 * scale * up_dir;
         let r_arrow_down = tmp_p - 0.8038 * scale * up_dir;
 
-        let n1: [f32; 4] = [0.0, 0.0, 1.0, 0.0];
-        let n2: [f32; 4] = [0.0, 0.0, -1.0, 0.0];
+        let n1: [f32; 4] = [P_UP.x as f32, P_UP.y as f32, P_UP.z as f32, 0.0];
+        let n2: [f32; 4] = [P_UP_REVERSE.x as f32, P_UP_REVERSE.y as f32, P_UP_REVERSE.z as f32, 0.0];
 
         let n1_v = r_arrow_up.sub(cp).normalize().cross(fwd_dir);
         let n2_v = fwd_dir.cross(r_arrow_down.sub(cp).normalize());
@@ -2132,11 +2132,11 @@ impl DimB {
         let bend_angle = Rad::from(Deg(r_deg));
         let len = calc_ref_len_offset(pipe_radius);
         let cp: Point3<f64> = Point3::new(0.0, y*v_up_orign.z, 0.0);
-        let mut ref_line_a_dir: Vector3<f64> = Vector3::new(0.0, -1.0*v_up_orign.z, 0.0);
+        let mut ref_line_a_dir: Vector3<f64> =P_RIGHT_REVERSE.mul(v_up_orign.z); 
         let mut pa: Point3<f64> = cp + ref_line_a_dir.mul(len);
-        let mut a_dir: Vector3<f64> = Vector3::new(1.0, 0.0, 0.0);
+        let mut a_dir: Vector3<f64> = P_FORWARD;
 
-        let rot_axe: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0*v_up_orign.z);
+        let rot_axe: Vector3<f64> =P_UP.mul(v_up_orign.z);
         let step = Rad::from(Deg(ROTATION_STEP_ANGLE));
         let deg_step = abs((bend_angle.0 / step.0) as i64);
         let mut b_dir: Vector3<f64> = a_dir;
@@ -2144,21 +2144,21 @@ impl DimB {
             let rotation: Basis3<f64> = Rotation3::from_axis_angle(rot_axe, step);
             let ref_line_b_dir = rotation.rotate_vector(ref_line_a_dir);
             let pb: Point3<f64> = cp + ref_line_b_dir.mul(len);
-            b_dir = ref_line_b_dir.cross(Vector3::new(0.0, 0.0, -1.0));
+            b_dir = ref_line_b_dir.cross(P_UP_REVERSE);
 
             let ca = MainCircle {
                 id: random(),
                 radius: DIM_REF_L_RADIUS,
                 loc: pa,
                 dir: a_dir,
-                radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius_dir: P_UP,
             };
             let cb = MainCircle {
                 id: random(),
                 radius: DIM_REF_L_RADIUS,
                 loc: pb,
                 dir: b_dir,
-                radius_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius_dir: P_UP,
             };
 
             let arr_a: Vec<Point3<f64>> = ca.gen_points_with_tol(PI / 8.0);
@@ -2248,8 +2248,8 @@ impl DimB {
             a_dir = b_dir;
         }
 
-        let parrow1 = cp + Vector3::new(0.0, -1.0*v_up_orign.z, 0.0).mul(len);
-        let (buffer_a1, indxes_a1, last_index_a1) = DimB::generate_arrow_a_x(id, Vector3::new(-1.0, 0.0, 0.0), arrow_scale, parrow1, index);
+       let parrow1 = cp + P_RIGHT.mul(len);
+        let (buffer_a1, indxes_a1, last_index_a1) = DimB::generate_arrow_a_x(id, P_FORWARD_REVERSE, arrow_scale, parrow1, index);
         index = last_index_a1;
         indxes.extend_from_slice(indxes_a1.as_slice());
         buffer.extend_from_slice(buffer_a1.as_slice());
