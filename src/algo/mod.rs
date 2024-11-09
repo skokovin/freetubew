@@ -1,30 +1,30 @@
 pub mod cnc;
-use std::collections::{HashMap, HashSet};
-use std::f64::consts::PI;
-use std::fs::File;
-use std::io::{BufWriter, Read, Write};
-use std::ops::{Mul, Sub};
-use cgmath::{Basis3, Deg, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
+use crate::algo::cnc::CncOps;
+use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::real::Real;
+use cgmath::{Basis3, Deg, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
 use encoding_rs::WINDOWS_1251;
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use itertools::Itertools;
-use log::warn;
-use nanoid::nanoid;
 use rand::random;
 use ruststep::ast::Name;
 use ruststep::tables::PlaceHolder;
 use ruststep::tables::PlaceHolder::Ref;
 use serde::{Deserialize, Serialize};
 use shipyard::Component;
+use std::collections::{HashMap, HashSet};
+use std::f64::consts::PI;
+use std::io::{ Read, Write};
+use std::ops::{Mul, Sub};
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::{Point3, Vector3};
 use truck_geometry::prelude::{BSplineCurve, Plane};
 use truck_meshalgo::prelude::*;
-use truck_polymesh::{Faces, PolygonMesh, StandardAttributes, StandardVertex};
-use truck_stepio::r#in::{Axis2Placement3dHolder, Axis2PlacementHolder, BSplineCurveWithKnots, CartesianPoint, CartesianPointHolder, CurveAnyHolder, DirectionHolder, FaceBoundHolder, NonRationalBSplineSurfaceHolder, Table, VertexPointHolder};
-use crate::algo::cnc::CncOps;
-use crate::device::{MeshVertex, StepVertexBuffer};
+use truck_stepio::r#in::{
+    Axis2Placement3dHolder, Axis2PlacementHolder, BSplineCurveWithKnots, CartesianPoint,
+    CartesianPointHolder, CurveAnyHolder, DirectionHolder, FaceBoundHolder,
+    NonRationalBSplineSurfaceHolder, Table, VertexPointHolder,
+};
 
 pub const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 pub const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
@@ -32,7 +32,7 @@ pub const P_RIGHT: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 pub const P_RIGHT_REVERSE: Vector3 = Vector3::new(0.0, -1.0, 0.0);
 pub const P_UP: Vector3 = Vector3::new(0.0, 0.0, 1.0);
 pub const P_UP_REVERSE: Vector3 = Vector3::new(0.0, 0.0, -1.0);
-
+pub const ROT_DIR_CCW: f64 = -1.0;
 pub const TESS_TOL_ANGLE: f64 = 18.0;
 pub const TESS_TOL_TOR_ANGLE: f64 = 18.0;
 pub const TESS_TOR_STEP: u64 = 20;
@@ -44,8 +44,6 @@ pub const EXTRA_R_CALC: f64 = 1.2;
 
 pub const MAX_BEND_RADIUS: f64 = 500.0;
 pub const DIVIDER: f64 = 100000000.0;
-static mut STPSCALE: f64 = 1.0;
-
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Triangle {
@@ -66,10 +64,17 @@ impl Triangle {
             normal: normal,
         }
     }
-    pub fn from_f64_without_normals(p0_64: cgmath::Point3<f64>, p1_64: cgmath::Point3<f64>, p2_64: cgmath::Point3<f64>) -> Self {
-        let p0: cgmath::Point3<f32> = cgmath::Point3::new(p0_64.x as f32, p0_64.y as f32, p0_64.z as f32);
-        let p1: cgmath::Point3<f32> = cgmath::Point3::new(p1_64.x as f32, p1_64.y as f32, p1_64.z as f32);
-        let p2: cgmath::Point3<f32> = cgmath::Point3::new(p2_64.x as f32, p2_64.y as f32, p2_64.z as f32);
+    pub fn from_f64_without_normals(
+        p0_64: cgmath::Point3<f64>,
+        p1_64: cgmath::Point3<f64>,
+        p2_64: cgmath::Point3<f64>,
+    ) -> Self {
+        let p0: cgmath::Point3<f32> =
+            cgmath::Point3::new(p0_64.x as f32, p0_64.y as f32, p0_64.z as f32);
+        let p1: cgmath::Point3<f32> =
+            cgmath::Point3::new(p1_64.x as f32, p1_64.y as f32, p1_64.z as f32);
+        let p2: cgmath::Point3<f32> =
+            cgmath::Point3::new(p2_64.x as f32, p2_64.y as f32, p2_64.z as f32);
 
         let u = p1.sub(p0);
         let v = p2.sub(p0);
@@ -88,7 +93,7 @@ impl Triangle {
         let p64: [truck_base::cgmath64::Point3; 3] = [
             cgmath::Point3::new(self.p[0].x as f64, self.p[0].y as f64, self.p[0].z as f64),
             cgmath::Point3::new(self.p[1].x as f64, self.p[1].y as f64, self.p[1].z as f64),
-            cgmath::Point3::new(self.p[2].x as f64, self.p[2].y as f64, self.p[2].z as f64)
+            cgmath::Point3::new(self.p[2].x as f64, self.p[2].y as f64, self.p[2].z as f64),
         ];
         p64
     }
@@ -240,18 +245,16 @@ impl MainCylinder {
     }
     pub fn find_by_pt(pt: &Point3, cyls: &Vec<MainCylinder>) -> Option<MainCylinder> {
         let mut found: Option<MainCylinder> = None;
-        cyls.iter().for_each(|cyl| {
-            match found {
-                None => {
-                    if (pt.distance(cyl.ca.loc) < TOLE) {
-                        found = Some(cyl.clone());
-                    }
-                    if (pt.distance(cyl.cb.loc) < TOLE) {
-                        found = Some(cyl.clone());
-                    }
+        cyls.iter().for_each(|cyl| match found {
+            None => {
+                if (pt.distance(cyl.ca.loc) < TOLE) {
+                    found = Some(cyl.clone());
                 }
-                Some(_) => {}
+                if (pt.distance(cyl.cb.loc) < TOLE) {
+                    found = Some(cyl.clone());
+                }
             }
+            Some(_) => {}
         });
         found
     }
@@ -379,18 +382,27 @@ impl MainCylinder {
             None
         }
     }
-    pub fn get_next(&self, hashids: &HashSet<u64>, cyls: &Vec<MainCylinder>) -> Option<MainCylinder> {
+    pub fn get_next(
+        &self,
+        hashids: &HashSet<u64>,
+        cyls: &Vec<MainCylinder>,
+    ) -> Option<MainCylinder> {
         let mut ret: Option<MainCylinder> = None;
         cyls.iter().for_each(|c| {
-            if (self.id != c.id && !((c.ca_tor == u64::MAX || c.cb_tor == u64::MAX) && (self.ca_tor == u64::MAX || self.cb_tor == u64::MAX))) {
+            if (self.id != c.id
+                && !((c.ca_tor == u64::MAX || c.cb_tor == u64::MAX)
+                    && (self.ca_tor == u64::MAX || self.cb_tor == u64::MAX)))
+            {
                 //if (self.id != c.id) {
                 match ret {
                     None => {
-                        if (self.ca_tor == c.ca_tor || self.ca_tor == c.cb_tor || self.cb_tor == c.ca_tor || self.cb_tor == c.cb_tor) {
+                        if (self.ca_tor == c.ca_tor
+                            || self.ca_tor == c.cb_tor
+                            || self.cb_tor == c.ca_tor
+                            || self.cb_tor == c.cb_tor)
+                        {
                             match hashids.get(&c.id) {
-                                None => {
-                                    ret = Some(c.clone())
-                                }
+                                None => ret = Some(c.clone()),
                                 Some(_) => {}
                             }
                         }
@@ -418,15 +430,11 @@ impl MainCylinder {
         cyls.iter_mut().for_each(|c| {
             match BendToro::find_by_pt(&c.ca.loc, bends) {
                 None => {}
-                Some(toro) => {
-                    c.ca_tor = toro.id
-                }
+                Some(toro) => c.ca_tor = toro.id,
             }
             match BendToro::find_by_pt(&c.cb.loc, bends) {
                 None => {}
-                Some(toro) => {
-                    c.cb_tor = toro.id
-                }
+                Some(toro) => c.cb_tor = toro.id,
             }
             //println!("CA {:?} {:?} {:?}",c.id,c.ca_tor,c.cb_tor);
         })
@@ -448,8 +456,14 @@ impl MainCylinder {
     }
     pub fn is_other_overlaps_me(&self, other: &MainCylinder) -> bool {
         if (!self.is_same_pos(other)) {
-            let a0 = (self.ca.loc.distance(other.ca.loc) + self.cb.loc.distance(other.ca.loc) - self.ca.loc.distance(self.cb.loc)).abs() < TOLE;
-            let b0 = (self.ca.loc.distance(other.cb.loc) + self.cb.loc.distance(other.cb.loc) - self.ca.loc.distance(self.cb.loc)).abs() < TOLE;
+            let a0 = (self.ca.loc.distance(other.ca.loc) + self.cb.loc.distance(other.ca.loc)
+                - self.ca.loc.distance(self.cb.loc))
+            .abs()
+                < TOLE;
+            let b0 = (self.ca.loc.distance(other.cb.loc) + self.cb.loc.distance(other.cb.loc)
+                - self.ca.loc.distance(self.cb.loc))
+            .abs()
+                < TOLE;
             if (a0 || b0 && a0 != b0) {
                 true
             } else {
@@ -499,16 +513,15 @@ impl MainCylinder {
 
         let mut ret: Vec<MainCylinder> = vec![];
         let mut rad_group: HashMap<u64, f64> = HashMap::new();
-        cyls.iter().for_each(|cyl| {
-            match rad_group.get_mut(&cyl.r_gr_id) {
+        cyls.iter()
+            .for_each(|cyl| match rad_group.get_mut(&cyl.r_gr_id) {
                 None => {
                     rad_group.insert(cyl.r_gr_id.clone(), cyl.h);
                 }
                 Some(dist) => {
                     *dist = *dist + cyl.h;
                 }
-            }
-        });
+            });
 
         let mut rad_group_vec: Vec<(u64, f64)> = vec![];
         rad_group.iter().for_each(|(id, dist)| {
@@ -530,8 +543,8 @@ impl MainCylinder {
             let mut tole: f64 = 0.001;
             //rad_group_vec.sort_by(|(id, dist), (id1, dist1)| id.cmp(id1));
             /*    rad_group_vec.iter().for_each(|rg|{
-                    warn!("id {:?} dist {:?}",rg.0, rg.1);
-                });*/
+                warn!("id {:?} dist {:?}",rg.0, rg.1);
+            });*/
 
             rad_group_vec.sort_by(|(id, dist), (id1, dist1)| dist.partial_cmp(dist1).unwrap());
             rad_group_vec.inverse().iter().for_each(|(id, dist)| {
@@ -558,36 +571,32 @@ impl MainCylinder {
         let mut ret: Vec<MainCylinder> = vec![];
         let mut merged_ids: HashSet<u64> = HashSet::new();
         let mut merged: Vec<MainCylinder> = vec![];
-        main_cyls.iter().for_each(|candidate| {
-            match merged_ids.get(&candidate.id) {
-                None => {
-                    main_cyls.iter().for_each(|other| {
-                        match merged_ids.get(&other.id) {
-                            None => {
-                                match candidate.merge_me(other) {
-                                    None => {}
-                                    Some(merged_cyl) => {
-                                        merged.push(merged_cyl);
-                                        merged_ids.insert(other.id);
-                                        merged_ids.insert(candidate.id);
-                                    }
-                                }
+        main_cyls
+            .iter()
+            .for_each(|candidate| match merged_ids.get(&candidate.id) {
+                None => main_cyls
+                    .iter()
+                    .for_each(|other| match merged_ids.get(&other.id) {
+                        None => match candidate.merge_me(other) {
+                            None => {}
+                            Some(merged_cyl) => {
+                                merged.push(merged_cyl);
+                                merged_ids.insert(other.id);
+                                merged_ids.insert(candidate.id);
                             }
-                            Some(_) => {}
-                        }
-                    })
-                }
+                        },
+                        Some(_) => {}
+                    }),
                 Some(_) => {}
-            }
-        });
-        main_cyls.iter().for_each(|cyl| {
-            match merged_ids.get(&cyl.id) {
+            });
+        main_cyls
+            .iter()
+            .for_each(|cyl| match merged_ids.get(&cyl.id) {
                 None => {
                     ret.push(cyl.clone());
                 }
                 Some(_) => {}
-            }
-        });
+            });
         ret.extend_from_slice(merged.as_slice());
         ret
     }
@@ -620,7 +629,6 @@ impl MainCylinder {
             self.bbx.push(p2);
             self.bbx.push(p3);
 
-
             let plane = Plane::new(p0.clone(), p1.clone(), p3.clone());
             let n = plane.normal().normalize();
             let n_arr = [n.x as f32, n.y as f32, n.z as f32, 0.0];
@@ -632,7 +640,7 @@ impl MainCylinder {
                         position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv0);
                     indxes.push(index);
@@ -642,7 +650,7 @@ impl MainCylinder {
                         position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv1);
                     indxes.push(index);
@@ -652,7 +660,7 @@ impl MainCylinder {
                         position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv2);
                     indxes.push(index);
@@ -663,7 +671,7 @@ impl MainCylinder {
                         position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv0);
                     indxes.push(index);
@@ -673,7 +681,7 @@ impl MainCylinder {
                         position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv1);
                     indxes.push(index);
@@ -683,7 +691,7 @@ impl MainCylinder {
                         position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv2);
                     indxes.push(index);
@@ -695,7 +703,7 @@ impl MainCylinder {
                         position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv0);
                     indxes.push(index);
@@ -705,7 +713,7 @@ impl MainCylinder {
                         position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv1);
                     indxes.push(index);
@@ -715,7 +723,7 @@ impl MainCylinder {
                         position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv2);
                     indxes.push(index);
@@ -726,7 +734,7 @@ impl MainCylinder {
                         position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv0);
                     indxes.push(index);
@@ -736,7 +744,7 @@ impl MainCylinder {
                         position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv1);
                     indxes.push(index);
@@ -746,7 +754,7 @@ impl MainCylinder {
                         position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                         normal: n_arr,
                         id: self.id as i32,
-                        tex_coords: [0.0,0.0],
+                        tex_coords: [0.0, 0.0],
                     };
                     buffer.push(mv2);
                     indxes.push(index);
@@ -755,14 +763,19 @@ impl MainCylinder {
             }
 
             let inv_normal = self.ca.dir.mul(-1.0);
-            let inv_normal_arr = [inv_normal.x as f32, inv_normal.y as f32, inv_normal.z as f32, 0.0];
+            let inv_normal_arr = [
+                inv_normal.x as f32,
+                inv_normal.y as f32,
+                inv_normal.z as f32,
+                0.0,
+            ];
 
             {
                 let cap0 = MeshVertex {
                     position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                     normal: inv_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap0);
                 indxes.push(index);
@@ -772,17 +785,22 @@ impl MainCylinder {
                     position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                     normal: inv_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap1);
                 indxes.push(index);
                 index = index + 1;
 
                 let cap2 = MeshVertex {
-                    position: [self.ca.loc.x as f32, self.ca.loc.y as f32, self.ca.loc.z as f32, 1.0],
+                    position: [
+                        self.ca.loc.x as f32,
+                        self.ca.loc.y as f32,
+                        self.ca.loc.z as f32,
+                        1.0,
+                    ],
                     normal: inv_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap2);
                 indxes.push(index);
@@ -790,14 +808,19 @@ impl MainCylinder {
             }
 
             let cap_normal = self.ca.dir;
-            let cap_normal_arr = [cap_normal.x as f32, cap_normal.y as f32, cap_normal.z as f32, 0.0];
+            let cap_normal_arr = [
+                cap_normal.x as f32,
+                cap_normal.y as f32,
+                cap_normal.z as f32,
+                0.0,
+            ];
 
             {
                 let cap0 = MeshVertex {
                     position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                     normal: cap_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap0);
                 indxes.push(index);
@@ -807,17 +830,22 @@ impl MainCylinder {
                     position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                     normal: cap_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap1);
                 indxes.push(index);
                 index = index + 1;
 
                 let cap2 = MeshVertex {
-                    position: [self.cb.loc.x as f32, self.cb.loc.y as f32, self.cb.loc.z as f32, 1.0],
+                    position: [
+                        self.cb.loc.x as f32,
+                        self.cb.loc.y as f32,
+                        self.cb.loc.z as f32,
+                        1.0,
+                    ],
                     normal: cap_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap2);
                 indxes.push(index);
@@ -825,10 +853,7 @@ impl MainCylinder {
             }
         }
 
-        self.step_vertex_buffer = StepVertexBuffer {
-            buffer,
-            indxes,
-        };
+        self.step_vertex_buffer = StepVertexBuffer { buffer, indxes };
     }
     pub fn triangulate_with_start_index(&mut self, index: u32) -> u32 {
         let mut index: u32 = index;
@@ -849,7 +874,6 @@ impl MainCylinder {
             self.bbx.push(p2);
             self.bbx.push(p3);
 
-
             let plane = Plane::new(p0.clone(), p1.clone(), p3.clone());
             let n = plane.normal().normalize();
             let mut n_arr = [n.x as f32, n.y as f32, n.z as f32, 0.0];
@@ -863,7 +887,7 @@ impl MainCylinder {
                     position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv0);
                 indxes.push(index);
@@ -873,7 +897,7 @@ impl MainCylinder {
                     position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv1);
                 indxes.push(index);
@@ -883,7 +907,7 @@ impl MainCylinder {
                     position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv2);
                 indxes.push(index);
@@ -894,7 +918,7 @@ impl MainCylinder {
                     position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv0);
                 indxes.push(index);
@@ -904,7 +928,7 @@ impl MainCylinder {
                     position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv1);
                 indxes.push(index);
@@ -914,7 +938,7 @@ impl MainCylinder {
                     position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv2);
                 indxes.push(index);
@@ -922,14 +946,19 @@ impl MainCylinder {
             }
 
             let inv_normal = self.ca.dir.mul(-1.0);
-            let inv_normal_arr = [inv_normal.x as f32, inv_normal.y as f32, inv_normal.z as f32, 0.0];
+            let inv_normal_arr = [
+                inv_normal.x as f32,
+                inv_normal.y as f32,
+                inv_normal.z as f32,
+                0.0,
+            ];
 
             {
                 let cap0 = MeshVertex {
                     position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                     normal: inv_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap0);
                 indxes.push(index);
@@ -939,17 +968,22 @@ impl MainCylinder {
                     position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                     normal: inv_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap1);
                 indxes.push(index);
                 index = index + 1;
 
                 let cap2 = MeshVertex {
-                    position: [self.ca.loc.x as f32, self.ca.loc.y as f32, self.ca.loc.z as f32, 1.0],
+                    position: [
+                        self.ca.loc.x as f32,
+                        self.ca.loc.y as f32,
+                        self.ca.loc.z as f32,
+                        1.0,
+                    ],
                     normal: inv_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap2);
                 indxes.push(index);
@@ -957,14 +991,19 @@ impl MainCylinder {
             }
 
             let cap_normal = self.ca.dir;
-            let cap_normal_arr = [cap_normal.x as f32, cap_normal.y as f32, cap_normal.z as f32, 0.0];
+            let cap_normal_arr = [
+                cap_normal.x as f32,
+                cap_normal.y as f32,
+                cap_normal.z as f32,
+                0.0,
+            ];
 
             {
                 let cap0 = MeshVertex {
                     position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                     normal: cap_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap0);
                 indxes.push(index);
@@ -974,17 +1013,22 @@ impl MainCylinder {
                     position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                     normal: cap_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap1);
                 indxes.push(index);
                 index = index + 1;
 
                 let cap2 = MeshVertex {
-                    position: [self.cb.loc.x as f32, self.cb.loc.y as f32, self.cb.loc.z as f32, 1.0],
+                    position: [
+                        self.cb.loc.x as f32,
+                        self.cb.loc.y as f32,
+                        self.cb.loc.z as f32,
+                        1.0,
+                    ],
                     normal: cap_normal_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(cap2);
                 indxes.push(index);
@@ -992,10 +1036,7 @@ impl MainCylinder {
             }
         }
 
-        self.step_vertex_buffer = StepVertexBuffer {
-            buffer,
-            indxes,
-        };
+        self.step_vertex_buffer = StepVertexBuffer { buffer, indxes };
         index
     }
     pub fn triangulate_with_start_index_no_cap(&mut self, index: u32) -> u32 {
@@ -1017,7 +1058,6 @@ impl MainCylinder {
             self.bbx.push(p2);
             self.bbx.push(p3);
 
-
             let plane = Plane::new(p0.clone(), p1.clone(), p3.clone());
             let n = plane.normal().normalize();
             let mut n_arr = [n.x as f32, n.y as f32, n.z as f32, 0.0];
@@ -1032,7 +1072,7 @@ impl MainCylinder {
                     position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv0);
                 indxes.push(index);
@@ -1042,7 +1082,7 @@ impl MainCylinder {
                     position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv1);
                 indxes.push(index);
@@ -1052,7 +1092,7 @@ impl MainCylinder {
                     position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv2);
                 indxes.push(index);
@@ -1063,7 +1103,7 @@ impl MainCylinder {
                     position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv0);
                 indxes.push(index);
@@ -1073,7 +1113,7 @@ impl MainCylinder {
                     position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv1);
                 indxes.push(index);
@@ -1083,19 +1123,15 @@ impl MainCylinder {
                     position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                     normal: n_arr,
                     id: self.id as i32,
-                    tex_coords: [0.0,0.0],
+                    tex_coords: [0.0, 0.0],
                 };
                 buffer.push(mv2);
                 indxes.push(index);
                 index = index + 1;
             }
-
         }
 
-        self.step_vertex_buffer = StepVertexBuffer {
-            buffer,
-            indxes,
-        };
+        self.step_vertex_buffer = StepVertexBuffer { buffer, indxes };
         index
     }
     pub fn recalculate_h(&mut self) {
@@ -1122,7 +1158,8 @@ impl BendToro {
         let dorn_point: Point3 = Point3::new(0.0, r + bend_radius, 0.0);
         let bend_plane_norm: Vector3 = P_UP;
 
-        let rotation: Basis3<f64> = Rotation3::from_axis_angle(bend_plane_norm, -Rad(radians_angle));
+        let rotation: Basis3<f64> =
+            Rotation3::from_axis_angle(bend_plane_norm, -Rad(radians_angle));
         let p_tmp = rotation.rotate_point(Point3::new(0.0, -r - bend_radius, 0.0));
         let end_point = Point3::new(p_tmp.x, p_tmp.y + r + bend_radius, p_tmp.z);
 
@@ -1197,18 +1234,16 @@ impl BendToro {
     }
     pub fn find_by_pt(pt: &Point3, toros: &Vec<BendToro>) -> Option<BendToro> {
         let mut ret_tor: Option<BendToro> = None;
-        toros.iter().for_each(|t| {
-            match ret_tor {
-                None => {
-                    if (pt.clone().distance(t.ca.loc) < TOLE) {
-                        ret_tor = Some((t.clone()));
-                    }
-                    if (pt.clone().distance(t.cb.loc) < TOLE) {
-                        ret_tor = Some((t.clone()));
-                    }
+        toros.iter().for_each(|t| match ret_tor {
+            None => {
+                if (pt.clone().distance(t.ca.loc) < TOLE) {
+                    ret_tor = Some((t.clone()));
                 }
-                Some(_) => {}
+                if (pt.clone().distance(t.cb.loc) < TOLE) {
+                    ret_tor = Some((t.clone()));
+                }
             }
+            Some(_) => {}
         });
         ret_tor
     }
@@ -1216,78 +1251,74 @@ impl BendToro {
         let mut ret: Vec<BendToro> = vec![];
         let mut merged: HashSet<u64> = HashSet::new();
         let mut new_tors: Vec<BendToro> = vec![];
-        main_toros.iter().for_each(|im| {
-            match merged.get(&im.id) {
-                None => {
-                    main_toros.iter().for_each(|other| {
-                        match merged.get(&other.id) {
-                            None => {
-                                if (im.id != other.id) {
-                                    let mut has_same_points = false;
-                                    let mut new_circles: Vec<MainCircle> = vec![];
-                                    if (!has_same_points) {
-                                        has_same_points = im.ca.is_same_pos(&other.ca);
-                                        if (has_same_points) {
-                                            new_circles.push(im.cb.clone());
-                                            new_circles.push(other.cb.clone());
-                                        }
-                                    }
-                                    if (!has_same_points) {
-                                        has_same_points = im.ca.is_same_pos(&other.cb);
-                                        if (has_same_points) {
-                                            new_circles.push(im.cb.clone());
-                                            new_circles.push(other.ca.clone());
-                                        }
-                                    }
-                                    if (!has_same_points) {
-                                        has_same_points = im.cb.is_same_pos(&other.ca);
-                                        if (has_same_points) {
-                                            new_circles.push(im.ca.clone());
-                                            new_circles.push(other.cb.clone());
-                                        }
-                                    }
-                                    if (!has_same_points) {
-                                        has_same_points = im.cb.is_same_pos(&other.cb);
-                                        if (has_same_points) {
-                                            new_circles.push(im.ca.clone());
-                                            new_circles.push(other.ca.clone());
-                                        }
-                                    }
+        main_toros.iter().for_each(|im| match merged.get(&im.id) {
+            None => {
+                main_toros
+                    .iter()
+                    .for_each(|other| match merged.get(&other.id) {
+                        None => {
+                            if (im.id != other.id) {
+                                let mut has_same_points = false;
+                                let mut new_circles: Vec<MainCircle> = vec![];
+                                if (!has_same_points) {
+                                    has_same_points = im.ca.is_same_pos(&other.ca);
                                     if (has_same_points) {
-                                        merged.insert(im.id.clone());
-                                        merged.insert(other.id.clone());
-                                        let new_tor = BendToro {
-                                            id: random(),
-                                            r: im.r,
-                                            bend_radius: im.bend_radius,
-                                            bend_center_point: im.bend_center_point.clone(),
-                                            bend_plane_norm: im.bend_plane_norm.clone(),
-                                            radius_dir: im.radius_dir.clone(),
-                                            ca: new_circles[0].clone(),
-                                            cb: new_circles[1].clone(),
-                                            r_gr_id: im.r_gr_id,
-                                            step_vertex_buffer: StepVertexBuffer::default(),
-                                            bbx: BoundingBox::default(),
-                                        };
-
-                                        new_tors.push(new_tor);
+                                        new_circles.push(im.cb.clone());
+                                        new_circles.push(other.cb.clone());
                                     }
                                 }
+                                if (!has_same_points) {
+                                    has_same_points = im.ca.is_same_pos(&other.cb);
+                                    if (has_same_points) {
+                                        new_circles.push(im.cb.clone());
+                                        new_circles.push(other.ca.clone());
+                                    }
+                                }
+                                if (!has_same_points) {
+                                    has_same_points = im.cb.is_same_pos(&other.ca);
+                                    if (has_same_points) {
+                                        new_circles.push(im.ca.clone());
+                                        new_circles.push(other.cb.clone());
+                                    }
+                                }
+                                if (!has_same_points) {
+                                    has_same_points = im.cb.is_same_pos(&other.cb);
+                                    if (has_same_points) {
+                                        new_circles.push(im.ca.clone());
+                                        new_circles.push(other.ca.clone());
+                                    }
+                                }
+                                if (has_same_points) {
+                                    merged.insert(im.id.clone());
+                                    merged.insert(other.id.clone());
+                                    let new_tor = BendToro {
+                                        id: random(),
+                                        r: im.r,
+                                        bend_radius: im.bend_radius,
+                                        bend_center_point: im.bend_center_point.clone(),
+                                        bend_plane_norm: im.bend_plane_norm.clone(),
+                                        radius_dir: im.radius_dir.clone(),
+                                        ca: new_circles[0].clone(),
+                                        cb: new_circles[1].clone(),
+                                        r_gr_id: im.r_gr_id,
+                                        step_vertex_buffer: StepVertexBuffer::default(),
+                                        bbx: BoundingBox::default(),
+                                    };
+
+                                    new_tors.push(new_tor);
+                                }
                             }
-                            Some(_) => {}
                         }
+                        Some(_) => {}
                     });
-                }
-                Some(_) => {}
             }
+            Some(_) => {}
         });
-        main_toros.iter().for_each(|mt| {
-            match merged.get(&mt.id) {
-                None => {
-                    ret.push(mt.clone());
-                }
-                Some(_) => {}
+        main_toros.iter().for_each(|mt| match merged.get(&mt.id) {
+            None => {
+                ret.push(mt.clone());
             }
+            Some(_) => {}
         });
         ret.extend_from_slice(new_tors.as_slice());
         ret
@@ -1322,7 +1353,8 @@ impl BendToro {
 
             let mut curr_angle_stright = 0.0;
             for i in 0..=TESS_TOR_STEP {
-                let rotation: Basis3<f64> = Rotation3::from_axis_angle(up_dir, Rad(curr_angle_stright));
+                let rotation: Basis3<f64> =
+                    Rotation3::from_axis_angle(up_dir, Rad(curr_angle_stright));
                 let nv = rotation.rotate_vector(bend_s_dir.clone());
                 let p = self.bend_center_point.clone() + nv;
                 anchors_stright.push(p);
@@ -1331,7 +1363,8 @@ impl BendToro {
 
             let mut curr_angle_rev = 0.0;
             for i in 0..=TESS_TOR_STEP {
-                let rotation: Basis3<f64> = Rotation3::from_axis_angle(up_dir, Rad(-curr_angle_rev));
+                let rotation: Basis3<f64> =
+                    Rotation3::from_axis_angle(up_dir, Rad(-curr_angle_rev));
                 let nv = rotation.rotate_vector(bend_s_dir.clone());
                 let p = self.bend_center_point.clone() + nv;
                 anchors_rev.push(p);
@@ -1404,7 +1437,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1414,7 +1447,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1424,7 +1457,7 @@ impl BendToro {
                             position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1435,7 +1468,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1445,7 +1478,7 @@ impl BendToro {
                             position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1455,7 +1488,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1467,7 +1500,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1477,7 +1510,7 @@ impl BendToro {
                             position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1487,7 +1520,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1498,7 +1531,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1508,7 +1541,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1518,7 +1551,7 @@ impl BendToro {
                             position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1527,10 +1560,7 @@ impl BendToro {
                 }
             }
         }
-        self.step_vertex_buffer = StepVertexBuffer {
-            buffer,
-            indxes,
-        };
+        self.step_vertex_buffer = StepVertexBuffer { buffer, indxes };
     }
     pub fn triangulate_with_start_index(&mut self, index: u32) -> u32 {
         let mut index: u32 = index;
@@ -1539,7 +1569,6 @@ impl BendToro {
 
         let bend_s_dir = self.ca.loc.sub(self.bend_center_point);
         let bend_e_dir = self.cb.loc.sub(self.bend_center_point);
-
 
         let bend_diag_dir = self.cb.loc.sub(self.ca.loc).normalize();
         //println!("ANGLE {:?}", bend_e_dir.angle(bend_s_dir).0);
@@ -1553,7 +1582,8 @@ impl BendToro {
 
             let mut curr_angle_stright = 0.0;
             for i in 0..=TESS_TOR_STEP {
-                let rotation: Basis3<f64> = Rotation3::from_axis_angle(up_dir, Rad(curr_angle_stright));
+                let rotation: Basis3<f64> =
+                    Rotation3::from_axis_angle(up_dir, Rad(curr_angle_stright));
                 let nv = rotation.rotate_vector(bend_s_dir.clone());
                 let p = self.bend_center_point.clone() + nv;
                 anchors_stright.push(p);
@@ -1562,7 +1592,8 @@ impl BendToro {
 
             let mut curr_angle_rev = 0.0;
             for i in 0..=TESS_TOR_STEP {
-                let rotation: Basis3<f64> = Rotation3::from_axis_angle(up_dir, Rad(-curr_angle_rev));
+                let rotation: Basis3<f64> =
+                    Rotation3::from_axis_angle(up_dir, Rad(-curr_angle_rev));
                 let nv = rotation.rotate_vector(bend_s_dir.clone());
                 let p = self.bend_center_point.clone() + nv;
                 anchors_rev.push(p);
@@ -1630,7 +1661,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1640,7 +1671,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1650,7 +1681,7 @@ impl BendToro {
                             position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1661,7 +1692,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1671,7 +1702,7 @@ impl BendToro {
                             position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1681,7 +1712,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1693,7 +1724,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1703,7 +1734,7 @@ impl BendToro {
                             position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1713,7 +1744,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1724,7 +1755,7 @@ impl BendToro {
                             position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv0);
                         indxes.push(index);
@@ -1734,7 +1765,7 @@ impl BendToro {
                             position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv1);
                         indxes.push(index);
@@ -1744,7 +1775,7 @@ impl BendToro {
                             position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
                             normal: n_arr,
                             id: self.id as i32,
-                            tex_coords: [0.0,0.0],
+                            tex_coords: [0.0, 0.0],
                         };
                         buffer.push(mv2);
                         indxes.push(index);
@@ -1753,23 +1784,25 @@ impl BendToro {
                 }
             }
         }
-        self.step_vertex_buffer = StepVertexBuffer {
-            buffer,
-            indxes,
-        };
+        self.step_vertex_buffer = StepVertexBuffer { buffer, indxes };
         index
     }
-
 }
 
-pub fn float_range(start: f64, threshold: f64, step_size: f64) -> impl Iterator<Item=f64> {
+pub fn float_range(start: f64, threshold: f64, step_size: f64) -> impl Iterator<Item = f64> {
     std::iter::successors(Some(start), move |&prev| {
         let next = prev + step_size;
         (next < threshold).then_some(next)
     })
 }
 
-pub fn intersect_line_by_plane(cylinder_dir_vec: &Vector3, radius_vec: &Vector3, plane_point: &Point3, line_p0: &Point3, line_p1: &Point3) -> Point3 {
+pub fn intersect_line_by_plane(
+    cylinder_dir_vec: &Vector3,
+    radius_vec: &Vector3,
+    plane_point: &Point3,
+    line_p0: &Point3,
+    line_p1: &Point3,
+) -> Point3 {
     //https://stackoverflow.com/questions/5666222/3d-line-plane-intersection
     //n: normal vector of the Plane
     // V0: any point that belongs to the Plane
@@ -1785,7 +1818,11 @@ pub fn intersect_line_by_plane(cylinder_dir_vec: &Vector3, radius_vec: &Vector3,
     //println!("{:?}", res);
     res
 }
-pub fn project_point_to_vec(proj_vector: &Vector3, point_on_proj_vector: &Point3, point_to_project: &Point3) -> Point3 {
+pub fn project_point_to_vec(
+    proj_vector: &Vector3,
+    point_on_proj_vector: &Point3,
+    point_to_project: &Point3,
+) -> Point3 {
     //https://stackoverflow.com/questions/9368436/3d-perpendicular-point-on-line-from-3d-point
     let pq: Vector3 = point_to_project.sub(point_on_proj_vector);
     let w2: Vector3 = pq - proj_vector * pq.dot(proj_vector.clone()) / proj_vector.magnitude2();
@@ -1798,20 +1835,16 @@ pub fn round_by_dec(x: f64, decimals: u32) -> f64 {
     (x * y as f64).round() / y as f64
 }
 
-pub fn extract_vertex(t: &Table, vertex: &PlaceHolder<VertexPointHolder>) -> Option<Point3> {
+pub fn extract_vertex(t: &Table, vertex: &PlaceHolder<VertexPointHolder>,scale:f64) -> Option<Point3> {
     match vertex {
-        Ref(name) => {
-            match t.vertex_point.get(&name_to_id(name.clone())) {
-                None => { None }
-                Some(vtx) => {
-                    extract_cartesian_point(t, &vtx.vertex_geometry)
-                }
-            }
-        }
-        PlaceHolder::Owned(_) => { None }
+        Ref(name) => match t.vertex_point.get(&name_to_id(name.clone())) {
+            None => None,
+            Some(vtx) => extract_cartesian_point(t, &vtx.vertex_geometry,scale),
+        },
+        PlaceHolder::Owned(_) => None,
     }
 }
-pub fn extract_plane_points(table: &Table) -> Vec<Point3> {
+pub fn extract_plane_points(table: &Table,scale:f64) -> Vec<Point3> {
     let mut points: Vec<Point3> = vec![];
     table.shell.iter().for_each(|(k, v)| {
         v.cfs_faces.iter().for_each(|face_holder| {
@@ -1850,8 +1883,8 @@ pub fn extract_plane_points(table: &Table) -> Vec<Point3> {
                                                                                                             match table.edge_curve.get(&name_to_id(name.clone())) {
                                                                                                                 None => {}
                                                                                                                 Some(c) => {
-                                                                                                                    let sp = extract_vertex(&table, &c.edge_start).unwrap();
-                                                                                                                    let ep = extract_vertex(&table, &c.edge_end).unwrap();
+                                                                                                                    let sp = extract_vertex(&table, &c.edge_start,scale).unwrap();
+                                                                                                                    let ep = extract_vertex(&table, &c.edge_end,scale).unwrap();
                                                                                                                     points.push(sp);
                                                                                                                     points.push(ep);
                                                                                                                 }
@@ -1897,27 +1930,27 @@ pub fn analyze_bin(arr: &Vec<u8>) -> Option<CncOps> {
     let mut buf: Vec<u8> = vec![];
     let mut stp: String = String::new();
     match transcoded.read_to_end(&mut buf) {
-        Ok(b) => {
-            match String::from_utf8(buf) {
-                Ok(cont) => {
-                    stp = cont.clone();
-                }
-                Err(e) => { println!("{:?}", e) }
+        Ok(b) => match String::from_utf8(buf) {
+            Ok(cont) => {
+                stp = cont.clone();
             }
-        }
+            Err(e) => {
+                println!("{:?}", e)
+            }
+        },
         Err(e) => {
             println!("{:?}", e)
         }
     }
-    unsafe { STPSCALE = extact_scale(&stp); }
+    let scale=extact_scale(&stp);
     let exchange = ruststep::parser::parse(&stp).unwrap();
     let table = Table::from_data_section(&exchange.data[0]);
-    match extract_main_radius(&table) {
-        None => { None }
+    match extract_main_radius(&table,scale) {
+        None => None,
         Some((cyls, bends)) => {
             let ops: CncOps = CncOps::new(&cyls, &bends);
             if (!ops.ops.is_empty()) {
-                let extra_len_pts: Vec<Point3> = extract_plane_points(&table);
+                let extra_len_pts: Vec<Point3> = extract_plane_points(&table,scale);
                 let mut extra_len_ops = ops.calculate_extra_len(&extra_len_pts);
                 Some(extra_len_ops)
             } else {
@@ -1939,12 +1972,10 @@ pub fn extact_scale(stp: &String) -> f64 {
     });
     scale
 }
-pub fn extract_main_radius(table: &Table) -> Option<(Vec<MainCylinder>, Vec<BendToro>)> {
-    let (cyls, bend_toros): (Vec<MainCylinder>, Vec<BendToro>) = extract_all_cylynders(table);
+pub fn extract_main_radius(table: &Table,scale:f64) -> Option<(Vec<MainCylinder>, Vec<BendToro>)> {
+    let (cyls, bend_toros): (Vec<MainCylinder>, Vec<BendToro>) = extract_all_cylynders(table,scale);
     match MainCylinder::calculate_main_diam(&cyls) {
-        None => {
-            None
-        }
+        None => None,
         Some(md_cyls) => {
             let cyls_no_dubs = MainCylinder::remove_dublicates(&md_cyls);
             let cyls_merged = MainCylinder::merge(&cyls_no_dubs);
@@ -1961,76 +1992,94 @@ pub fn extract_main_radius(table: &Table) -> Option<(Vec<MainCylinder>, Vec<Bend
         }
     }
 }
-pub fn extract_cartesian_point(t: &Table, point: &PlaceHolder<CartesianPointHolder>) -> Option<Point3> {
+pub fn extract_cartesian_point(
+    t: &Table,
+    point: &PlaceHolder<CartesianPointHolder>,
+    scale:f64,
+) -> Option<Point3> {
     match point {
-        Ref(name) => {
-            match t.cartesian_point.get(&name_to_id(name.clone())) {
-                None => { None }
-                Some(p) => {
-                    let x = unsafe { p.coordinates[0] * STPSCALE };
-                    let y = unsafe { p.coordinates[1] * STPSCALE };
-                    let z = unsafe { p.coordinates[2] * STPSCALE };
-                    Some(Point3::new(x, y, z))
-                }
+        Ref(name) => match t.cartesian_point.get(&name_to_id(name.clone())) {
+            None => None,
+            Some(p) => {
+                let x = unsafe { p.coordinates[0] * scale };
+                let y = unsafe { p.coordinates[1] * scale };
+                let z = unsafe { p.coordinates[2] * scale };
+                Some(Point3::new(x, y, z))
             }
-        }
-        PlaceHolder::Owned(_) => { None }
+        },
+        PlaceHolder::Owned(_) => None,
     }
 }
-pub fn extract_position(t: &Table, pos: &PlaceHolder<Axis2PlacementHolder>) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
+pub fn extract_position(
+    t: &Table,
+    pos: &PlaceHolder<Axis2PlacementHolder>,
+    scale:f64,
+) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
     match pos {
-        Ref(name) => {
-            match t.axis2_placement_3d.get(&name_to_id(name.clone())) {
-                None => { (None, None, None) }
-                Some(p) => {
-                    let dir_ref: Option<Vector3> = extract_direction(t, &p.ref_direction);
-                    let dir: Option<Vector3> = extract_direction(t, &p.axis);
-                    let loc: Option<Point3> = extract_cartesian_point(t, &p.location);
-                    (loc, dir, dir_ref)
-                }
+        Ref(name) => match t.axis2_placement_3d.get(&name_to_id(name.clone())) {
+            None => (None, None, None),
+            Some(p) => {
+                let dir_ref: Option<Vector3> = extract_direction(t, &p.ref_direction,scale);
+                let dir: Option<Vector3> = extract_direction(t, &p.axis,scale);
+                let loc: Option<Point3> = extract_cartesian_point(t, &p.location,scale);
+                (loc, dir, dir_ref)
             }
-        }
-        PlaceHolder::Owned(_) => { (None, None, None) }
+        },
+        PlaceHolder::Owned(_) => (None, None, None),
     }
 }
-pub fn extract_position3d(t: &Table, pos: &PlaceHolder<Axis2Placement3dHolder>) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
+pub fn extract_position3d(
+    t: &Table,
+    pos: &PlaceHolder<Axis2Placement3dHolder>,
+    scale:f64,
+) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
     match pos {
-        Ref(name) => {
-            match t.axis2_placement_3d.get(&name_to_id(name.clone())) {
-                None => { (None, None, None) }
-                Some(p) => {
-                    let dir_ref: Option<Vector3> = extract_direction(t, &p.ref_direction);
-                    let dir: Option<Vector3> = extract_direction(t, &p.axis);
-                    let loc: Option<Point3> = extract_cartesian_point(t, &p.location);
-                    (loc, dir, dir_ref)
-                }
+        Ref(name) => match t.axis2_placement_3d.get(&name_to_id(name.clone())) {
+            None => (None, None, None),
+            Some(p) => {
+                let dir_ref: Option<Vector3> = extract_direction(t, &p.ref_direction,scale);
+                let dir: Option<Vector3> = extract_direction(t, &p.axis,scale);
+                let loc: Option<Point3> = extract_cartesian_point(t, &p.location,scale);
+                (loc, dir, dir_ref)
             }
-        }
-        PlaceHolder::Owned(_) => { (None, None, None) }
+        },
+        PlaceHolder::Owned(_) => (None, None, None),
     }
 }
-pub fn extract_direction(t: &Table, _pos: &Option<PlaceHolder<DirectionHolder>>) -> Option<Vector3> {
+pub fn extract_direction(
+    t: &Table,
+    _pos: &Option<PlaceHolder<DirectionHolder>>,
+    scale:f64,
+) -> Option<Vector3> {
     match _pos {
-        None => { None }
-        Some(pos) => {
-            match pos {
-                Ref(name) => {
-                    match t.direction.get(&name_to_id(name.clone())) {
-                        None => { None }
-                        Some(p) => {
-                            let x = p.direction_ratios[0];
-                            let y = p.direction_ratios[1];
-                            let z = p.direction_ratios[2];
-                            Some(unsafe { Vector3::new(x, y, z).mul(STPSCALE).normalize() })
-                        }
-                    }
+        None => None,
+        Some(pos) => match pos {
+            Ref(name) => match t.direction.get(&name_to_id(name.clone())) {
+                None => None,
+                Some(p) => {
+                    let x = p.direction_ratios[0] * ROT_DIR_CCW;
+                    let y = p.direction_ratios[1] * ROT_DIR_CCW;
+                    let z = p.direction_ratios[2] * ROT_DIR_CCW;
+                    Some(unsafe {
+                        Vector3::new(x, y, z)
+                            .mul(scale)
+                            .normalize()
+                    })
                 }
-                PlaceHolder::Owned(_) => { None }
-            }
-        }
+            },
+            PlaceHolder::Owned(_) => None,
+        },
     }
 }
-pub fn extract_circles_bounds(table: &Table, bounds: &Vec<PlaceHolder<FaceBoundHolder>>, cyl_sp: &Point3, cyl_dir: &Vector3, cyl_id: u64, surf_radius: f64) -> Option<MainCylinder> {
+pub fn extract_circles_bounds(
+    table: &Table,
+    bounds: &Vec<PlaceHolder<FaceBoundHolder>>,
+    cyl_sp: &Point3,
+    cyl_dir: &Vector3,
+    cyl_id: u64,
+    surf_radius: f64,
+    scale: f64,
+) -> Option<MainCylinder> {
     //println!("{:?}",surf_radius);
     let mut points: Vec<Point3> = vec![];
     let mut candidates: Vec<(MainCircle)> = vec![];
@@ -2069,8 +2118,8 @@ pub fn extract_circles_bounds(table: &Table, bounds: &Vec<PlaceHolder<FaceBoundH
                                                                                         None => {}
                                                                                         Some(circle) => {
                                                                                             found = true;
-                                                                                            let circle_r = circle.radius * unsafe { STPSCALE };
-                                                                                            let (loc, dir, dir_rad) = extract_position(table, &circle.position);
+                                                                                            let circle_r = circle.radius *  scale;
+                                                                                            let (loc, dir, dir_rad) = extract_position(table, &circle.position,scale);
                                                                                             let is_coplanar = dir.unwrap().dot(cyl_dir.clone()).abs() - 1.0 < TOLE;
                                                                                             //let dot=dir.unwrap().normalize().dot(cyl_dir.clone().normalize()).abs()-1.0;
                                                                                             //println!("cyl_id {:?} {:?}",cyl_id,is_coplanar);
@@ -2093,7 +2142,7 @@ pub fn extract_circles_bounds(table: &Table, bounds: &Vec<PlaceHolder<FaceBoundH
                                                                                             found = true;
                                                                                             let mut contrl_points: Vec<CartesianPoint> = vec![];
                                                                                             &spline.control_points_list.iter().for_each(|cp| {
-                                                                                                let pnt = extract_cartesian_point(&table, &cp).unwrap();
+                                                                                                let pnt = extract_cartesian_point(&table, &cp,scale).unwrap();
                                                                                                 let pp = CartesianPoint {
                                                                                                     label: "".to_string(),
                                                                                                     coordinates: Vec::from([pnt.x, pnt.y, pnt.z]),
@@ -2145,7 +2194,7 @@ pub fn extract_circles_bounds(table: &Table, bounds: &Vec<PlaceHolder<FaceBoundH
                                                                                         Some(ellipse) => {
                                                                                             found = true;
                                                                                             let circle_r = surf_radius;
-                                                                                            let (loc, dir, dir_rad) = extract_position(table, &ellipse.position);
+                                                                                            let (loc, dir, dir_rad) = extract_position(table, &ellipse.position,scale);
                                                                                             let is_coplanar = dir.unwrap().dot(cyl_dir.clone()).abs() - 1.0 < TOLE;
                                                                                             //let dot=dir.unwrap().normalize().dot(cyl_dir.clone().normalize()).abs()-1.0;
                                                                                             //println!("cyl_id {:?} {:?}",cyl_id,is_coplanar);
@@ -2175,8 +2224,8 @@ pub fn extract_circles_bounds(table: &Table, bounds: &Vec<PlaceHolder<FaceBoundH
                                                                                 }
                                                                                 PlaceHolder::Owned(_) => {}
                                                                             }
-                                                                            let sp = extract_vertex(&table, &c.edge_start).unwrap();
-                                                                            let ep = extract_vertex(&table, &c.edge_end).unwrap();
+                                                                            let sp = extract_vertex(&table, &c.edge_start,scale).unwrap();
+                                                                            let ep = extract_vertex(&table, &c.edge_end,scale).unwrap();
                                                                             points.push(sp);
                                                                             points.push(ep);
                                                                         }
@@ -2235,8 +2284,9 @@ pub fn extract_circles_bounds_tourus(
     bend_radius_dir: &Vector3,
     tor_id: u64,
     bend_radius: f64,
-    pipe_radius: f64) -> Option<BendToro>
-{
+    pipe_radius: f64,
+    scale:f64,
+) -> Option<BendToro> {
     let mut points: Vec<Point3> = vec![];
     let mut candidates: Vec<(MainCircle)> = vec![];
     let mut oriented_edge_ids: Vec<u64> = vec![];
@@ -2273,8 +2323,8 @@ pub fn extract_circles_bounds_tourus(
                                                                                         None => {}
                                                                                         Some(circle) => {
                                                                                             found = true;
-                                                                                            let circle_r = circle.radius * unsafe { STPSCALE };
-                                                                                            let (loc, dir, dir_rad) = extract_position(table, &circle.position);
+                                                                                            let circle_r = circle.radius * scale;
+                                                                                            let (loc, dir, dir_rad) = extract_position(table, &circle.position,scale);
                                                                                             let is_same_radius = (circle_r - pipe_radius).abs() < TOLE;
                                                                                             //let dot=dir.unwrap().normalize().dot(cyl_dir.clone().normalize()).abs()-1.0;
                                                                                             //println!("cyl_id {:?} {:?}",cyl_id,is_coplanar);
@@ -2299,7 +2349,7 @@ pub fn extract_circles_bounds_tourus(
                                                                                             found = true;
                                                                                             let mut contrl_points: Vec<CartesianPoint> = vec![];
                                                                                             &spline.control_points_list.iter().for_each(|cp| {
-                                                                                                let pnt = extract_cartesian_point(&table, &cp).unwrap();
+                                                                                                let pnt = extract_cartesian_point(&table, &cp,scale).unwrap();
                                                                                                 let pp = CartesianPoint {
                                                                                                     label: "".to_string(),
                                                                                                     coordinates: Vec::from([pnt.x, pnt.y, pnt.z]),
@@ -2362,8 +2412,8 @@ pub fn extract_circles_bounds_tourus(
                                                                                 }
                                                                                 PlaceHolder::Owned(_) => {}
                                                                             }
-                                                                            let sp = extract_vertex(&table, &c.edge_start).unwrap();
-                                                                            let ep = extract_vertex(&table, &c.edge_end).unwrap();
+                                                                            let sp = extract_vertex(&table, &c.edge_start,scale).unwrap();
+                                                                            let ep = extract_vertex(&table, &c.edge_end,scale).unwrap();
                                                                             points.push(sp);
                                                                             points.push(ep);
                                                                         }
@@ -2389,10 +2439,11 @@ pub fn extract_circles_bounds_tourus(
         }
     });
 
-
     let candidates_remove_dubs = MainCircle::remove_dublicates(&candidates);
     if (candidates_remove_dubs.len() == 2) {
-        let dist = candidates_remove_dubs[0].loc.distance(candidates_remove_dubs[1].loc);
+        let dist = candidates_remove_dubs[0]
+            .loc
+            .distance(candidates_remove_dubs[1].loc);
         if (dist > TOLE) {
             let bend: BendToro = BendToro {
                 id: tor_id,
@@ -2415,7 +2466,7 @@ pub fn extract_circles_bounds_tourus(
         None
     }
 }
-pub fn extract_all_cylynders(table: &Table) -> (Vec<MainCylinder>, Vec<(BendToro)>) {
+pub fn extract_all_cylynders(table: &Table, scale:f64) -> (Vec<MainCylinder>, Vec<(BendToro)>) {
     let mut ret: Vec<(MainCylinder)> = vec![];
     let mut ret_bend: Vec<(BendToro)> = vec![];
     table.shell.iter().for_each(|(k, v)| {
@@ -2437,9 +2488,9 @@ pub fn extract_all_cylynders(table: &Table) -> (Vec<MainCylinder>, Vec<(BendToro
                                         }
                                         Some(cyl) => {
                                             found = true;
-                                            let r = cyl.radius * unsafe { STPSCALE };
-                                            let (loc, dir, dir_rad) = extract_position3d(table, &cyl.position);
-                                            match extract_circles_bounds(table, face_bounds, &loc.unwrap(), &dir.unwrap(), id, r) {
+                                            let r = cyl.radius *  scale;
+                                            let (loc, dir, dir_rad) = extract_position3d(table, &cyl.position,scale);
+                                            match extract_circles_bounds(table, face_bounds, &loc.unwrap(), &dir.unwrap(), id, r,scale) {
                                                 None => {}
                                                 Some(cyl) => {
                                                     ret.push(cyl)
@@ -2451,12 +2502,12 @@ pub fn extract_all_cylynders(table: &Table) -> (Vec<MainCylinder>, Vec<(BendToro
                                         None => {}
                                         Some(toro) => {
                                             found = true;
-                                            let r = toro.minor_radius * unsafe { STPSCALE };
-                                            let r_bend = toro.major_radius * unsafe { STPSCALE };
-                                            let (loc, bend_plane_normal, dir_rad) = extract_position3d(table, &toro.position);
-                                            if (toro.major_radius * unsafe { STPSCALE } > MAX_BEND_RADIUS) {
+                                            let r = toro.minor_radius *  scale;
+                                            let r_bend = toro.major_radius *  scale;
+                                            let (loc, bend_plane_normal, dir_rad) = extract_position3d(table, &toro.position,scale);
+                                            if (toro.major_radius * scale > MAX_BEND_RADIUS) {
                                                 //TODO potentional error with big tole
-                                                match extract_circles_bounds(table, face_bounds, &loc.unwrap(), &bend_plane_normal.unwrap(), id, r) {
+                                                match extract_circles_bounds(table, face_bounds, &loc.unwrap(), &bend_plane_normal.unwrap(), id, r,scale) {
                                                     None => {}
                                                     Some(cyl) => {
                                                         ret.push(cyl)
@@ -2470,7 +2521,8 @@ pub fn extract_all_cylynders(table: &Table) -> (Vec<MainCylinder>, Vec<(BendToro
                                                                                     &dir_rad.unwrap(),
                                                                                     id.clone(),
                                                                                     r_bend,
-                                                                                    r) {
+                                                                                    r,
+                                                                                    scale,) {
                                                     None => {}
                                                     Some(bend_toro) => {
                                                         //println!("ID {:?} {:?}",bend_toro.r_gr_id,bend_toro.r);
@@ -2535,24 +2587,21 @@ pub fn extract_all_cylynders(table: &Table) -> (Vec<MainCylinder>, Vec<(BendToro
 }
 fn name_to_id(name: Name) -> u64 {
     match name {
-        Name::Entity(id) => { id }
-        Name::Value(_) => { 0 }
-        Name::ConstantEntity(_) => { 0 }
-        Name::ConstantValue(_) => { 0 }
+        Name::Entity(id) => id,
+        Name::Value(_) => 0,
+        Name::ConstantEntity(_) => 0,
+        Name::ConstantValue(_) => 0,
     }
 }
-
 pub fn angle_with_sign(v1: Vector3, v2: Vector3, plane_norm: Vector3) -> f64 {
     //https://stackoverflow.com/questions/14066933/direct-way-of-computing-the-clockwise-angle-between-two-vectors
     /*    let dot = -v1.dot(v2);
-        let det = -Matrix3::from_cols(v1, v2, plane_norm).determinant();
-        let angle = det.atan2(dot)+PI;
-        angle*/
+    let det = -Matrix3::from_cols(v1, v2, plane_norm).determinant();
+    let angle = det.atan2(dot)+PI;
+    angle*/
 
-   let dot = v1.dot(v2);
+    let dot = v1.dot(v2);
     let det = Matrix3::from_cols(v1, v2, plane_norm).determinant();
     let angle = det.atan2(dot);
     angle
-  
-  
 }

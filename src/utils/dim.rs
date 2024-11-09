@@ -12,7 +12,7 @@ use truck_geometry::prelude::Plane;
 use web_sys::console::warn;
 use wgpu::{Buffer, Device, Queue, Sampler, Texture, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
-use crate::algo::{angle_with_sign, BendToro, MainCircle, MainCylinder, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, TESS_TOL_ANGLE};
+use crate::algo::{angle_with_sign, BendToro, MainCircle, MainCylinder, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE};
 use crate::algo::cnc::LRACLR;
 use crate::device::{MeshVertex, StepVertexBuffer};
 
@@ -854,7 +854,7 @@ impl DimZ {
         let mut pa: Point3<f64> = cp + ref_line_a_dir.mul(len);
         let mut a_dir: Vector3<f64> = P_RIGHT.mul(signum(r_deg));
 
-        let rot_axe: Vector3<f64> = P_FORWARD.mul(signum(r_deg));
+        let rot_axe: Vector3<f64> = P_FORWARD.mul(signum(r_deg*ROT_DIR_CCW));
         let step = Rad::from(Deg(ROTATION_STEP_ANGLE));
         let deg_step = abs((r.0 / step.0) as i64);
         let mut b_dir: Vector3<f64> = a_dir;
@@ -967,7 +967,7 @@ impl DimZ {
         }
 
         let parrow1 = cp +P_UP.mul(len);
-        let (buffer_a1, indxes_a1, last_index_a1) = DimZ::generate_arrow_a_y(id, P_RIGHT.mul(signum(r_deg)), arrow_scale, parrow1, index);
+        let (buffer_a1, indxes_a1, last_index_a1) = DimZ::generate_arrow_a_y(id, P_RIGHT.mul(signum(r_deg*ROT_DIR_CCW)), arrow_scale, parrow1, index);
         index = last_index_a1;
         indxes.extend_from_slice(indxes_a1.as_slice());
         buffer.extend_from_slice(buffer_a1.as_slice());
@@ -985,7 +985,7 @@ impl DimZ {
         let len = calc_ref_len(pipe_radius);
 
 
-        let rotation: Basis3<f64> = Rotation3::from_axis_angle(P_FORWARD, r);
+        let rotation: Basis3<f64> = Rotation3::from_axis_angle(P_FORWARD_REVERSE, r);
         let dir_z = rotation.rotate_vector(P_UP);
         let pe: Point3<f64> = Point3::new(0.0, 0.0, 0.0) + dir_z.mul(len);
 
@@ -2248,7 +2248,7 @@ impl DimB {
             a_dir = b_dir;
         }
 
-       let parrow1 = cp + P_RIGHT.mul(len);
+       let parrow1 = cp + P_RIGHT_REVERSE.mul(len*v_up_orign.z);
         let (buffer_a1, indxes_a1, last_index_a1) = DimB::generate_arrow_a_x(id, P_FORWARD_REVERSE, arrow_scale, parrow1, index);
         index = last_index_a1;
         indxes.extend_from_slice(indxes_a1.as_slice());

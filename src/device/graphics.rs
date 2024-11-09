@@ -212,7 +212,6 @@ pub fn init_graphics(world: &World, gr: Graphics) {
         world.add_unique(in_cmd);
     }
 }
-
 pub fn set_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
     gs.is_right_mouse_pressed = true;
 }
@@ -366,8 +365,15 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                     //warn!("BBX {:?}",bbx);
                 }
                 States::FullAnimate => {
-                    let (cyls, tors, next_stage) =
-                        cnc::cnc_to_poly_v(&gs.lraclr_arr, &gs.anim_state, &gs.v_up_orign, gs.dt, &gs.bend_params);
+                    let (cyls, tors, next_stage) = {
+                        if (gs.is_reversed) {
+                            cnc::cnc_to_poly_v(&gs.lraclr_arr_reversed, &gs.anim_state, &gs.v_up_orign, gs.dt, &gs.bend_params)
+                        } else {
+                            cnc::cnc_to_poly_v(&gs.lraclr_arr, &gs.anim_state, &gs.v_up_orign, gs.dt, &gs.bend_params)
+                        }
+                    };
+
+
                     cyls_comps.clear();
                     tor_comps.clear();
                     cyls.iter().for_each(|cyl| {
@@ -452,7 +458,7 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                         }
                     }
                 }
-                States::ChangeDornDir =>{
+                States::ChangeDornDir => {
                     if (signum(gs.v_up_orign.z) < 0.0) {
                         gs.v_up_orign = P_UP;
                     } else {
@@ -462,7 +468,7 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                     tor_comps.clear();
                     let (cyls, tors) =
                         {
-                            if (gs.is_reversed) {
+                            if (!gs.is_reversed) {
                                 #[cfg(target_arch = "wasm32")]{
                                     let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
                                     pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(lraclr_arr_i32.as_slice()))
@@ -508,8 +514,8 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                     });
                     graphics.camera.set_tot_bbx(bbx);
                     graphics.camera.move_camera_to_bbx_limits();
-           
-                    
+
+
                     States::StandBy
                 }
             }
@@ -1135,8 +1141,8 @@ pub fn on_keyboard(event: KeyEvent,
                             Some(mut ops) => {
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
                                 //let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(lraclr_arr.clone());
-                      
-                                
+
+
                                 gs.state = ReadyToLoad(lraclr_arr);
                                 gs.v_up_orign = P_UP_REVERSE;
 
