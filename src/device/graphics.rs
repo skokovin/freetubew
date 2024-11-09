@@ -230,6 +230,8 @@ pub fn set_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
 pub fn unset_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
     gs.is_right_mouse_pressed = false;
 }
+
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>) {
     if new_size.width > 0 && new_size.height > 0 {

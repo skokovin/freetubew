@@ -3,6 +3,7 @@ use shipyard::{UniqueView, UniqueViewMut, World};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
+use cgmath::num_traits::signum;
 //use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlCanvasElement};
 use wgpu::{
@@ -11,7 +12,7 @@ use wgpu::{
 };
 
 use crate::device::background_pipleine::BackGroundPipeLine;
-use crate::device::camera::{update_camera_by_mouse, Camera};
+use crate::device::camera::{camera_zoom, update_camera_by_mouse, Camera};
 #[cfg(target_arch = "wasm32")]
 use crate::device::graphics::check_remote;
 use crate::device::graphics::{
@@ -23,7 +24,7 @@ use crate::device::txt_pipeline::TxtPipeLine;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::error::OsError;
-use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, StartCause, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -114,7 +115,20 @@ impl ApplicationHandler<Graphics> for App {
                 WindowEvent::CursorMoved { .. } => {}
                 WindowEvent::CursorEntered { .. } => {}
                 WindowEvent::CursorLeft { .. } => {}
-                WindowEvent::MouseWheel { .. } => {}
+                WindowEvent::MouseWheel { device_id, delta, phase } => {
+                    match delta {
+                        MouseScrollDelta::LineDelta(h, v) => {
+                            self.world.run_with_data(camera_zoom, v);
+                            
+                        }
+                        MouseScrollDelta::PixelDelta(p) => {
+                            self.world.run_with_data(camera_zoom, signum(p.y as f32));
+                            warn!(" PixelDelta {:?}",p)
+                        }
+                    }
+
+                   
+                }
                 WindowEvent::MouseInput {
                     device_id,
                     state,

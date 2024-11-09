@@ -1,9 +1,6 @@
 use crate::device::graphics::{GlobalState, Graphics};
 use cgmath::num_traits::abs;
-use cgmath::{
-    perspective, InnerSpace, Matrix, Matrix4, Point3, Quaternion, Rad, Rotation, Rotation3,
-    SquareMatrix, Vector3,
-};
+use cgmath::{perspective, InnerSpace, Matrix, Matrix4, MetricSpace, Point3, Quaternion, Rad, Rotation, Rotation3, SquareMatrix, Vector3};
 use log::warn;
 use shipyard::{Unique, UniqueViewMut};
 use std::f32::consts::PI;
@@ -42,7 +39,6 @@ pub struct Camera {
     pub dy: f32,
     yaw: f32,
     pitch: f32,
-    focus: f32,
     pub tot_bbx: BoundingBox<Point3<f64>>,
     center_p: Point3<f64>,
 }
@@ -69,7 +65,6 @@ impl Camera {
             dy: 0.0,
             yaw: 0.0,
             pitch: 0.0,
-            focus: CAMERA_FOCUS,
             tot_bbx: Default::default(),
             center_p: Point3::new(0.0, 0.0, 0.0),
         }
@@ -87,7 +82,14 @@ impl Camera {
     pub fn set_tot_bbx(&mut self, bbxs_in: BoundingBox<truck_base::cgmath64::Point3>) {
         self.tot_bbx = Default::default();
         self.tot_bbx += (bbxs_in.clone());
-        self.calculate_focus();
+        let center: Point3<f32> = Point3::new(
+            self.center_p.x as f32,
+            self.center_p.y as f32,
+            self.center_p.z as f32,
+        );
+        let dist=center.distance(self.eye);
+        self.eye = center - self.head_forward * dist;
+        //self.calculate_focus();
         //self.update();
     }
 
@@ -120,7 +122,7 @@ impl Camera {
             Vector3::new(new_right.x as f32, new_right.y as f32, new_right.z as f32);
         //let p: Point3<f32> = Point3::new(ep.x as f32, ep.y as f32, ep.z as f32);
 
-        let new_eye: Point3<f64> = self.center_p - head_forward * self.focus as f64;
+        let new_eye: Point3<f64> = self.center_p - head_forward * self.tot_bbx.diameter() * OFFSET_MULTIPLIER as f64;
         self.eye = Point3::new(new_eye.x as f32, new_eye.y as f32, new_eye.z as f32);
         //self.eye.clone_from(&p);
         self.head_forward.clone_from(&head_forward32);
@@ -165,28 +167,31 @@ impl Camera {
     }
     pub fn move_to_anim_pos(&mut self, pipe_len:f64,up_dir: &Vector3<f64>) {
         self.center_p = Point3::new(0.0, 0.0, 0.0);
-        self.focus= pipe_len as f32 * OFFSET_MULTIPLIER;
+        let dist=pipe_len*2.0;//* ZOOM_SENSITIVITY as f64;
+        let center: Point3<f32> = Point3::new(
+            self.center_p.x as f32,
+            self.center_p.y as f32,
+            self.center_p.z as f32,
+        );
+        self.eye = center - self.head_forward * dist as f32;
         self.update();
     }
-    fn calculate_focus(&mut self) {
-        self.focus = self.tot_bbx.diameter() as f32 * OFFSET_MULTIPLIER;
+
+
+    pub fn zoom(&mut self, delta:f32) {
+        let incr=self.tot_bbx.diameter()as f32 *0.3 * delta;
+        self.eye = self.eye + self.head_forward * incr;
+        self.update();
     }
-    
-    
     fn update(&mut self) {
-        self.calculate_focus();
         self.view = Matrix4::look_to_rh(self.eye, self.head_forward, self.head_up);
         self.proj = perspective(self.fovy, self.aspect, self.near, self.far);
         self.vp_matrix = self.proj * self.view;
         self.n_matrix = self.view.transpose();
     }
     fn rotate(&mut self) {
-        //let center_p = self.tot_bbx.center();
         let _up: Vector3<f32> = self.head_up.clone();
-        //let forward: Vector3<f32> = self.head_forward.clone();
         let _right: Vector3<f32> = self.head_right.clone();
-        //let eye: Point3<f32> = self.eye.clone();
-
         let new_forward_rot = Quaternion::from_axis_angle(SHIP_UP, Rad(self.yaw)).normalize();
         let new_forward_lr: Vector3<f32> = new_forward_rot.rotate_vector(SHIP_FORWARD);
         let new_right: Vector3<f32> = new_forward_lr.cross(SHIP_UP);
@@ -200,21 +205,18 @@ impl Camera {
             self.center_p.y as f32,
             self.center_p.z as f32,
         );
-        let new_eye: Point3<f32> = center - new_forward * self.focus;
+        let dist=center.distance(self.eye);
+        self.eye = center - new_forward * dist;
 
         self.head_forward = new_forward;
         self.head_right = new_right;
         self.head_up = new_up;
-        self.eye = new_eye;
+
         self.update();
     }
 }
 
-pub fn update_camera_by_mouse(
-    delta: (f64, f64),
-    mut graphics: UniqueViewMut<Graphics>,
-    gs: UniqueViewMut<GlobalState>,
-) {
+pub fn update_camera_by_mouse(delta: (f64, f64), mut graphics: UniqueViewMut<Graphics>, gs: UniqueViewMut<GlobalState>, ) {
     if (gs.is_right_mouse_pressed) {
         graphics.camera.yaw += -delta.0 as f32 * MOUSE_SENSITIVITY_HORIZONTAL;
         graphics.camera.pitch += -delta.1 as f32 * MOUSE_SENSITIVITY_VERTICAL;
@@ -227,3 +229,8 @@ pub fn update_camera_by_mouse(
         graphics.camera.rotate();
     }
 }
+
+pub fn camera_zoom(delta: f32, mut graphics: UniqueViewMut<Graphics>, gs: UniqueViewMut<GlobalState>, ) {
+    graphics.camera.zoom(delta);
+}
+
