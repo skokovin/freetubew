@@ -16,7 +16,7 @@ const DORN_THICKNESS: f32 = 200.0;
 const DORN_ID: u64 = 200;
 const DORN_RADIUS: f64 = 20.0;
 const DORN_HEIGHT: f64 = 20.0;
-const DORN_PARK_POSITION: f64 = 200.0;
+const DORN_PARK_POSITION: f64 = 300.0;
 #[derive(Unique)]
 pub struct Dorn {
     pub is_scale_dirty: bool,

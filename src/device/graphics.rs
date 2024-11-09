@@ -4,6 +4,7 @@ use std::{iter, mem};
 use std::ops::Range;
 use std::sync::Arc;
 use cgmath::num_traits::signum;
+use cgmath::Point3;
 use web_time::{Instant, SystemTime};
 use log::warn;
 use shipyard::{EntitiesViewMut, EntityId, Unique, UniqueViewMut, ViewMut, World};
@@ -62,7 +63,7 @@ impl AnimState {
     pub fn default() -> Self {
         Self {
             id: 0,
-            opcode: 0,
+            opcode: 5,
             value: 0.0,
             stright_len: 0.0,
             lra: LRACLR::default(),
@@ -116,17 +117,28 @@ impl GlobalState {
             self.is_next_frame_ready = false
         }
     }
-
-    /* pub fn check_framerate_ms(&mut self) {
-         let dt = self.instant.elapsed().as_millis() as f64;
-         if (dt > FRAMERATE_MILLISECONDS) {
-             self.dt = dt * 1000.0;
-             self.instant = Instant::now();
-             self.is_next_frame_ready = true
-         } else {
-             self.is_next_frame_ready = false
-         }
-     }*/
+    pub fn calculate_unbend_bbx(&self) -> BoundingBox<Point3<f64>> {
+        let mut tot_x:f64=0.0;
+        let mut pipe_radius:f64=0.0;
+        self.lraclr_arr.iter().for_each(|lracl| {
+            tot_x=tot_x+lracl.l;
+            tot_x=tot_x+lracl.lt;
+            pipe_radius=lracl.pipe_radius;
+        });
+        let half=tot_x/2.0;
+        let mut bbx: BoundingBox<cgmath::Point3<f64>> = BoundingBox::new();
+        bbx.push(cgmath::Point3::new(0.0, half, half));
+        bbx.push(cgmath::Point3::new(tot_x, -half, -half));
+        bbx
+    }
+    pub fn calculate_total_len(&self) -> f64 {
+        let mut tot_x:f64=0.0;
+        self.lraclr_arr.iter().for_each(|lracl| {
+            tot_x=tot_x+lracl.l;
+            tot_x=tot_x+lracl.lt;
+        });
+        tot_x
+    }
 }
 unsafe impl Send for GlobalState {}
 unsafe impl Sync for GlobalState {}
@@ -304,7 +316,9 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                         bbx += (tor.bbx.clone());
                     });
                     graphics.camera.set_tot_bbx(bbx);
+                    graphics.camera.set_up_dir(&gs.v_up_orign);
                     graphics.camera.move_camera_to_bbx_limits();
+                    
                     States::StandBy
                     //warn!("BBX {:?}",bbx);
                 }
@@ -359,8 +373,9 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
 
                         bbx += (tor.bbx.clone());
                     });
-                    graphics.camera.set_tot_bbx(bbx);
-                    graphics.camera.move_camera_to_bbx_limits();
+                    graphics.camera.set_up_dir(&gs.v_up_orign);
+                    //graphics.camera.set_tot_bbx(bbx);
+                    //graphics.camera.move_camera_to_bbx_limits();
                     States::StandBy
                     //warn!("BBX {:?}",bbx);
                 }
@@ -372,10 +387,9 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                             cnc::cnc_to_poly_v(&gs.lraclr_arr, &gs.anim_state, &gs.v_up_orign, gs.dt, &gs.bend_params)
                         }
                     };
-
-
                     cyls_comps.clear();
                     tor_comps.clear();
+                 
                     cyls.iter().for_each(|cyl| {
                         let (v_buff, i_buff) = cyl.step_vertex_buffer.to_buffers(&graphics.device);
                         let e_id: EntityId = entities.add_entity(&mut cyls_comps, cyl.clone());
@@ -400,7 +414,7 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                             },
                         );
                     });
-
+                  
                     match gs.anim_state.opcode {
                         0 => {
                             g_scene.dim_x.is_active = true;
@@ -441,15 +455,54 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
                             gs.anim_state = next_stage;
                             States::FullAnimate
                         }
-
                         4 => {
                             g_scene.dim_x.is_active = false;
                             g_scene.dim_z.is_active = false;
                             g_scene.dim_b.is_active = false;
                             gs.anim_state = AnimState::default();
-                            let lra = gs.lraclr_arr.clone();
+                            //let lra = gs.lraclr_arr.clone();
                             g_scene.dorn.set_dorn_park(&gs.v_up_orign);
-                            States::ReadyToLoad(lra)
+                            let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr_reversed, &gs.v_up_orign);
+                            gs.tor_candidates = tors;
+                            gs.cyl_candidates = cyls;
+                            let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
+                            gs.cyl_candidates.iter_mut().for_each(|cyl| {
+                                let (v_buff, i_buff) = cyl.step_vertex_buffer.to_buffers(&graphics.device);
+                                let e_id: EntityId = entities.add_entity(&mut cyls_comps, cyl.clone());
+                                g_scene.id_buffers.insert(
+                                    cyl.id,
+                                    GlobalSceneItem {
+                                        e_id,
+                                        v_buffer: v_buff,
+                                        i_buffer: i_buff,
+                                    },
+                                );
+                                bbx += (cyl.bbx.clone());
+                            });
+                            gs.tor_candidates.iter().for_each(|tor| {
+                                let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
+                                let e_id: EntityId = entities.add_entity(&mut tor_comps, tor.clone());
+                                g_scene.id_buffers.insert(
+                                    tor.id,
+                                    GlobalSceneItem {
+                                        e_id,
+                                        v_buffer: v_buff,
+                                        i_buffer: i_buff,
+                                    },
+                                );
+
+                                bbx += (tor.bbx.clone());
+                            });
+                            graphics.camera.set_tot_bbx(bbx);
+                            graphics.camera.set_up_dir(&gs.v_up_orign);
+                            graphics.camera.move_camera_to_bbx_limits();
+                 
+                            States::StandBy
+                        }
+                        5=>{
+                            gs.anim_state.opcode=0;
+                            graphics.camera.move_to_anim_pos(gs.calculate_total_len(),&gs.v_up_orign);
+                            States::FullAnimate
                         }
                         _ => {
                             g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
@@ -512,10 +565,9 @@ pub fn key_frame(mut graphics: UniqueViewMut<Graphics>,
 
                         bbx += (tor.bbx.clone());
                     });
-                    graphics.camera.set_tot_bbx(bbx);
-                    graphics.camera.move_camera_to_bbx_limits();
-
-
+                    //graphics.camera.set_tot_bbx(bbx);
+                    //graphics.camera.move_camera_to_bbx_limits();
+                    graphics.camera.set_up_dir(&gs.v_up_orign);
                     States::StandBy
                 }
             }
@@ -1078,6 +1130,7 @@ pub fn check_remote(
                 gs.state = ReadyToLoad(v);
             }
             FullAnimate => {
+                gs.anim_state=AnimState::default();
                 g_scene.bend_step = 1;
                 gs.state = FullAnimate
             }
@@ -1135,15 +1188,13 @@ pub fn on_keyboard(event: KeyEvent,
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         g_scene.bend_step = 1;
-                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
+                        let stp: Vec<u8> = Vec::from((include_bytes!("../files/8.stp")).as_slice());
                         match analyze_bin(&stp) {
                             None => {}
                             Some(mut ops) => {
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-                                //let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(lraclr_arr.clone());
-
-
-                                gs.state = ReadyToLoad(lraclr_arr);
+                                let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
+                                gs.state = ReadyToLoad(lraclr_arr_reversed);
                                 gs.v_up_orign = P_UP_REVERSE;
 
 

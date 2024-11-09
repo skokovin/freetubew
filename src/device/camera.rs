@@ -1,12 +1,15 @@
-use std::f32::consts::PI;
-use std::ops::{Add, Sub};
-use cgmath::{perspective, InnerSpace, Matrix, Matrix4, Point3, Quaternion, Rad, Rotation, Rotation3, SquareMatrix, Vector3};
+use crate::device::graphics::{GlobalState, Graphics};
 use cgmath::num_traits::abs;
+use cgmath::{
+    perspective, InnerSpace, Matrix, Matrix4, Point3, Quaternion, Rad, Rotation, Rotation3,
+    SquareMatrix, Vector3,
+};
 use log::warn;
 use shipyard::{Unique, UniqueViewMut};
+use std::f32::consts::PI;
+use std::ops::{Add, Sub};
 use truck_base::bounding_box::BoundingBox;
 use truck_geometry::prelude::Plane;
-use crate::device::graphics::Graphics;
 
 pub const SHIP_FORWARD: Vector3<f32> = Vector3::new(1.0, 0.0, 0.0);
 pub const SHIP_RIGHT: Vector3<f32> = Vector3::new(0.0, -1.0, 0.0);
@@ -41,7 +44,7 @@ pub struct Camera {
     pitch: f32,
     focus: f32,
     pub tot_bbx: BoundingBox<Point3<f64>>,
-    center_p:Point3<f64>,
+    center_p: Point3<f64>,
 }
 
 impl Camera {
@@ -68,16 +71,11 @@ impl Camera {
             pitch: 0.0,
             focus: CAMERA_FOCUS,
             tot_bbx: Default::default(),
-            center_p:Point3::new(0.0,0.0,0.0)
+            center_p: Point3::new(0.0, 0.0, 0.0),
         }
     }
     pub fn default() -> Self {
-        let cam = Camera::new(
-            Rad(0.1),
-            800.0 / 600.0,
-            0.001,
-            200000.0,
-        );
+        let cam = Camera::new(Rad(0.1), 800.0 / 600.0, 0.001, 200000.0);
         cam
     }
     pub fn resize(&mut self, w: u32, h: u32) {
@@ -86,63 +84,42 @@ impl Camera {
             self.update();
         }
     }
-    pub fn calculate_tot_bbx(&mut self, bbxs: Vec<f32>) {
-        let mut out_bbx = {
-            let pmin: Point3<f64> = Point3::new(-100.0, -100.0, -100.0);
-            let pmax: Point3<f64> = Point3::new(100.0, 100.0, 100.0);
-            let bbx = BoundingBox::from_iter([pmin, pmax]);
-            bbx
-        };
-        let mut bbxes: Vec<BoundingBox<Point3<f64>>> = vec![];
-        let mut is_first_step = true;
-        bbxs.chunks(6).for_each(|b| {
-            let bbx: BoundingBox<Point3<f64>> = {
-                let pmin: Point3<f64> = Point3::new(b[0] as f64, b[1] as f64, b[2] as f64);
-                let pmax: Point3<f64> = Point3::new(b[3] as f64, b[4] as f64, b[5] as f64);
-                let bbx = BoundingBox::from_iter([pmin, pmax]);
-                bbx
-            };
-            if (is_first_step) {
-                self.tot_bbx = bbx.clone();
-                is_first_step = false;
-            } else {
-                self.tot_bbx += bbx.clone();
-            }
-            out_bbx += bbx.clone();
-            bbxes.push(bbx);
-        });
-        self.calculate_focus();
-        //self.update();
-    }
     pub fn set_tot_bbx(&mut self, bbxs_in: BoundingBox<truck_base::cgmath64::Point3>) {
-        self.tot_bbx= Default::default();
-        self.tot_bbx+=(bbxs_in.clone());
+        self.tot_bbx = Default::default();
+        self.tot_bbx += (bbxs_in.clone());
         self.calculate_focus();
         //self.update();
     }
 
-
+    pub fn set_up_dir(&mut self, up_dir: &Vector3<f64>) {
+        self.head_up.z = self.head_up.z * up_dir.z as f32;
+        //gs.v_up_orign
+    }
     pub fn move_camera_to_bbx_limits(&mut self) {
-        //self.center_p = self.tot_bbx.center();
-        self.center_p = Point3::new(0.0,0.0,0.0);
-        
+        self.center_p = self.tot_bbx.center();
+        //self.center_p = Point3::new(0.0, 0.0, 0.0);
+
         self.reset_pos();
         let cp = self.center_p;
         let ep = self.tot_bbx.max();
-
-
         let head_forward = cp.sub(ep).normalize();
-        let head_forward32: Vector3<f32> = Vector3::new(head_forward.x as f32, head_forward.y as f32, head_forward.z as f32);
+        let head_forward32: Vector3<f32> = Vector3::new(
+            head_forward.x as f32,
+            head_forward.y as f32,
+            head_forward.z as f32,
+        );
 
         let right_point = ep.clone() + SHIP_RIGHT64 * 100.0;
         let plane = Plane::new(ep, cp, right_point);
         let new_up = plane.normal().normalize();
         let new_right = new_up.cross(head_forward).normalize();
 
-        let new_up32: Vector3<f32> = Vector3::new(new_up.x as f32, new_up.y as f32, new_up.z as f32);
-        let new_right32: Vector3<f32> = Vector3::new(new_right.x as f32, new_right.y as f32, new_right.z as f32);
+        let new_up32: Vector3<f32> =
+            Vector3::new(new_up.x as f32, new_up.y as f32, new_up.z as f32);
+        let new_right32: Vector3<f32> =
+            Vector3::new(new_right.x as f32, new_right.y as f32, new_right.z as f32);
         //let p: Point3<f32> = Point3::new(ep.x as f32, ep.y as f32, ep.z as f32);
-        
+
         let new_eye: Point3<f64> = self.center_p - head_forward * self.focus as f64;
         self.eye = Point3::new(new_eye.x as f32, new_eye.y as f32, new_eye.z as f32);
         //self.eye.clone_from(&p);
@@ -154,39 +131,9 @@ impl Camera {
         self.update();
     }
     pub fn reset_pos(&mut self) {
-        self.yaw = 0.0;
+        /*  self.yaw = 0.0;
         self.pitch = 0.0;
-        self.update();
-    }
-    pub fn look_at_zero_point(&mut self){
-        self.center_p = Point3::new(0.0, 0.0, 0.0);
-        self.reset_pos();
-        let cp = self.center_p;
-        let ep = self.tot_bbx.max();
-
-
-        let head_forward = cp.sub(ep).normalize();
-        let head_forward32: Vector3<f32> = Vector3::new(head_forward.x as f32, head_forward.y as f32, head_forward.z as f32);
-
-        let right_point = ep.clone() + SHIP_RIGHT64 * 100.0;
-        let plane = Plane::new(ep, cp, right_point);
-        let new_up = plane.normal().normalize();
-        let new_right = new_up.cross(head_forward).normalize();
-
-        let new_up32: Vector3<f32> = Vector3::new(new_up.x as f32, new_up.y as f32, new_up.z as f32);
-        let new_right32: Vector3<f32> = Vector3::new(new_right.x as f32, new_right.y as f32, new_right.z as f32);
-        //let p: Point3<f32> = Point3::new(ep.x as f32, ep.y as f32, ep.z as f32);
-
-
-        let new_eye: Point3<f64> = self.center_p  - head_forward * self.focus as f64;
-        self.eye = Point3::new(new_eye.x as f32, new_eye.y as f32, new_eye.z as f32);
-        //self.eye.clone_from(&p);
-        self.head_forward.clone_from(&head_forward32);
-        self.head_up.clone().clone_from(&new_up32);
-        self.head_right.clone().clone_from(&new_right32);
-
-        self.is_dirty = true;
-        self.update();
+        self.update();*/
     }
     pub fn get_mvp_buffer(&mut self) -> &[f32; 16] {
         self.is_dirty = false;
@@ -203,14 +150,29 @@ impl Camera {
     pub fn update_mouse(&mut self, dx_in: f32, dy_in: f32) {
         self.yaw += -dx_in * MOUSE_SENSITIVITY_HORIZONTAL;
         self.pitch += -dy_in * MOUSE_SENSITIVITY_VERTICAL;
-        if abs(self.yaw) > PI * 2.0 { self.yaw = 0.0 }
-        if abs(self.pitch) > PI * 2.0 { self.pitch = 0.0 }
+        if abs(self.yaw) > PI * 2.0 {
+            self.yaw = 0.0
+        }
+        if abs(self.pitch) > PI * 2.0 {
+            self.pitch = 0.0
+        }
         self.rotate();
     }
 
+    pub fn reset_cp_to_bbx_center(&mut self){
+        self.center_p = self.tot_bbx.center();
+        self.update();
+    }
+    pub fn move_to_anim_pos(&mut self, pipe_len:f64,up_dir: &Vector3<f64>) {
+        self.center_p = Point3::new(0.0, 0.0, 0.0);
+        self.focus= pipe_len as f32 * OFFSET_MULTIPLIER;
+        self.update();
+    }
     fn calculate_focus(&mut self) {
         self.focus = self.tot_bbx.diameter() as f32 * OFFSET_MULTIPLIER;
     }
+    
+    
     fn update(&mut self) {
         self.calculate_focus();
         self.view = Matrix4::look_to_rh(self.eye, self.head_forward, self.head_up);
@@ -233,7 +195,11 @@ impl Camera {
         let new_forward: Vector3<f32> = new_right_rot.rotate_vector(new_forward_lr);
         let new_up: Vector3<f32> = new_right.cross(new_forward);
 
-        let center: Point3<f32> = Point3::new(self.center_p .x as f32, self.center_p .y as f32, self.center_p .z as f32);
+        let center: Point3<f32> = Point3::new(
+            self.center_p.x as f32,
+            self.center_p.y as f32,
+            self.center_p.z as f32,
+        );
         let new_eye: Point3<f32> = center - new_forward * self.focus;
 
         self.head_forward = new_forward;
@@ -244,10 +210,20 @@ impl Camera {
     }
 }
 
-pub fn update_camera_by_mouse( delta:(f64,f64), mut graphics: UniqueViewMut<Graphics>) {
-    graphics.camera.yaw += -delta.0 as f32 * MOUSE_SENSITIVITY_HORIZONTAL;
-    graphics.camera.pitch += -delta.1 as f32 * MOUSE_SENSITIVITY_VERTICAL;
-    if abs( graphics.camera.yaw) > PI * 2.0 {  graphics.camera.yaw = 0.0 }
-    if abs( graphics.camera.pitch) > PI * 2.0 {  graphics.camera.pitch = 0.0 }
-    graphics.camera.rotate();
+pub fn update_camera_by_mouse(
+    delta: (f64, f64),
+    mut graphics: UniqueViewMut<Graphics>,
+    gs: UniqueViewMut<GlobalState>,
+) {
+    if (gs.is_right_mouse_pressed) {
+        graphics.camera.yaw += -delta.0 as f32 * MOUSE_SENSITIVITY_HORIZONTAL;
+        graphics.camera.pitch += -delta.1 as f32 * MOUSE_SENSITIVITY_VERTICAL;
+        if abs(graphics.camera.yaw) > PI * 2.0 {
+            graphics.camera.yaw = 0.0
+        }
+        if abs(graphics.camera.pitch) > PI * 2.0 {
+            graphics.camera.pitch = 0.0
+        }
+        graphics.camera.rotate();
+    }
 }

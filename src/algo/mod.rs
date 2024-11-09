@@ -41,7 +41,6 @@ const CAP_TRIANGULATION: Rad<f64> = Rad(PI / 180.0);
 pub const TOLE: f64 = 0.01;
 pub const EXTRA_LEN_CALC: f64 = 3.0;
 pub const EXTRA_R_CALC: f64 = 1.2;
-
 pub const MAX_BEND_RADIUS: f64 = 500.0;
 pub const DIVIDER: f64 = 100000000.0;
 

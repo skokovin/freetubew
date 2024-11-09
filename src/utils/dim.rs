@@ -1,20 +1,25 @@
-use std::f64::consts::PI;
-use std::ops::{Mul, Sub};
-use cgmath::{Basis3, Deg, InnerSpace, Matrix4, Point3, Rad, Rotation, Rotation3, SquareMatrix, Vector3};
+use crate::algo::cnc::LRACLR;
+use crate::algo::{
+    angle_with_sign, BendToro, MainCircle, MainCylinder, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT,
+    P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE,
+};
+use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::{abs, signum};
+use cgmath::{
+    Basis3, Deg, InnerSpace, Matrix4, Point3, Rad, Rotation, Rotation3, SquareMatrix, Vector3,
+};
 use image::{DynamicImage, Rgba, RgbaImage};
 use log::warn;
 use rand::random;
 use rusttype::{point, Font, Scale};
 use shipyard::Unique;
+use std::f64::consts::PI;
+use std::ops::{Mul, Sub};
 use truck_base::bounding_box::BoundingBox;
 use truck_geometry::prelude::Plane;
 use web_sys::console::warn;
-use wgpu::{Buffer, Device, Queue, Sampler, Texture, TextureFormat, TextureView};
 use wgpu::util::DeviceExt;
-use crate::algo::{angle_with_sign, BendToro, MainCircle, MainCylinder, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE};
-use crate::algo::cnc::LRACLR;
-use crate::device::{MeshVertex, StepVertexBuffer};
+use wgpu::{Buffer, Device, Queue, Sampler, Texture, TextureFormat, TextureView};
 
 const DIM_X_THICKNESS: f64 = 3.0;
 const DIM_REF_L_RADIUS: f64 = 1.5;
@@ -29,7 +34,6 @@ const FONT_ROBOTO_REGULAR: &[u8; 171676] = include_bytes!("../files/Roboto-Regul
 const TXT_SIZE_W: u32 = 880;
 const TXT_SIZE_H: u32 = 340;
 const TXT_H_RADIUS_FACTOR: f64 = 12.5;
-
 
 #[derive(Unique)]
 pub struct DimX {
@@ -74,7 +78,8 @@ impl DimX {
             // backend.
             view_formats: &[],
         });
-        let diffuse_texture_view: TextureView = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let diffuse_texture_view: TextureView =
+            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let diffuse_sampler: Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -105,7 +110,6 @@ impl DimX {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-
         Self {
             is_dirty: false,
             is_active: false,
@@ -127,27 +131,46 @@ impl DimX {
             let mut v: Vec<MeshVertex> = vec![];
             let mut index: u32 = 0;
 
-            let (arr1_v, arr1_i, arr1_last_index) = DimX::generate_arrow_x(DIM_X_ID, 1.0, self.scale, self.pos_x, self.pipe_radius, v_up_orign, index);
+            let (arr1_v, arr1_i, arr1_last_index) = DimX::generate_arrow_x(
+                DIM_X_ID,
+                1.0,
+                self.scale,
+                self.pos_x,
+                self.pipe_radius,
+                v_up_orign,
+                index,
+            );
             index = arr1_last_index;
             i.extend_from_slice(arr1_i.as_slice());
             v.extend_from_slice(arr1_v.as_slice());
 
-            let (arr2_v, arr2_i, arr2_last_index) = DimX::generate_arrow_x(DIM_X_ID, -1.0, self.scale, 0.0, self.pipe_radius, v_up_orign, index);
+            let (arr2_v, arr2_i, arr2_last_index) = DimX::generate_arrow_x(
+                DIM_X_ID,
+                -1.0,
+                self.scale,
+                0.0,
+                self.pipe_radius,
+                v_up_orign,
+                index,
+            );
             index = arr2_last_index;
             i.extend_from_slice(arr2_i.as_slice());
             v.extend_from_slice(arr2_v.as_slice());
 
-            let (rl1, last_index) = DimX::generate_line_y_x(DIM_X_ID, 0.0, self.pipe_radius, v_up_orign, index); //-DIM_X_THICKNESS as f64
+            let (rl1, last_index) =
+                DimX::generate_line_y_x(DIM_X_ID, 0.0, self.pipe_radius, v_up_orign, index); //-DIM_X_THICKNESS as f64
             index = last_index;
             i.extend_from_slice(rl1.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl1.step_vertex_buffer.buffer.as_slice());
 
-            let (rl2, last_index) = DimX::generate_line_y_x(DIM_X_ID, self.pos_x, self.pipe_radius, v_up_orign, index); //-DIM_X_THICKNESS as f64
+            let (rl2, last_index) =
+                DimX::generate_line_y_x(DIM_X_ID, self.pos_x, self.pipe_radius, v_up_orign, index); //-DIM_X_THICKNESS as f64
             index = last_index;
             i.extend_from_slice(rl2.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl2.step_vertex_buffer.buffer.as_slice());
 
-            let (rl3, last_index) = DimX::generate_line_x_x(DIM_X_ID, self.pos_x, self.pipe_radius,v_up_orign, index);
+            let (rl3, last_index) =
+                DimX::generate_line_x_x(DIM_X_ID, self.pos_x, self.pipe_radius, v_up_orign, index);
             index = last_index;
             i.extend_from_slice(rl3.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl3.step_vertex_buffer.buffer.as_slice());
@@ -164,7 +187,7 @@ impl DimX {
             });
             //TXT LAYOUT
             {
-                let l=calc_ref_len_offset(self.pipe_radius)*v_up_orign.z;
+                let l = calc_ref_len_offset(self.pipe_radius) * v_up_orign.z;
                 let len = l as f32 - 40.0;
                 let offsetx: f32 = -20.0;
                 let offsetx1: f32 = -20.0 - TXT_SIZE_W as f32;
@@ -266,7 +289,15 @@ impl DimX {
         self.scale = scale;
         self.is_dirty = true;
     }
-    fn generate_arrow_x(id: i32, dir: f64, scale: f64, x: f64, pipe_radius: f64, v_up_orign: &Vector3<f64>, last_index: u32) -> (Vec<MeshVertex>, Vec<u32>, u32) {
+    fn generate_arrow_x(
+        id: i32,
+        dir: f64,
+        scale: f64,
+        x: f64,
+        pipe_radius: f64,
+        v_up_orign: &Vector3<f64>,
+        last_index: u32,
+    ) -> (Vec<MeshVertex>, Vec<u32>, u32) {
         let thik = DIM_X_THICKNESS as f32;
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
@@ -378,7 +409,6 @@ impl DimX {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [cp.x as f32, cp.y as f32, -thik, 1.0],
                 normal: n_a,
@@ -441,7 +471,6 @@ impl DimX {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [cp.x as f32, cp.y as f32, -thik, 1.0],
                 normal: n_c,
@@ -503,7 +532,6 @@ impl DimX {
             buffer.push(mv2);
             indxes.push(index);
             index = index + 1;
-
 
             let mv3 = MeshVertex {
                 position: [r_arrow_up.x as f32, r_arrow_up.y as f32, -thik, 1.0],
@@ -537,8 +565,14 @@ impl DimX {
         }
         (buffer, indxes, index)
     }
-    fn generate_line_x_x(id: i32, x: f64, pipe_radius: f64,v_up_orign: &Vector3<f64>, last_index: u32) -> (MainCylinder, u32) {
-        let len = calc_ref_len_offset(pipe_radius)*v_up_orign.z;
+    fn generate_line_x_x(
+        id: i32,
+        x: f64,
+        pipe_radius: f64,
+        v_up_orign: &Vector3<f64>,
+        last_index: u32,
+    ) -> (MainCylinder, u32) {
+        let len = calc_ref_len_offset(pipe_radius) * v_up_orign.z;
         let ca = MainCircle {
             id: random(),
             radius: DIM_REF_L_RADIUS,
@@ -568,7 +602,13 @@ impl DimX {
         let last_index = mc.triangulate_with_start_index_no_cap(last_index);
         (mc, last_index)
     }
-    fn generate_line_y_x(id: i32, x: f64, pipe_radius: f64, v_up_orign: &Vector3<f64>, last_index: u32) -> (MainCylinder, u32) {
+    fn generate_line_y_x(
+        id: i32,
+        x: f64,
+        pipe_radius: f64,
+        v_up_orign: &Vector3<f64>,
+        last_index: u32,
+    ) -> (MainCylinder, u32) {
         let len = calc_ref_len(pipe_radius) * v_up_orign.z;
 
         let ca = MainCircle {
@@ -647,7 +687,8 @@ impl DimZ {
             // backend.
             view_formats: &[],
         });
-        let diffuse_texture_view: TextureView = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let diffuse_texture_view: TextureView =
+            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let diffuse_sampler: Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -704,18 +745,14 @@ impl DimZ {
             i.extend_from_slice(rl1.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl1.step_vertex_buffer.buffer.as_slice());
 
-            let (rl2, last_index) = DimZ::generate_line_z_y(DIM_Z_ID, self.r, self.pipe_radius, index);
+            let (rl2, last_index) =
+                DimZ::generate_line_z_y(DIM_Z_ID, self.r, self.pipe_radius, index);
             index = last_index;
             i.extend_from_slice(rl2.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl2.step_vertex_buffer.buffer.as_slice());
 
-
-            let (arcv, arci, last_index) = DimZ::generate_y_arc(
-                DIM_Z_ID,
-                self.r,
-                self.scale,
-                self.pipe_radius,
-                index);
+            let (arcv, arci, last_index) =
+                DimZ::generate_y_arc(DIM_Z_ID, self.r, self.scale, self.pipe_radius, index);
 
             index = last_index;
             i.extend_from_slice(arci.as_slice());
@@ -836,12 +873,13 @@ impl DimZ {
         self.scale = scale;
         self.is_dirty = true;
     }
-    fn generate_y_arc(id: i32,
-                      r_deg: f64,
-                      arrow_scale: f64,
-                      pipe_radius: f64,
-                      last_index: u32) -> (Vec<MeshVertex>, Vec<u32>, u32)
-    {
+    fn generate_y_arc(
+        id: i32,
+        r_deg: f64,
+        arrow_scale: f64,
+        pipe_radius: f64,
+        last_index: u32,
+    ) -> (Vec<MeshVertex>, Vec<u32>, u32) {
         let len = calc_ref_len_offset(pipe_radius);
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
@@ -850,11 +888,11 @@ impl DimZ {
         let r = Rad::from(Deg(r_deg));
         let cp: Point3<f64> = Point3::new(0.0, 0.0, 0.0);
 
-        let mut ref_line_a_dir: Vector3<f64> =P_UP;
+        let mut ref_line_a_dir: Vector3<f64> = P_UP;
         let mut pa: Point3<f64> = cp + ref_line_a_dir.mul(len);
         let mut a_dir: Vector3<f64> = P_RIGHT.mul(signum(r_deg));
 
-        let rot_axe: Vector3<f64> = P_FORWARD.mul(signum(r_deg*ROT_DIR_CCW));
+        let rot_axe: Vector3<f64> = P_FORWARD.mul(signum(r_deg * ROT_DIR_CCW));
         let step = Rad::from(Deg(ROTATION_STEP_ANGLE));
         let deg_step = abs((r.0 / step.0) as i64);
         let mut b_dir: Vector3<f64> = a_dir;
@@ -966,13 +1004,20 @@ impl DimZ {
             a_dir = b_dir;
         }
 
-        let parrow1 = cp +P_UP.mul(len);
-        let (buffer_a1, indxes_a1, last_index_a1) = DimZ::generate_arrow_a_y(id, P_RIGHT.mul(signum(r_deg*ROT_DIR_CCW)), arrow_scale, parrow1, index);
+        let parrow1 = cp + P_UP.mul(len);
+        let (buffer_a1, indxes_a1, last_index_a1) = DimZ::generate_arrow_a_y(
+            id,
+            P_RIGHT.mul(signum(r_deg * ROT_DIR_CCW)),
+            arrow_scale,
+            parrow1,
+            index,
+        );
         index = last_index_a1;
         indxes.extend_from_slice(indxes_a1.as_slice());
         buffer.extend_from_slice(buffer_a1.as_slice());
 
-        let (buffer_a2, indxes_a2, last_index_a2) = DimZ::generate_arrow_b_y(id, b_dir.mul(-1.0), arrow_scale, pa, index);
+        let (buffer_a2, indxes_a2, last_index_a2) =
+            DimZ::generate_arrow_b_y(id, b_dir.mul(-1.0), arrow_scale, pa, index);
         index = last_index_a2;
 
         indxes.extend_from_slice(indxes_a2.as_slice());
@@ -980,15 +1025,18 @@ impl DimZ {
 
         (buffer, indxes, index)
     }
-    fn generate_line_z_y(id: i32, r_deg: f64, pipe_radius: f64, last_index: u32) -> (MainCylinder, u32) {
+    fn generate_line_z_y(
+        id: i32,
+        r_deg: f64,
+        pipe_radius: f64,
+        last_index: u32,
+    ) -> (MainCylinder, u32) {
         let r = Rad::from(Deg(r_deg));
         let len = calc_ref_len(pipe_radius);
-
 
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(P_FORWARD_REVERSE, r);
         let dir_z = rotation.rotate_vector(P_UP);
         let pe: Point3<f64> = Point3::new(0.0, 0.0, 0.0) + dir_z.mul(len);
-
 
         let ca = MainCircle {
             id: random(),
@@ -1019,7 +1067,13 @@ impl DimZ {
         let last_index = mc.triangulate_with_start_index_no_cap(last_index);
         (mc, last_index)
     }
-    fn generate_arrow_a_y(id: i32, dir: Vector3<f64>, scale: f64, position: Point3<f64>, last_index: u32) -> (Vec<MeshVertex>, Vec<u32>, u32) {
+    fn generate_arrow_a_y(
+        id: i32,
+        dir: Vector3<f64>,
+        scale: f64,
+        position: Point3<f64>,
+        last_index: u32,
+    ) -> (Vec<MeshVertex>, Vec<u32>, u32) {
         let thik = DIM_X_THICKNESS as f32;
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
@@ -1135,7 +1189,6 @@ impl DimZ {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [-thik, cp.y as f32, cp.z as f32, 1.0],
                 normal: n_a,
@@ -1197,7 +1250,6 @@ impl DimZ {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [-thik, cp.y as f32, cp.z as f32, 1.0],
                 normal: n_c,
@@ -1258,7 +1310,6 @@ impl DimZ {
             buffer.push(mv2);
             indxes.push(index);
             index = index + 1;
-
 
             let mv3 = MeshVertex {
                 position: [-thik, r_arrow_up.y as f32, r_arrow_up.z as f32, 1.0],
@@ -1292,7 +1343,13 @@ impl DimZ {
         }
         (buffer, indxes, index)
     }
-    fn generate_arrow_b_y(id: i32, dir: Vector3<f64>, scale: f64, position: Point3<f64>, last_index: u32) -> (Vec<MeshVertex>, Vec<u32>, u32) {
+    fn generate_arrow_b_y(
+        id: i32,
+        dir: Vector3<f64>,
+        scale: f64,
+        position: Point3<f64>,
+        last_index: u32,
+    ) -> (Vec<MeshVertex>, Vec<u32>, u32) {
         let thik = DIM_X_THICKNESS as f32;
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
@@ -1408,7 +1465,6 @@ impl DimZ {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [-thik, cp.y as f32, cp.z as f32, 1.0],
                 normal: n_a,
@@ -1470,7 +1526,6 @@ impl DimZ {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [-thik, cp.y as f32, cp.z as f32, 1.0],
                 normal: n_c,
@@ -1531,7 +1586,6 @@ impl DimZ {
             buffer.push(mv2);
             indxes.push(index);
             index = index + 1;
-
 
             let mv3 = MeshVertex {
                 position: [-thik, r_arrow_up.y as f32, r_arrow_up.z as f32, 1.0],
@@ -1612,7 +1666,8 @@ impl DimB {
             // backend.
             view_formats: &[],
         });
-        let diffuse_texture_view: TextureView = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let diffuse_texture_view: TextureView =
+            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let diffuse_sampler: Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -1630,7 +1685,6 @@ impl DimB {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-
         let i: Vec<u32> = vec![];
         let v: Vec<MeshVertex> = vec![];
         let i_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1643,7 +1697,6 @@ impl DimB {
             contents: bytemuck::cast_slice(&v),
             usage: wgpu::BufferUsages::VERTEX,
         });
-
 
         Self {
             is_dirty: false,
@@ -1665,17 +1718,30 @@ impl DimB {
             let mut i: Vec<u32> = vec![];
             let mut v: Vec<MeshVertex> = vec![];
             let mut index: u32 = 0;
-
-            let (rl1, last_index) = DimB::generate_line_b_x(DIM_B_ID, 0.0, self.pos_y, self.pipe_radius,v_up_orign, index);
+            
+            let (rl1, last_index) = DimB::generate_line_b_x(
+                DIM_B_ID,
+                0.0,
+                self.pos_y,
+                self.pipe_radius,
+                v_up_orign,
+                index,
+            );
             index = last_index;
             i.extend_from_slice(rl1.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl1.step_vertex_buffer.buffer.as_slice());
 
-            let (rl2, last_index) = DimB::generate_line_b_x(DIM_B_ID, self.angle, self.pos_y, self.pipe_radius,v_up_orign, index);
+            let (rl2, last_index) = DimB::generate_line_b_x(
+                DIM_B_ID,
+                self.angle,
+                self.pos_y,
+                self.pipe_radius,
+                v_up_orign,
+                index,
+            );
             index = last_index;
             i.extend_from_slice(rl2.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl2.step_vertex_buffer.buffer.as_slice());
-
 
             let (arcv, arci, last_index) = DimB::generate_x_arc(
                 DIM_B_ID,
@@ -1684,7 +1750,8 @@ impl DimB {
                 self.scale,
                 self.pipe_radius,
                 v_up_orign,
-                index);
+                index,
+            );
 
             index = last_index;
             i.extend_from_slice(arci.as_slice());
@@ -1702,7 +1769,7 @@ impl DimB {
             });
             //TXT LAYOUT
             {
-                let l=calc_ref_len_offset(self.pipe_radius)*v_up_orign.z;
+                let l = calc_ref_len_offset(self.pipe_radius) * v_up_orign.z;
                 let len = l as f32 - 40.0;
                 //let len = calc_ref_len_offset(self.pipe_radius) as f32 - 40.0;
                 let offsetx: f32 = -20.0;
@@ -1806,10 +1873,18 @@ impl DimB {
         self.scale = scale;
         self.is_dirty = true;
     }
-    fn generate_line_b_x(id: i32, r_deg: f64, y: f64, pipe_radius: f64, v_up_orign: &Vector3<f64>, last_index: u32) -> (MainCylinder, u32) {
+    fn generate_line_b_x(
+        id: i32,
+        r_deg: f64,
+        y: f64,
+        pipe_radius: f64,
+        v_up_orign: &Vector3<f64>,
+        last_index: u32,
+    ) -> (MainCylinder, u32) 
+    {
         let r = Rad::from(Deg(r_deg));
-        let cp: Point3<f64> = Point3::new(0.0, y*v_up_orign.z, 0.0);
-        let len = calc_ref_len(pipe_radius)*v_up_orign.z;
+        let cp: Point3<f64> = Point3::new(0.0, y * v_up_orign.z, 0.0);
+        let len = (calc_ref_len(pipe_radius)+y) * v_up_orign.z;
 
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(P_UP.mul(v_up_orign.z), r);
         let dir_y = rotation.rotate_vector(P_RIGHT_REVERSE);
@@ -1844,7 +1919,13 @@ impl DimB {
         let last_index = mc.triangulate_with_start_index_no_cap(last_index);
         (mc, last_index)
     }
-    fn generate_arrow_a_x(id: i32, dir: Vector3<f64>, scale: f64, position: Point3<f64>, last_index: u32) -> (Vec<MeshVertex>, Vec<u32>, u32) {
+    fn generate_arrow_a_x(
+        id: i32,
+        dir: Vector3<f64>,
+        scale: f64,
+        position: Point3<f64>,
+        last_index: u32,
+    ) -> (Vec<MeshVertex>, Vec<u32>, u32) {
         let thik = DIM_X_THICKNESS as f32;
 
         let mut index: u32 = last_index;
@@ -1860,7 +1941,12 @@ impl DimB {
         let r_arrow_down = tmp_p - 0.8038 * scale * up_dir;
 
         let n1: [f32; 4] = [P_UP.x as f32, P_UP.y as f32, P_UP.z as f32, 0.0];
-        let n2: [f32; 4] = [P_UP_REVERSE.x as f32, P_UP_REVERSE.y as f32, P_UP_REVERSE.z as f32, 0.0];
+        let n2: [f32; 4] = [
+            P_UP_REVERSE.x as f32,
+            P_UP_REVERSE.y as f32,
+            P_UP_REVERSE.z as f32,
+            0.0,
+        ];
 
         let n1_v = r_arrow_up.sub(cp).normalize().cross(fwd_dir);
         let n2_v = fwd_dir.cross(r_arrow_down.sub(cp).normalize());
@@ -1960,7 +2046,6 @@ impl DimB {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [cp.x as f32, cp.y as f32, -thik, 1.0],
                 normal: n_a,
@@ -2022,7 +2107,6 @@ impl DimB {
             indxes.push(index);
             index = index + 1;
 
-
             let mv3 = MeshVertex {
                 position: [cp.x as f32, cp.y as f32, -thik, 1.0],
                 normal: n_c,
@@ -2083,7 +2167,6 @@ impl DimB {
             buffer.push(mv2);
             indxes.push(index);
             index = index + 1;
-
 
             let mv3 = MeshVertex {
                 position: [r_arrow_up.x as f32, r_arrow_up.y as f32, -thik, 1.0],
@@ -2117,26 +2200,28 @@ impl DimB {
         }
         (buffer, indxes, index)
     }
-    fn generate_x_arc(id: i32,
-                      r_deg: f64,
-                      y: f64,
-                      arrow_scale: f64,
-                      pipe_radius: f64,
-                      v_up_orign: &Vector3<f64>,
-                      last_index: u32) -> (Vec<MeshVertex>, Vec<u32>, u32)
+    fn generate_x_arc(
+        id: i32,
+        r_deg: f64,
+        y: f64,
+        arrow_scale: f64,
+        pipe_radius: f64,
+        v_up_orign: &Vector3<f64>,
+        last_index: u32,
+    ) -> (Vec<MeshVertex>, Vec<u32>, u32) 
     {
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
         let mut buffer: Vec<MeshVertex> = vec![];
 
         let bend_angle = Rad::from(Deg(r_deg));
-        let len = calc_ref_len_offset(pipe_radius);
-        let cp: Point3<f64> = Point3::new(0.0, y*v_up_orign.z, 0.0);
-        let mut ref_line_a_dir: Vector3<f64> =P_RIGHT_REVERSE.mul(v_up_orign.z); 
+        let len = calc_ref_len_offset(pipe_radius)+y;
+        let cp: Point3<f64> = Point3::new(0.0, y * v_up_orign.z, 0.0);
+        let mut ref_line_a_dir: Vector3<f64> = P_RIGHT_REVERSE.mul(v_up_orign.z);
         let mut pa: Point3<f64> = cp + ref_line_a_dir.mul(len);
         let mut a_dir: Vector3<f64> = P_FORWARD;
 
-        let rot_axe: Vector3<f64> =P_UP.mul(v_up_orign.z);
+        let rot_axe: Vector3<f64> = P_UP.mul(v_up_orign.z);
         let step = Rad::from(Deg(ROTATION_STEP_ANGLE));
         let deg_step = abs((bend_angle.0 / step.0) as i64);
         let mut b_dir: Vector3<f64> = a_dir;
@@ -2248,13 +2333,15 @@ impl DimB {
             a_dir = b_dir;
         }
 
-       let parrow1 = cp + P_RIGHT_REVERSE.mul(len*v_up_orign.z);
-        let (buffer_a1, indxes_a1, last_index_a1) = DimB::generate_arrow_a_x(id, P_FORWARD_REVERSE, arrow_scale, parrow1, index);
+        let parrow1 = cp + P_RIGHT_REVERSE.mul(len * v_up_orign.z);
+        let (buffer_a1, indxes_a1, last_index_a1) =
+            DimB::generate_arrow_a_x(id, P_FORWARD_REVERSE, arrow_scale, parrow1, index);
         index = last_index_a1;
         indxes.extend_from_slice(indxes_a1.as_slice());
         buffer.extend_from_slice(buffer_a1.as_slice());
 
-        let (buffer_a2, indxes_a2, last_index_a2) = DimB::generate_arrow_a_x(id, b_dir.mul(v_up_orign.z), arrow_scale, pa, index);
+        let (buffer_a2, indxes_a2, last_index_a2) =
+            DimB::generate_arrow_a_x(id, b_dir.mul(v_up_orign.z), arrow_scale, pa, index);
         index = last_index_a2;
 
         indxes.extend_from_slice(indxes_a2.as_slice());
@@ -2281,7 +2368,9 @@ fn update_txt(txt_value: f64, pipe_radius: f64) -> RgbaImage {
     let text = (txt_value as i32).to_string();
     let colour = (150 as u8, 0 as u8, 0 as u8);
     let v_metrics = font.v_metrics(scale);
-    let glyphs: Vec<_> = font.layout(text.as_str(), scale, point(0.0, 0.0 + v_metrics.ascent)).collect();
+    let glyphs: Vec<_> = font
+        .layout(text.as_str(), scale, point(0.0, 0.0 + v_metrics.ascent))
+        .collect();
     let glyphs_height = (v_metrics.ascent - v_metrics.descent).ceil() as u32; //512 - 40 as u32; //
     let glyphs_width = {
         let min_x = glyphs
@@ -2299,7 +2388,8 @@ fn update_txt(txt_value: f64, pipe_radius: f64) -> RgbaImage {
             (w / 4) * 4 + 4
         }
     };
-    let mut diffuse_rgba: RgbaImage = DynamicImage::new_rgba8(glyphs_width + 120, glyphs_height + 40).to_rgba8();
+    let mut diffuse_rgba: RgbaImage =
+        DynamicImage::new_rgba8(glyphs_width + 120, glyphs_height + 40).to_rgba8();
     for glyph in glyphs {
         if let Some(bounding_box) = glyph.pixel_bounding_box() {
             glyph.draw(|x, y, v| {
@@ -2313,9 +2403,3 @@ fn update_txt(txt_value: f64, pipe_radius: f64) -> RgbaImage {
     }
     diffuse_rgba
 }
-
-
-
-
-
-
