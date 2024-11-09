@@ -1,6 +1,9 @@
 use crate::device::graphics::{GlobalState, Graphics};
 use cgmath::num_traits::abs;
-use cgmath::{perspective, InnerSpace, Matrix, Matrix4, MetricSpace, Point3, Quaternion, Rad, Rotation, Rotation3, SquareMatrix, Vector3};
+use cgmath::{
+    perspective, InnerSpace, Matrix, Matrix4, MetricSpace, Point3, Quaternion, Rad, Rotation,
+    Rotation3, SquareMatrix, Vector3,
+};
 use log::warn;
 use shipyard::{Unique, UniqueViewMut};
 use std::f32::consts::PI;
@@ -11,15 +14,13 @@ use truck_geometry::prelude::Plane;
 pub const SHIP_FORWARD: Vector3<f32> = Vector3::new(1.0, 0.0, 0.0);
 pub const SHIP_RIGHT: Vector3<f32> = Vector3::new(0.0, -1.0, 0.0);
 pub const SHIP_UP: Vector3<f32> = Vector3::new(0.0, 0.0, 1.0);
-pub const SHIP_FORWARD64: Vector3<f64> = Vector3::new(1.0, 0.0, 0.0);
 pub const SHIP_RIGHT64: Vector3<f64> = Vector3::new(0.0, -1.0, 0.0);
-pub const SHIP_UP64: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0);
+
 const MOUSE_SENSITIVITY_HORIZONTAL: f32 = 0.01;
 const MOUSE_SENSITIVITY_VERTICAL: f32 = 0.01;
 const ZOOM_SENSITIVITY: f32 = 10.0;
 const CAMERA_FOCUS: f32 = 3000.0;
 const OFFSET_MULTIPLIER: f32 = 10.0;
-pub const Z_FIGHTING_FACTOR: f32 = 1.0;
 #[derive(Unique)]
 pub struct Camera {
     pub is_dirty: bool,
@@ -46,7 +47,6 @@ pub struct Camera {
 impl Camera {
     pub fn new(fovy: Rad<f32>, aspect: f32, near: f32, far: f32) -> Self {
         let eye = Point3::new(0.0, 0.0, 0.0);
-
         Self {
             is_dirty: true,
             eye: eye,
@@ -58,7 +58,7 @@ impl Camera {
             proj: Matrix4::identity(),
             n_matrix: Matrix4::identity(),
             near: near,
-            far: far * Z_FIGHTING_FACTOR,
+            far: far ,
             fovy: fovy,
             aspect: aspect,
             dx: 0.0,
@@ -87,12 +87,11 @@ impl Camera {
             self.center_p.y as f32,
             self.center_p.z as f32,
         );
-        let dist=center.distance(self.eye);
+        let dist = center.distance(self.eye);
         self.eye = center - self.head_forward * dist;
         //self.calculate_focus();
         //self.update();
     }
-
     pub fn set_up_dir(&mut self, up_dir: &Vector3<f64>) {
         self.head_up.z = self.head_up.z * up_dir.z as f32;
         //gs.v_up_orign
@@ -122,7 +121,8 @@ impl Camera {
             Vector3::new(new_right.x as f32, new_right.y as f32, new_right.z as f32);
         //let p: Point3<f32> = Point3::new(ep.x as f32, ep.y as f32, ep.z as f32);
 
-        let new_eye: Point3<f64> = self.center_p - head_forward * self.tot_bbx.diameter() * OFFSET_MULTIPLIER as f64;
+        let new_eye: Point3<f64> =
+            self.center_p - head_forward * self.tot_bbx.diameter() * OFFSET_MULTIPLIER as f64;
         self.eye = Point3::new(new_eye.x as f32, new_eye.y as f32, new_eye.z as f32);
         //self.eye.clone_from(&p);
         self.head_forward.clone_from(&head_forward32);
@@ -160,14 +160,13 @@ impl Camera {
         }
         self.rotate();
     }
-
-    pub fn reset_cp_to_bbx_center(&mut self){
+    pub fn reset_cp_to_bbx_center(&mut self) {
         self.center_p = self.tot_bbx.center();
         self.update();
     }
-    pub fn move_to_anim_pos(&mut self, pipe_len:f64,up_dir: &Vector3<f64>) {
+    pub fn move_to_anim_pos(&mut self, pipe_len: f64, up_dir: &Vector3<f64>) {
         self.center_p = Point3::new(0.0, 0.0, 0.0);
-        let dist=pipe_len*2.0;//* ZOOM_SENSITIVITY as f64;
+        let dist = pipe_len * 2.0; //* ZOOM_SENSITIVITY as f64;
         let center: Point3<f32> = Point3::new(
             self.center_p.x as f32,
             self.center_p.y as f32,
@@ -176,10 +175,8 @@ impl Camera {
         self.eye = center - self.head_forward * dist as f32;
         self.update();
     }
-
-
-    pub fn zoom(&mut self, delta:f32) {
-        let incr=self.tot_bbx.diameter()as f32 *0.3 * delta;
+    pub fn zoom(&mut self, delta: f32) {
+        let incr = self.tot_bbx.diameter() as f32 * 0.3 * delta;
         self.eye = self.eye + self.head_forward * incr;
         self.update();
     }
@@ -205,7 +202,7 @@ impl Camera {
             self.center_p.y as f32,
             self.center_p.z as f32,
         );
-        let dist=center.distance(self.eye);
+        let dist = center.distance(self.eye);
         self.eye = center - new_forward * dist;
 
         self.head_forward = new_forward;
@@ -216,7 +213,11 @@ impl Camera {
     }
 }
 
-pub fn update_camera_by_mouse(delta: (f64, f64), mut graphics: UniqueViewMut<Graphics>, gs: UniqueViewMut<GlobalState>, ) {
+pub fn update_camera_by_mouse(
+    delta: (f64, f64),
+    mut graphics: UniqueViewMut<Graphics>,
+    gs: UniqueViewMut<GlobalState>,
+) {
     if (gs.is_right_mouse_pressed) {
         graphics.camera.yaw += -delta.0 as f32 * MOUSE_SENSITIVITY_HORIZONTAL;
         graphics.camera.pitch += -delta.1 as f32 * MOUSE_SENSITIVITY_VERTICAL;
@@ -230,7 +231,10 @@ pub fn update_camera_by_mouse(delta: (f64, f64), mut graphics: UniqueViewMut<Gra
     }
 }
 
-pub fn camera_zoom(delta: f32, mut graphics: UniqueViewMut<Graphics>, gs: UniqueViewMut<GlobalState>, ) {
+pub fn camera_zoom(
+    delta: f32,
+    mut graphics: UniqueViewMut<Graphics>,
+    gs: UniqueViewMut<GlobalState>,
+) {
     graphics.camera.zoom(delta);
 }
-

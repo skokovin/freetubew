@@ -2140,7 +2140,7 @@ pub fn extract_circles_bounds(
                                                                                         Some(spline) => {
                                                                                             found = true;
                                                                                             let mut contrl_points: Vec<CartesianPoint> = vec![];
-                                                                                            &spline.control_points_list.iter().for_each(|cp| {
+                                                                                            spline.control_points_list.iter().for_each(|cp| {
                                                                                                 let pnt = extract_cartesian_point(&table, &cp,scale).unwrap();
                                                                                                 let pp = CartesianPoint {
                                                                                                     label: "".to_string(),
@@ -2347,7 +2347,7 @@ pub fn extract_circles_bounds_tourus(
                                                                                             found = true;
                                                                                             found = true;
                                                                                             let mut contrl_points: Vec<CartesianPoint> = vec![];
-                                                                                            &spline.control_points_list.iter().for_each(|cp| {
+                                                                                            spline.control_points_list.iter().for_each(|cp| {
                                                                                                 let pnt = extract_cartesian_point(&table, &cp,scale).unwrap();
                                                                                                 let pp = CartesianPoint {
                                                                                                     label: "".to_string(),

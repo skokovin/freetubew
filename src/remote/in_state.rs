@@ -49,7 +49,6 @@ impl InCmd {
             lraclr_arr: vec![]
         }
     }
-    
     pub fn check_curr_command(&mut self)->States {
         match COMMANDS.try_lock() {
             Ok(mut s) => {
@@ -94,7 +93,7 @@ impl InCmd {
 unsafe impl Send for InCmd {}
 unsafe impl Sync for InCmd {}
 
-//TO
+//TO THIS
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async unsafe fn read_step_file(arr: Uint8Array) {
@@ -152,9 +151,15 @@ pub async unsafe fn reverse_dorn() {
 
 
 
-//////////FROM
+//////////FROM THIS
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_namespace = wvservice)]
 extern "C" {
     pub fn pipe_bend_ops(ids: Int32Array);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn change_bend_step(id: i32);
 }

@@ -119,15 +119,11 @@ impl ApplicationHandler<Graphics> for App {
                     match delta {
                         MouseScrollDelta::LineDelta(h, v) => {
                             self.world.run_with_data(camera_zoom, v);
-                            
                         }
                         MouseScrollDelta::PixelDelta(p) => {
                             self.world.run_with_data(camera_zoom, signum(p.y as f32));
-                            warn!(" PixelDelta {:?}",p)
                         }
                     }
-
-                   
                 }
                 WindowEvent::MouseInput {
                     device_id,
