@@ -3,11 +3,11 @@ use std::sync::Mutex;
 use log::{info, warn, Level};
 use once_cell::sync::Lazy;
 use shipyard::Unique;
-use web_sys::js_sys::Uint8Array;
+use web_sys::js_sys::{Float32Array, Uint8Array};
 use crate::algo::analyze_bin;
 use crate::algo::cnc::LRACLR;
 use crate::device::graphics::{Graphics, States};
-use crate::device::graphics::States::{ChangeDornDir, FullAnimate, ReadyToLoad, ReverseLRACLR, StandBy};
+use crate::device::graphics::States::{ChangeDornDir, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR, Dismiss};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(target_arch = "wasm32")]
@@ -32,6 +32,7 @@ impl CommandState {
 #[derive(Debug, Clone, PartialEq, )]
 pub enum RemoteCommand {
     OnLoadSTPfile((Vec<u8>)),
+    OnLoadLRAcommands((Vec<f32>)),
     OnSelectById(i32),
     OnInitBend((Vec<u8>)),
     OnDoBend,
@@ -53,22 +54,22 @@ impl InCmd {
         match COMMANDS.try_lock() {
             Ok(mut s) => {
                 match s.get_first() {
-                    None => {StandBy}
+                    None => { Dismiss }
                     Some(command) => {
                         match command {
                             RemoteCommand::OnLoadSTPfile(stp) => {
                                 match analyze_bin(&stp) {
-                                    None => {StandBy}
+                                    None => { Dismiss }
                                     Some(mut ops) => {
-                                        ReadyToLoad( ops.calculate_lraclr())
+                                        ReadyToLoad( (ops.calculate_lraclr(),true))
                                     }
                                 }
                             }
                             RemoteCommand::OnSelectById(id) => {
-                                StandBy
+                                Dismiss
                             }
                             RemoteCommand::OnInitBend (stp)=> {
-                                StandBy
+                                Dismiss
                             }
                             RemoteCommand::OnDoBend => {
                                 FullAnimate
@@ -79,13 +80,16 @@ impl InCmd {
                             RemoteCommand::ReverseDorn => {
                                 ChangeDornDir
                             }
+                            RemoteCommand::OnLoadLRAcommands(lra) => {
+                                LoadLRA(lra)
+                            }
                         }
                     }
                 }
             }
             Err(_) => { 
                 warn!("CANT_LOCK") ;
-                StandBy
+                Dismiss
             }
         }
     }
@@ -105,6 +109,22 @@ pub async unsafe fn read_step_file(arr: Uint8Array) {
         Ok(mut m) => {
             info!("LOAD STEP {:?}",handler_v.len());
             m.values.push_back(RemoteCommand::OnLoadSTPfile(handler_v));
+        }
+        Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async unsafe fn read_lra_commands(arr: Float32Array) {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let _ = console_log::init_with_level(Level::Warn);
+    warn!("load_lra_cmds");
+    let mut handler_v: Vec<f32> = arr.to_vec();
+    match COMMANDS.lock() {
+        Ok(mut m) => {
+            info!("LOAD LRA {:?}",handler_v.len());
+            m.values.push_back(RemoteCommand::OnLoadLRAcommands(handler_v));
         }
         Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
     }

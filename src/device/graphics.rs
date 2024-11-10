@@ -2,12 +2,14 @@ use crate::algo::cnc::{cnc_to_poly, LRACLR};
 use crate::algo::{analyze_bin, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
-use crate::device::graphics::States::{ChangeDornDir, FullAnimate, ReadyToLoad, ReverseLRACLR};
+use crate::device::graphics::States::{
+    ChangeDornDir, Dismiss, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR,
+};
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::txt_pipeline::TxtPipeLine;
 use crate::utils::dim::{DimB, DimX, DimZ};
 use crate::utils::dorn::Dorn;
-use cgmath::num_traits::signum;
+use cgmath::num_traits::{abs, signum};
 use cgmath::Point3;
 use log::warn;
 use shipyard::{EntitiesViewMut, EntityId, Unique, UniqueViewMut, ViewMut, World};
@@ -50,11 +52,12 @@ const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 pub enum States {
-    StandBy,
-    ReadyToLoad((Vec<LRACLR>)),
+    Dismiss,
+    ReadyToLoad((Vec<LRACLR>,bool)),
     FullAnimate,
     ReverseLRACLR,
     ChangeDornDir,
+    LoadLRA(Vec<f32>),
 }
 pub struct AnimState {
     pub id: i32,
@@ -65,7 +68,14 @@ pub struct AnimState {
     pub op_counter: i32,
 }
 impl AnimState {
-    pub fn new(id: i32, opcode: usize, value: f64, stright_len: f64, lra: LRACLR,op_counter: i32) -> Self {
+    pub fn new(
+        id: i32,
+        opcode: usize,
+        value: f64,
+        stright_len: f64,
+        lra: LRACLR,
+        op_counter: i32,
+    ) -> Self {
         Self {
             id,
             opcode,
@@ -85,7 +95,6 @@ impl AnimState {
             op_counter: 0,
         }
     }
-  
 }
 impl Debug for AnimState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -204,7 +213,7 @@ pub fn init_graphics(world: &World, gr: Graphics) {
 
     let gs = GlobalState {
         is_right_mouse_pressed: false,
-        state: States::StandBy,
+        state: States::Dismiss,
         lraclr_arr: vec![],
         lraclr_arr_reversed: vec![],
         cyl_candidates: vec![],
@@ -252,7 +261,11 @@ pub fn unset_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn resize_window(new_size: PhysicalSize<u32>,mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>, ) {
+pub fn resize_window(
+    new_size: PhysicalSize<u32>,
+    mut graphics: UniqueViewMut<Graphics>,
+    mut gs: UniqueViewMut<GlobalState>,
+) {
     if new_size.width > 0 && new_size.height > 0 {
         graphics.camera.resize(new_size.width, new_size.height);
         graphics.surface_config.width = new_size.width;
@@ -274,7 +287,11 @@ pub fn resize_window(new_size: PhysicalSize<u32>,mut graphics: UniqueViewMut<Gra
     }
 }
 #[cfg(target_arch = "wasm32")]
-pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>, ) {
+pub fn resize_window(
+    new_size: PhysicalSize<u32>,
+    mut graphics: UniqueViewMut<Graphics>,
+    mut gs: UniqueViewMut<GlobalState>,
+) {
     use winit::platform::web::WindowExtWebSys;
     match graphics.window.canvas() {
         None => {}
@@ -322,8 +339,9 @@ pub fn key_frame(
     if (gs.is_next_frame_ready) {
         let next_state: States = {
             match &mut gs.state {
-                States::StandBy => States::StandBy,
-                States::ReadyToLoad((lraclr)) => {
+                Dismiss => States::Dismiss,
+                ReadyToLoad((lraclr,is_reset_camera)) => {
+                    let resetcamera=is_reset_camera.clone();
                     cyls_comps.clear();
                     tor_comps.clear();
                     gs.lraclr_arr = lraclr.clone();
@@ -359,14 +377,18 @@ pub fn key_frame(
 
                         bbx += (tor.bbx.clone());
                     });
-                    graphics.camera.set_tot_bbx(bbx);
-                    graphics.camera.set_up_dir(&gs.v_up_orign);
-                    graphics.camera.move_camera_to_bbx_limits();
+                    
+                    if(resetcamera){
+                        graphics.camera.set_tot_bbx(bbx);
+                        graphics.camera.set_up_dir(&gs.v_up_orign);
+                        graphics.camera.move_camera_to_bbx_limits();
+                    }
+               
 
-                    States::StandBy
+                    States::Dismiss
                     //warn!("BBX {:?}",bbx);
                 }
-                States::ReverseLRACLR => {
+                ReverseLRACLR => {
                     cyls_comps.clear();
                     tor_comps.clear();
                     let (cyls, tors) = {
@@ -425,12 +447,10 @@ pub fn key_frame(
                     graphics.camera.set_up_dir(&gs.v_up_orign);
                     //graphics.camera.set_tot_bbx(bbx);
                     //graphics.camera.move_camera_to_bbx_limits();
-                    States::StandBy
+                    States::Dismiss
                     //warn!("BBX {:?}",bbx);
                 }
-                States::FullAnimate => {
-                  
-                    
+                FullAnimate => {
                     let (cyls, tors, next_stage) = {
                         if (gs.is_reversed) {
                             cnc::cnc_to_poly_v(
@@ -477,9 +497,8 @@ pub fn key_frame(
                         );
                     });
 
-
                     #[cfg(target_arch = "wasm32")]
-                    if(gs.anim_state.op_counter!=next_stage.op_counter){
+                    if (gs.anim_state.op_counter != next_stage.op_counter) {
                         change_bend_step(next_stage.op_counter);
                     }
 
@@ -565,11 +584,13 @@ pub fn key_frame(
                             graphics.camera.set_up_dir(&gs.v_up_orign);
                             graphics.camera.move_camera_to_bbx_limits();
 
-                            States::StandBy
+                            States::Dismiss
                         }
                         5 => {
                             gs.anim_state.opcode = 0;
-                            graphics.camera.move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
+                            graphics
+                                .camera
+                                .move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
                             #[cfg(target_arch = "wasm32")]
                             change_bend_step(0);
                             States::FullAnimate
@@ -581,7 +602,7 @@ pub fn key_frame(
                         }
                     }
                 }
-                States::ChangeDornDir => {
+                ChangeDornDir => {
                     if (signum(gs.v_up_orign.z) < 0.0) {
                         gs.v_up_orign = P_UP;
                     } else {
@@ -643,7 +664,40 @@ pub fn key_frame(
                     //graphics.camera.set_tot_bbx(bbx);
                     //graphics.camera.move_camera_to_bbx_limits();
                     graphics.camera.set_up_dir(&gs.v_up_orign);
-                    States::StandBy
+                    States::Dismiss
+                }
+                LoadLRA(v) => {
+                    let mut lra_cmds:Vec<LRACLR>=vec![];
+                    if (v.len() % 8 == 0 && !v.is_empty()) {
+                        v.chunks(8).for_each(|cmd| {
+                            let id1 = cmd[0];
+                            let id2 = cmd[1];
+                            let l = cmd[2];
+                            let lt = cmd[3];
+                            let r = cmd[4];
+                            let a = cmd[5];
+                            let clr = cmd[6];
+                            let pipe_radius = cmd[7];
+                            let lra_cmd=LRACLR{
+                                id1: id1.round() as i32,
+                                id2: id2.round() as i32,
+                                l: abs(l as f64),
+                                lt: abs(lt as f64),
+                                r: r as f64,
+                                a: abs(a as f64),
+                                clr: abs(clr as f64),
+                                pipe_radius: abs(pipe_radius as f64),
+                            };
+                            lra_cmds.push(lra_cmd);
+                        });
+                    }
+                    warn!("NEW LRA {:?}",lra_cmds.len());
+                    
+                    if(lra_cmds.is_empty()) {
+                        States::Dismiss
+                    }else{
+                        ReadyToLoad((lra_cmds,false)) 
+                    }
                 }
             }
         };
@@ -1387,8 +1441,8 @@ pub fn check_remote(
 ) {
     if (gs.is_next_frame_ready) {
         match cmd.check_curr_command() {
-            States::StandBy => {}
-            ReadyToLoad(v) => {
+            States::Dismiss => {}
+            ReadyToLoad((v,is_reset_camera)) => {
                 gs.v_up_orign = P_UP_REVERSE;
                 g_scene.bend_step = 1;
                 #[cfg(target_arch = "wasm32")]
@@ -1398,7 +1452,7 @@ pub fn check_remote(
                         lraclr_arr_i32.as_slice(),
                     ))
                 }
-                gs.state = ReadyToLoad(v);
+                gs.state = ReadyToLoad((v,is_reset_camera));
             }
             FullAnimate => {
                 gs.anim_state = AnimState::default();
@@ -1414,6 +1468,10 @@ pub fn check_remote(
             States::ChangeDornDir => {
                 g_scene.bend_step = 1;
                 gs.state = ChangeDornDir;
+            }
+            States::LoadLRA(v) => {
+                g_scene.bend_step = 1;
+                gs.state =LoadLRA(v);
             }
         }
     }
