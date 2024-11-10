@@ -383,7 +383,14 @@ pub fn key_frame(
                         graphics.camera.set_up_dir(&gs.v_up_orign);
                         graphics.camera.move_camera_to_bbx_limits();
                     }
-               
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
+                        pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
+                            lraclr_arr_i32.as_slice(),
+                        ))
+                    }
 
                     States::Dismiss
                     //warn!("BBX {:?}",bbx);
@@ -691,11 +698,12 @@ pub fn key_frame(
                             lra_cmds.push(lra_cmd);
                         });
                     }
-                    warn!("NEW LRA {:?}",lra_cmds.len());
+                    
                     
                     if(lra_cmds.is_empty()) {
                         States::Dismiss
                     }else{
+                        lra_cmds[0].r=0.0;
                         ReadyToLoad((lra_cmds,false)) 
                     }
                 }
@@ -1445,13 +1453,6 @@ pub fn check_remote(
             ReadyToLoad((v,is_reset_camera)) => {
                 gs.v_up_orign = P_UP_REVERSE;
                 g_scene.bend_step = 1;
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let lraclr_arr_i32 = LRACLR::to_array(&v);
-                    pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
-                        lraclr_arr_i32.as_slice(),
-                    ))
-                }
                 gs.state = ReadyToLoad((v,is_reset_camera));
             }
             FullAnimate => {

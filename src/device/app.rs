@@ -441,6 +441,9 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output = Graphic
                     0,
                     bytemuck::cast_slice(&mesh_pipe_line.materials),
                 );
+                let mut camera=Camera::default();
+                camera.resize(canvas.client_width() as u32, canvas.client_height() as u32);
+                
                 Graphics {
                     device: device,
                     adapter: adapter,
@@ -449,7 +452,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output = Graphic
                     surface: surface,
                     surface_config: surface_config,
                     background_pipe_line: background_pipe_line,
-                    camera: Camera::default(),
+                    camera: camera,
                     mesh_pipe_line: mesh_pipe_line,
                     txt_pipe_line: txt_pipe_line,
                 }
