@@ -7,7 +7,7 @@ use web_sys::js_sys::{Float32Array, Uint8Array};
 use crate::algo::analyze_bin;
 use crate::algo::cnc::LRACLR;
 use crate::device::graphics::{Graphics, States};
-use crate::device::graphics::States::{ChangeDornDir, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR, Dismiss};
+use crate::device::graphics::States::{ChangeDornDir, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR, Dismiss, NewBendParams};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(target_arch = "wasm32")]
@@ -38,7 +38,10 @@ pub enum RemoteCommand {
     OnDoBend,
     Reverse,
     ReverseDorn,
+    OnChangeBendParams((Vec<f32>)),
 }
+
+
 
 #[derive(Unique)]
 pub struct InCmd {
@@ -82,6 +85,9 @@ impl InCmd {
                             }
                             RemoteCommand::OnLoadLRAcommands(lra) => {
                                 LoadLRA(lra)
+                            }
+                            RemoteCommand::OnChangeBendParams(params) => {
+                                NewBendParams(params)
                             }
                         }
                     }
@@ -169,6 +175,22 @@ pub async unsafe fn reverse_dorn() {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async unsafe fn change_bend_params(arr: Float32Array) {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let _ = console_log::init_with_level(Level::Warn);
+    let mut handler_v: Vec<f32> = arr.to_vec();
+    match COMMANDS.lock() {
+        Ok(mut m) => {
+            if(handler_v.len()>2){
+                m.values.push_back(RemoteCommand::OnChangeBendParams(handler_v));
+            }
+        }
+        Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
+    }
+}
+
 
 
 //////////FROM THIS
@@ -182,4 +204,10 @@ extern "C" {
 #[wasm_bindgen(js_namespace = wvservice)]
 extern "C" {
     pub fn change_bend_step(id: i32);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn bend_settings(settings: Float32Array);
 }

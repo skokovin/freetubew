@@ -2,9 +2,7 @@ use crate::algo::cnc::{cnc_to_poly, LRACLR};
 use crate::algo::{analyze_bin, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
-use crate::device::graphics::States::{
-    ChangeDornDir, Dismiss, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR,
-};
+use crate::device::graphics::States::{ChangeDornDir, Dismiss, FullAnimate, LoadLRA, NewBendParams, ReadyToLoad, ReverseLRACLR};
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::txt_pipeline::TxtPipeLine;
 use crate::utils::dim::{DimB, DimX, DimZ};
@@ -21,6 +19,7 @@ use std::sync::Arc;
 use std::{iter, mem};
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::Vector3;
+use web_sys::js_sys::Float32Array;
 use web_sys::HtmlCanvasElement;
 use web_time::{Instant, SystemTime};
 use wgpu::util::DeviceExt;
@@ -35,15 +34,12 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
 
+use crate::remote::in_state::bend_settings;
+#[cfg(target_arch = "wasm32")]
+use crate::remote::in_state::change_bend_step;
 #[cfg(target_arch = "wasm32")]
 use crate::remote::in_state::{pipe_bend_ops, InCmd};
 
-#[cfg(target_arch = "wasm32")]
-use crate::remote::in_state::change_bend_step;
-
-const STRIGHT_SPEED: f64 = 100.0;
-const ROTATE_SPEED: f64 = 10.0;
-const ANGLE_SPEED: f64 = 10.0;
 const FRAMERATE_SECONDS: f64 = 0.1;
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -51,13 +47,15 @@ const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     b: 0.0,
     a: 1.0,
 };
+#[derive(Clone)]
 pub enum States {
     Dismiss,
-    ReadyToLoad((Vec<LRACLR>,bool)),
+    ReadyToLoad((Vec<LRACLR>, bool)),
     FullAnimate,
     ReverseLRACLR,
     ChangeDornDir,
     LoadLRA(Vec<f32>),
+    NewBendParams(Vec<f32>),
 }
 pub struct AnimState {
     pub id: i32,
@@ -110,15 +108,48 @@ pub struct BendParameters {
     pub rotate_speed: f64,
     pub angle_speed: f64,
 }
+impl BendParameters {
+    pub fn default() -> Self {
+        Self {
+            stright_speed: 100.0,
+            rotate_speed: 10.0,
+            angle_speed: 10.0,
+        }
+    }
+    pub fn set_params_from_f32vec(&mut self, vec: &Vec<f32>) {
+        match vec.get(0) {
+            None => {}
+            Some(v) => self.stright_speed = v.clone() as f64,
+        }
+        match vec.get(1) {
+            None => {}
+            Some(v) => self.rotate_speed = v.clone() as f64,
+        }
+        match vec.get(2) {
+            None => {}
+            Some(v) => self.angle_speed = v.clone() as f64,
+        }
+    }
+    pub fn params_to_f32vec(&self) -> Vec<f32> {
+        Vec::from([
+            self.stright_speed as f32,
+            self.rotate_speed as f32,
+            self.angle_speed as f32,
+        ])
+    }
+}
+
 pub struct GlobalSceneItem {
     pub e_id: EntityId,
     pub v_buffer: Buffer,
     pub i_buffer: Buffer,
 }
+
 #[derive(Unique)]
 pub struct GlobalState {
     pub is_right_mouse_pressed: bool,
     pub state: States,
+    pub prev_state: States,
     pub lraclr_arr: Vec<LRACLR>,
     pub lraclr_arr_reversed: Vec<LRACLR>,
     pub cyl_candidates: Vec<MainCylinder>,
@@ -129,7 +160,6 @@ pub struct GlobalState {
     pub instant: Instant,
     pub dt: f64,
     pub is_next_frame_ready: bool,
-    pub bend_params: BendParameters,
     pub smaa_target: SmaaTarget,
     pub is_reversed: bool,
 }
@@ -168,6 +198,16 @@ impl GlobalState {
         });
         tot_x
     }
+
+    pub fn change_state(&mut self, new_state:States)->States{
+        self.prev_state=self.state.clone();
+        self.state=new_state;
+        self.state.clone()
+    }
+    pub fn revert_state(&mut self)->States{
+        self.state=self.prev_state.clone();
+        self.state.clone()
+    }
 }
 unsafe impl Send for GlobalState {}
 unsafe impl Sync for GlobalState {}
@@ -181,6 +221,7 @@ pub struct GlobalScene {
     pub dim_x: DimX,
     pub dim_z: DimZ,
     pub dim_b: DimB,
+    pub bend_params: BendParameters,
 }
 unsafe impl Send for GlobalScene {}
 unsafe impl Sync for GlobalScene {}
@@ -214,6 +255,7 @@ pub fn init_graphics(world: &World, gr: Graphics) {
     let gs = GlobalState {
         is_right_mouse_pressed: false,
         state: States::Dismiss,
+        prev_state: States::Dismiss,
         lraclr_arr: vec![],
         lraclr_arr_reversed: vec![],
         cyl_candidates: vec![],
@@ -224,11 +266,7 @@ pub fn init_graphics(world: &World, gr: Graphics) {
         instant: Instant::now(),
         dt: 0.0,
         is_next_frame_ready: false,
-        bend_params: BendParameters {
-            stright_speed: STRIGHT_SPEED,
-            rotate_speed: ROTATE_SPEED,
-            angle_speed: ANGLE_SPEED,
-        },
+     
         smaa_target: smaa_target,
         is_reversed: false,
     };
@@ -241,17 +279,21 @@ pub fn init_graphics(world: &World, gr: Graphics) {
         dim_x: DimX::new(&gr.device),
         dim_z: DimZ::new(&gr.device),
         dim_b: DimB::new(&gr.device),
+        bend_params: BendParameters::default(),
     };
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        bend_settings(Float32Array::from(
+            g_scene.bend_params.params_to_f32vec().as_slice(),
+        ));
+        let in_cmd = InCmd::new();
+        world.add_unique(in_cmd);
+    }
 
     world.add_unique(gr);
     world.add_unique(gs);
     world.add_unique(g_scene);
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let in_cmd = InCmd::new();
-        world.add_unique(in_cmd);
-    }
 }
 pub fn set_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
     gs.is_right_mouse_pressed = true;
@@ -339,9 +381,11 @@ pub fn key_frame(
     if (gs.is_next_frame_ready) {
         let next_state: States = {
             match &mut gs.state {
-                Dismiss => States::Dismiss,
-                ReadyToLoad((lraclr,is_reset_camera)) => {
-                    let resetcamera=is_reset_camera.clone();
+                Dismiss =>{
+                   gs.change_state(States::Dismiss) 
+                } 
+                ReadyToLoad((lraclr, is_reset_camera)) => {
+                    let resetcamera = is_reset_camera.clone();
                     cyls_comps.clear();
                     tor_comps.clear();
                     gs.lraclr_arr = lraclr.clone();
@@ -377,8 +421,8 @@ pub fn key_frame(
 
                         bbx += (tor.bbx.clone());
                     });
-                    
-                    if(resetcamera){
+
+                    if (resetcamera) {
                         graphics.camera.set_tot_bbx(bbx);
                         graphics.camera.set_up_dir(&gs.v_up_orign);
                         graphics.camera.move_camera_to_bbx_limits();
@@ -391,9 +435,7 @@ pub fn key_frame(
                             lraclr_arr_i32.as_slice(),
                         ))
                     }
-
-                    States::Dismiss
-                    //warn!("BBX {:?}",bbx);
+                    gs.change_state(States::Dismiss)
                 }
                 ReverseLRACLR => {
                     cyls_comps.clear();
@@ -454,8 +496,7 @@ pub fn key_frame(
                     graphics.camera.set_up_dir(&gs.v_up_orign);
                     //graphics.camera.set_tot_bbx(bbx);
                     //graphics.camera.move_camera_to_bbx_limits();
-                    States::Dismiss
-                    //warn!("BBX {:?}",bbx);
+                    gs.change_state(States::Dismiss)
                 }
                 FullAnimate => {
                     let (cyls, tors, next_stage) = {
@@ -465,7 +506,7 @@ pub fn key_frame(
                                 &gs.anim_state,
                                 &gs.v_up_orign,
                                 gs.dt,
-                                &gs.bend_params,
+                                &g_scene.bend_params,
                             )
                         } else {
                             cnc::cnc_to_poly_v(
@@ -473,7 +514,7 @@ pub fn key_frame(
                                 &gs.anim_state,
                                 &gs.v_up_orign,
                                 gs.dt,
-                                &gs.bend_params,
+                                &g_scene.bend_params,
                             )
                         }
                     };
@@ -520,7 +561,7 @@ pub fn key_frame(
                             g_scene.dim_x.set_pipe_radius(next_stage.lra.pipe_radius);
                             g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
                             gs.anim_state = next_stage;
-                            States::FullAnimate
+                            gs.change_state(States::FullAnimate)
                         }
                         1 => {
                             g_scene.dim_x.is_active = false;
@@ -532,7 +573,7 @@ pub fn key_frame(
                             g_scene.dim_z.set_pipe_radius(next_stage.lra.pipe_radius);
                             g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
                             gs.anim_state = next_stage;
-                            States::FullAnimate
+                            gs.change_state(States::FullAnimate)
                         }
                         2 => {
                             g_scene.dim_b.is_active = true;
@@ -544,7 +585,7 @@ pub fn key_frame(
                             g_scene.dim_b.set_pipe_radius(next_stage.lra.pipe_radius);
                             g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
                             gs.anim_state = next_stage;
-                            States::FullAnimate
+                            gs.change_state(States::FullAnimate)
                         }
                         4 => {
                             g_scene.dim_x.is_active = false;
@@ -591,7 +632,7 @@ pub fn key_frame(
                             graphics.camera.set_up_dir(&gs.v_up_orign);
                             graphics.camera.move_camera_to_bbx_limits();
 
-                            States::Dismiss
+                            gs.change_state(States::Dismiss)
                         }
                         5 => {
                             gs.anim_state.opcode = 0;
@@ -600,12 +641,12 @@ pub fn key_frame(
                                 .move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
                             #[cfg(target_arch = "wasm32")]
                             change_bend_step(0);
-                            States::FullAnimate
+                            gs.change_state(States::FullAnimate)
                         }
                         _ => {
                             g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
                             gs.anim_state = next_stage;
-                            States::FullAnimate
+                            gs.change_state(States::FullAnimate)
                         }
                     }
                 }
@@ -671,10 +712,11 @@ pub fn key_frame(
                     //graphics.camera.set_tot_bbx(bbx);
                     //graphics.camera.move_camera_to_bbx_limits();
                     graphics.camera.set_up_dir(&gs.v_up_orign);
-                    States::Dismiss
+                    gs.change_state(States::Dismiss)
+                    
                 }
                 LoadLRA(v) => {
-                    let mut lra_cmds:Vec<LRACLR>=vec![];
+                    let mut lra_cmds: Vec<LRACLR> = vec![];
                     if (v.len() % 8 == 0 && !v.is_empty()) {
                         v.chunks(8).for_each(|cmd| {
                             let id1 = cmd[0];
@@ -685,7 +727,7 @@ pub fn key_frame(
                             let a = cmd[5];
                             let clr = cmd[6];
                             let pipe_radius = cmd[7];
-                            let lra_cmd=LRACLR{
+                            let lra_cmd = LRACLR {
                                 id1: id1.round() as i32,
                                 id2: id2.round() as i32,
                                 l: abs(l as f64),
@@ -698,14 +740,18 @@ pub fn key_frame(
                             lra_cmds.push(lra_cmd);
                         });
                     }
-                    
-                    
-                    if(lra_cmds.is_empty()) {
-                        States::Dismiss
-                    }else{
-                        lra_cmds[0].r=0.0;
-                        ReadyToLoad((lra_cmds,false)) 
+
+                    if (lra_cmds.is_empty()) {
+                        gs.change_state(States::Dismiss)
+                    } else {
+                        lra_cmds[0].r = 0.0;
+                        gs.change_state( ReadyToLoad((lra_cmds, false)))
                     }
+                }
+                
+                States::NewBendParams(params) => {
+                    g_scene.bend_params.set_params_from_f32vec(&params);
+                    gs.revert_state()
                 }
             }
         };
@@ -1450,10 +1496,10 @@ pub fn check_remote(
     if (gs.is_next_frame_ready) {
         match cmd.check_curr_command() {
             States::Dismiss => {}
-            ReadyToLoad((v,is_reset_camera)) => {
+            ReadyToLoad((v, is_reset_camera)) => {
                 gs.v_up_orign = P_UP_REVERSE;
                 g_scene.bend_step = 1;
-                gs.state = ReadyToLoad((v,is_reset_camera));
+                gs.state = ReadyToLoad((v, is_reset_camera));
             }
             FullAnimate => {
                 gs.anim_state = AnimState::default();
@@ -1472,7 +1518,10 @@ pub fn check_remote(
             }
             States::LoadLRA(v) => {
                 g_scene.bend_step = 1;
-                gs.state =LoadLRA(v);
+                gs.state = LoadLRA(v);
+            }
+            States::NewBendParams(v) => {
+                gs.state = NewBendParams(v);
             }
         }
     }
