@@ -87,11 +87,10 @@ impl ApplicationHandler<Graphics> for App {
                     {
                         self.world.run(check_remote);
                     }
-
-                    self.world.run(|wc: UniqueViewMut<Graphics>| {
+        /*            self.world.run(|wc: UniqueViewMut<Graphics>| {
                         let w = wc.window.clone();
                         w.request_redraw();
-                    });
+                    });*/
                 }
                 WindowEvent::ActivationTokenDone { .. } => {}
                 WindowEvent::Resized(physical_size) => {

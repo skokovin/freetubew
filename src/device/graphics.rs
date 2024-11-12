@@ -1,10 +1,19 @@
-use crate::algo::cnc::{cnc_to_poly, LRACLR};
+use crate::algo::cnc::{all_to_one, cnc_to_poly, LRACLR};
 use crate::algo::{analyze_bin, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
-use crate::device::graphics::States::{ChangeDornDir, Dismiss, FullAnimate, LoadLRA, NewBendParams, ReadyToLoad, ReverseLRACLR};
+use crate::device::graphics::States::{
+    ChangeDornDir, Dismiss, FullAnimate, LoadLRA, NewBendParams, ReadyToLoad, ReverseLRACLR,
+};
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::txt_pipeline::TxtPipeLine;
+use crate::device::MeshVertex;
+#[cfg(target_arch = "wasm32")]
+use crate::remote::in_state::bend_settings;
+#[cfg(target_arch = "wasm32")]
+use crate::remote::in_state::change_bend_step;
+#[cfg(target_arch = "wasm32")]
+use crate::remote::in_state::{pipe_bend_ops, InCmd};
 use crate::utils::dim::{DimB, DimX, DimZ};
 use crate::utils::dorn::Dorn;
 use cgmath::num_traits::{abs, signum};
@@ -24,8 +33,8 @@ use web_sys::HtmlCanvasElement;
 use web_time::{Instant, SystemTime};
 use wgpu::util::DeviceExt;
 use wgpu::{
-    Adapter, BindGroup, BindingResource, Buffer, CommandEncoder, Device, Queue, RenderPass,
-    StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView,
+    Adapter, BindGroup, BindingResource, Buffer, BufferAddress, CommandEncoder, Device, Queue,
+    RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView,
     TextureViewDescriptor,
 };
 use winit::dpi::PhysicalSize;
@@ -33,14 +42,8 @@ use winit::event::{ElementState, KeyEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
-
-#[cfg(target_arch = "wasm32")]
-use crate::remote::in_state::bend_settings;
-#[cfg(target_arch = "wasm32")]
-use crate::remote::in_state::change_bend_step;
-#[cfg(target_arch = "wasm32")]
-use crate::remote::in_state::{pipe_bend_ops, InCmd};
-
+const MESH_BUFFER_LIMIT: usize = 2000000;
+const MESH_ZEROS_I: [i32; MESH_BUFFER_LIMIT] = [0; MESH_BUFFER_LIMIT];
 const FRAMERATE_SECONDS: f64 = 0.1;
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -140,12 +143,6 @@ impl BendParameters {
     }
 }
 
-pub struct GlobalSceneItem {
-    pub e_id: EntityId,
-    pub v_buffer: Buffer,
-    pub i_buffer: Buffer,
-}
-
 #[derive(Unique)]
 pub struct GlobalState {
     pub is_right_mouse_pressed: bool,
@@ -153,8 +150,6 @@ pub struct GlobalState {
     pub prev_state: States,
     pub lraclr_arr: Vec<LRACLR>,
     pub lraclr_arr_reversed: Vec<LRACLR>,
-    pub cyl_candidates: Vec<MainCylinder>,
-    pub tor_candidates: Vec<BendToro>,
     pub idmaps: HashMap<u64, EntityId>,
     pub anim_state: AnimState,
     pub v_up_orign: Vector3,
@@ -167,15 +162,8 @@ pub struct GlobalState {
 impl GlobalState {
     pub fn check_framerate(&mut self) {
         let dt = self.instant.elapsed().as_millis() as f64 / 1000.0;
-
-        if (dt > FRAMERATE_SECONDS) {
-            //warn!("Framerate took {} ms", dt);
-            self.dt = dt;
-            self.instant = Instant::now();
-            self.is_next_frame_ready = true
-        } else {
-            self.is_next_frame_ready = false
-        }
+        self.dt = dt;
+        self.instant = Instant::now();
     }
     pub fn calculate_unbend_bbx(&self) -> BoundingBox<Point3<f64>> {
         let mut tot_x: f64 = 0.0;
@@ -200,13 +188,13 @@ impl GlobalState {
         tot_x
     }
 
-    pub fn change_state(&mut self, new_state:States)->States{
-        self.prev_state=self.state.clone();
-        self.state=new_state;
+    pub fn change_state(&mut self, new_state: States) -> States {
+        self.prev_state = self.state.clone();
+        self.state = new_state;
         self.state.clone()
     }
-    pub fn revert_state(&mut self)->States{
-        self.state=self.prev_state.clone();
+    pub fn revert_state(&mut self) -> States {
+        self.state = self.prev_state.clone();
         self.state.clone()
     }
 }
@@ -215,14 +203,47 @@ unsafe impl Sync for GlobalState {}
 
 #[derive(Unique)]
 pub struct GlobalScene {
-    pub id_buffers: HashMap<u64, GlobalSceneItem>,
-    pub u: f64,
     pub bend_step: usize,
     pub dorn: Dorn,
     pub dim_x: DimX,
     pub dim_z: DimZ,
     pub dim_b: DimB,
     pub bend_params: BendParameters,
+    pub mesh_size: usize,
+    pub v_buffer_mesh: Buffer,
+    pub i_buffer_mesh: Buffer,
+}
+
+impl GlobalScene {
+    pub fn new(device: &Device, v_up_orign: &cgmath::Vector3<f64>) -> Self {
+        let i_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Mesh I Buffer"),
+            size: (MESH_BUFFER_LIMIT * mem::size_of::<i32>()) as BufferAddress,
+            usage: wgpu::BufferUsages::INDEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::VERTEX,
+            mapped_at_creation: false,
+        });
+        let v_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(format!("Mesh V Buffer").as_str()),
+            size: (MESH_BUFFER_LIMIT * mem::size_of::<MeshVertex>()) as BufferAddress,
+            usage: wgpu::BufferUsages::INDEX
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        Self {
+            bend_step: 1,
+            dorn: Dorn::new(&device, &v_up_orign),
+            dim_x: DimX::new(&device),
+            dim_z: DimZ::new(&device),
+            dim_b: DimB::new(&device),
+            bend_params: BendParameters::default(),
+            mesh_size: 0,
+            v_buffer_mesh: i_buffer,
+            i_buffer_mesh: v_buffer,
+        }
+    }
 }
 unsafe impl Send for GlobalScene {}
 unsafe impl Sync for GlobalScene {}
@@ -234,7 +255,6 @@ pub struct Graphics {
     pub window: Arc<Window>,
     pub surface: Surface<'static>,
     pub surface_config: SurfaceConfiguration,
-    //pub window_size: PhysicalSize<u32>,
     pub background_pipe_line: BackGroundPipeLine,
     pub camera: Camera,
     pub mesh_pipe_line: MeshPipeLine,
@@ -259,29 +279,17 @@ pub fn init_graphics(world: &World, gr: Graphics) {
         prev_state: States::Dismiss,
         lraclr_arr: vec![],
         lraclr_arr_reversed: vec![],
-        cyl_candidates: vec![],
-        tor_candidates: vec![],
         idmaps: HashMap::new(),
         anim_state: AnimState::default(),
         v_up_orign: P_UP_REVERSE,
         instant: Instant::now(),
         dt: 0.0,
         is_next_frame_ready: false,
-     
+
         smaa_target: smaa_target,
         is_reversed: false,
     };
-
-    let g_scene = GlobalScene {
-        id_buffers: HashMap::new(),
-        u: 0.0,
-        bend_step: 1,
-        dorn: Dorn::new(&gr.device, &gs.v_up_orign),
-        dim_x: DimX::new(&gr.device),
-        dim_z: DimZ::new(&gr.device),
-        dim_b: DimB::new(&gr.device),
-        bend_params: BendParameters::default(),
-    };
+    let g_scene = GlobalScene::new(&gr.device, &gs.v_up_orign);
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -374,397 +382,333 @@ pub fn key_frame(
     mut graphics: UniqueViewMut<Graphics>,
     mut gs: UniqueViewMut<GlobalState>,
     mut g_scene: UniqueViewMut<GlobalScene>,
-    mut entities: EntitiesViewMut,
-    mut cyls_comps: ViewMut<MainCylinder>,
-    mut tor_comps: ViewMut<BendToro>,
 ) {
     gs.check_framerate();
-    if (gs.is_next_frame_ready) {
-        let next_state: States = {
-            match &mut gs.state {
-                Dismiss =>{
-                   gs.change_state(States::Dismiss) 
-                } 
-                ReadyToLoad((lraclr, is_reset_camera)) => {
-                    let resetcamera = is_reset_camera.clone();
-                    cyls_comps.clear();
-                    tor_comps.clear();
-                    gs.lraclr_arr = lraclr.clone();
-                    gs.lraclr_arr_reversed = cnc::reverse_lraclr(&gs.lraclr_arr);
-                    let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign);
-                    gs.tor_candidates = tors;
-                    gs.cyl_candidates = cyls;
-                    let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
-                    gs.cyl_candidates.iter_mut().for_each(|cyl| {
-                        let (v_buff, i_buff) = cyl.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut cyls_comps, cyl.clone());
-                        g_scene.id_buffers.insert(
-                            cyl.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
+    let next_state: States = {
+        match &mut gs.state {
+            Dismiss => gs.change_state(States::Dismiss),
+            ReadyToLoad((lraclr, is_reset_camera)) => {
+                let resetcamera = is_reset_camera.clone();
+                gs.lraclr_arr = lraclr.clone();
+                gs.lraclr_arr_reversed = cnc::reverse_lraclr(&gs.lraclr_arr);
+                let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign);
+
+                let (v, i) = all_to_one(&cyls, &tors);
+                g_scene.mesh_size = i.len();
+                graphics.queue.write_buffer(
+                    &g_scene.i_buffer_mesh,
+                    0,
+                    bytemuck::cast_slice(&MESH_ZEROS_I),
+                );
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+
+                let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
+                cyls.iter().for_each(|cyl| {
+                    bbx += cyl.bbx.clone();
+                });
+                tors.iter().for_each(|tor| {
+                    bbx += (tor.bbx.clone());
+                });
+
+                if (resetcamera) {
+                    graphics.camera.set_tot_bbx(bbx);
+                    graphics.camera.set_up_dir(&gs.v_up_orign);
+                    graphics.camera.move_camera_to_bbx_limits();
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
+                    pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
+                        lraclr_arr_i32.as_slice(),
+                    ))
+                }
+                gs.change_state(States::Dismiss)
+            }
+            ReverseLRACLR => {
+                let (cyls, tors) = {
+                    if (gs.is_reversed) {
+                        gs.is_reversed = false;
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
+                            pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
+                                lraclr_arr_i32.as_slice(),
+                            ))
+                        }
+                        cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign)
+                    } else {
+                        gs.is_reversed = true;
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr_reversed);
+                            pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
+                                lraclr_arr_i32.as_slice(),
+                            ))
+                        }
+                        cnc_to_poly(&gs.lraclr_arr_reversed, &gs.v_up_orign)
+                    }
+                };
+
+                let (v, i) = all_to_one(&cyls, &tors);
+                g_scene.mesh_size = i.len();
+                graphics.queue.write_buffer(
+                    &g_scene.i_buffer_mesh,
+                    0,
+                    bytemuck::cast_slice(&MESH_ZEROS_I),
+                );
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+                let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
+                cyls.iter().for_each(|cyl| {
+                    bbx += (cyl.bbx.clone());
+                });
+                tors.iter().for_each(|tor| {
+                    let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
+                    bbx += (tor.bbx.clone());
+                });
+                graphics.camera.set_up_dir(&gs.v_up_orign);
+                gs.change_state(States::Dismiss)
+            }
+            FullAnimate => {
+                let (cyls, tors, next_stage) = {
+                    if (gs.is_reversed) {
+                        cnc::cnc_to_poly_animate(
+                            &gs.lraclr_arr_reversed,
+                            &gs.anim_state,
+                            &gs.v_up_orign,
+                            gs.dt,
+                            &g_scene.bend_params,
+                        )
+                    } else {
+                        cnc::cnc_to_poly_animate(
+                            &gs.lraclr_arr,
+                            &gs.anim_state,
+                            &gs.v_up_orign,
+                            gs.dt,
+                            &g_scene.bend_params,
+                        )
+                    }
+                };
+
+                let (v, i) = all_to_one(&cyls, &tors);
+                g_scene.mesh_size = i.len();
+                graphics.queue.write_buffer(
+                    &g_scene.i_buffer_mesh,
+                    0,
+                    bytemuck::cast_slice(&MESH_ZEROS_I),
+                );
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+
+                #[cfg(target_arch = "wasm32")]
+                if (gs.anim_state.op_counter != next_stage.op_counter) {
+                    change_bend_step(next_stage.op_counter);
+                }
+                match gs.anim_state.opcode {
+                    0 => {
+                        g_scene.dim_x.is_active = true;
+                        g_scene.dim_z.is_active = false;
+                        g_scene.dim_b.is_active = false;
+                        g_scene.dim_x.set_scale(next_stage.lra.pipe_radius);
+                        g_scene.dim_x.set_y(next_stage.lra.pipe_radius);
+                        g_scene.dim_x.set_x(next_stage.value);
+                        g_scene.dim_x.set_pipe_radius(next_stage.lra.pipe_radius);
+                        g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
+                        gs.anim_state = next_stage;
+                        gs.change_state(States::FullAnimate)
+                    }
+                    1 => {
+                        g_scene.dim_x.is_active = false;
+                        g_scene.dim_b.is_active = false;
+                        g_scene.dim_z.is_active = true;
+                        g_scene.dim_z.set_scale(next_stage.lra.pipe_radius);
+                        g_scene.dim_z.set_z(next_stage.lra.pipe_radius);
+                        g_scene.dim_z.set_r(next_stage.value);
+                        g_scene.dim_z.set_pipe_radius(next_stage.lra.pipe_radius);
+                        g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
+                        gs.anim_state = next_stage;
+                        gs.change_state(States::FullAnimate)
+                    }
+                    2 => {
+                        g_scene.dim_b.is_active = true;
+                        g_scene.dim_x.is_active = false;
+                        g_scene.dim_z.is_active = false;
+                        g_scene.dim_b.set_scale(next_stage.lra.pipe_radius);
+                        g_scene.dim_b.set_y(next_stage.lra.clr);
+                        g_scene.dim_b.set_angle(next_stage.value);
+                        g_scene.dim_b.set_pipe_radius(next_stage.lra.pipe_radius);
+                        g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
+                        gs.anim_state = next_stage;
+                        gs.change_state(States::FullAnimate)
+                    }
+                    4 => {
+                        g_scene.dim_x.is_active = false;
+                        g_scene.dim_z.is_active = false;
+                        g_scene.dim_b.is_active = false;
+                        gs.anim_state = AnimState::default();
+                        g_scene.dorn.set_dorn_park(&gs.v_up_orign);
+                        let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr_reversed, &gs.v_up_orign);
+
+                        let (v, i) = all_to_one(&cyls, &tors);
+                        g_scene.mesh_size = i.len();
+                        graphics.queue.write_buffer(
+                            &g_scene.i_buffer_mesh,
+                            0,
+                            bytemuck::cast_slice(&MESH_ZEROS_I),
                         );
-                        bbx += (cyl.bbx.clone());
-                    });
-                    gs.tor_candidates.iter().for_each(|tor| {
-                        let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut tor_comps, tor.clone());
-                        g_scene.id_buffers.insert(
-                            tor.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
+                        graphics.queue.write_buffer(
+                            &g_scene.i_buffer_mesh,
+                            0,
+                            bytemuck::cast_slice(&i),
+                        );
+                        graphics.queue.write_buffer(
+                            &g_scene.v_buffer_mesh,
+                            0,
+                            bytemuck::cast_slice(&v),
                         );
 
-                        bbx += (tor.bbx.clone());
-                    });
-
-                    if (resetcamera) {
+                        let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
+                        cyls.iter().for_each(|cyl| {
+                            bbx += (cyl.bbx.clone());
+                        });
+                        tors.iter().for_each(|tor| {
+                            bbx += (tor.bbx.clone());
+                        });
                         graphics.camera.set_tot_bbx(bbx);
                         graphics.camera.set_up_dir(&gs.v_up_orign);
                         graphics.camera.move_camera_to_bbx_limits();
-                    }
 
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
-                        pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
-                            lraclr_arr_i32.as_slice(),
-                        ))
-                    }
-                    gs.change_state(States::Dismiss)
-                }
-                ReverseLRACLR => {
-                    cyls_comps.clear();
-                    tor_comps.clear();
-                    let (cyls, tors) = {
-                        if (gs.is_reversed) {
-                            gs.is_reversed = false;
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
-                                pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
-                                    lraclr_arr_i32.as_slice(),
-                                ))
-                            }
-                            cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign)
-                        } else {
-                            gs.is_reversed = true;
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr_reversed);
-                                pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
-                                    lraclr_arr_i32.as_slice(),
-                                ))
-                            }
-                            cnc_to_poly(&gs.lraclr_arr_reversed, &gs.v_up_orign)
-                        }
-                    };
-                    gs.tor_candidates = tors;
-                    gs.cyl_candidates = cyls;
-                    let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
-                    gs.cyl_candidates.iter_mut().for_each(|cyl| {
-                        let (v_buff, i_buff) = cyl.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut cyls_comps, cyl.clone());
-                        g_scene.id_buffers.insert(
-                            cyl.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
-                        );
-                        bbx += (cyl.bbx.clone());
-                    });
-                    gs.tor_candidates.iter().for_each(|tor| {
-                        let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut tor_comps, tor.clone());
-                        g_scene.id_buffers.insert(
-                            tor.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
-                        );
-
-                        bbx += (tor.bbx.clone());
-                    });
-                    graphics.camera.set_up_dir(&gs.v_up_orign);
-                    //graphics.camera.set_tot_bbx(bbx);
-                    //graphics.camera.move_camera_to_bbx_limits();
-                    gs.change_state(States::Dismiss)
-                }
-                FullAnimate => {
-                    let (cyls, tors, next_stage) = {
-                        if (gs.is_reversed) {
-                            cnc::cnc_to_poly_v(
-                                &gs.lraclr_arr_reversed,
-                                &gs.anim_state,
-                                &gs.v_up_orign,
-                                gs.dt,
-                                &g_scene.bend_params,
-                            )
-                        } else {
-                            cnc::cnc_to_poly_v(
-                                &gs.lraclr_arr,
-                                &gs.anim_state,
-                                &gs.v_up_orign,
-                                gs.dt,
-                                &g_scene.bend_params,
-                            )
-                        }
-                    };
-                    cyls_comps.clear();
-                    tor_comps.clear();
-                    cyls.iter().for_each(|cyl| {
-                        let (v_buff, i_buff) = cyl.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut cyls_comps, cyl.clone());
-                        g_scene.id_buffers.insert(
-                            cyl.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
-                        );
-                    });
-                    tors.iter().for_each(|tor| {
-                        let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut tor_comps, tor.clone());
-                        g_scene.id_buffers.insert(
-                            tor.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
-                        );
-                    });
-
-                    #[cfg(target_arch = "wasm32")]
-                    if (gs.anim_state.op_counter != next_stage.op_counter) {
-                        change_bend_step(next_stage.op_counter);
-                    }
-
-                    match gs.anim_state.opcode {
-                        0 => {
-                            g_scene.dim_x.is_active = true;
-                            g_scene.dim_z.is_active = false;
-                            g_scene.dim_b.is_active = false;
-                            g_scene.dim_x.set_scale(next_stage.lra.pipe_radius);
-                            g_scene.dim_x.set_y(next_stage.lra.pipe_radius);
-                            g_scene.dim_x.set_x(next_stage.value);
-                            g_scene.dim_x.set_pipe_radius(next_stage.lra.pipe_radius);
-                            g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
-                            gs.anim_state = next_stage;
-                            gs.change_state(States::FullAnimate)
-                        }
-                        1 => {
-                            g_scene.dim_x.is_active = false;
-                            g_scene.dim_b.is_active = false;
-                            g_scene.dim_z.is_active = true;
-                            g_scene.dim_z.set_scale(next_stage.lra.pipe_radius);
-                            g_scene.dim_z.set_z(next_stage.lra.pipe_radius);
-                            g_scene.dim_z.set_r(next_stage.value);
-                            g_scene.dim_z.set_pipe_radius(next_stage.lra.pipe_radius);
-                            g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
-                            gs.anim_state = next_stage;
-                            gs.change_state(States::FullAnimate)
-                        }
-                        2 => {
-                            g_scene.dim_b.is_active = true;
-                            g_scene.dim_x.is_active = false;
-                            g_scene.dim_z.is_active = false;
-                            g_scene.dim_b.set_scale(next_stage.lra.pipe_radius);
-                            g_scene.dim_b.set_y(next_stage.lra.clr);
-                            g_scene.dim_b.set_angle(next_stage.value);
-                            g_scene.dim_b.set_pipe_radius(next_stage.lra.pipe_radius);
-                            g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
-                            gs.anim_state = next_stage;
-                            gs.change_state(States::FullAnimate)
-                        }
-                        4 => {
-                            g_scene.dim_x.is_active = false;
-                            g_scene.dim_z.is_active = false;
-                            g_scene.dim_b.is_active = false;
-                            gs.anim_state = AnimState::default();
-                            g_scene.dorn.set_dorn_park(&gs.v_up_orign);
-                            let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr_reversed, &gs.v_up_orign);
-                            gs.tor_candidates = tors;
-                            gs.cyl_candidates = cyls;
-                            let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
-                            gs.cyl_candidates.iter_mut().for_each(|cyl| {
-                                let (v_buff, i_buff) =
-                                    cyl.step_vertex_buffer.to_buffers(&graphics.device);
-                                let e_id: EntityId =
-                                    entities.add_entity(&mut cyls_comps, cyl.clone());
-                                g_scene.id_buffers.insert(
-                                    cyl.id,
-                                    GlobalSceneItem {
-                                        e_id,
-                                        v_buffer: v_buff,
-                                        i_buffer: i_buff,
-                                    },
-                                );
-                                bbx += (cyl.bbx.clone());
-                            });
-                            gs.tor_candidates.iter().for_each(|tor| {
-                                let (v_buff, i_buff) =
-                                    tor.step_vertex_buffer.to_buffers(&graphics.device);
-                                let e_id: EntityId =
-                                    entities.add_entity(&mut tor_comps, tor.clone());
-                                g_scene.id_buffers.insert(
-                                    tor.id,
-                                    GlobalSceneItem {
-                                        e_id,
-                                        v_buffer: v_buff,
-                                        i_buffer: i_buff,
-                                    },
-                                );
-
-                                bbx += (tor.bbx.clone());
-                            });
-                            graphics.camera.set_tot_bbx(bbx);
-                            graphics.camera.set_up_dir(&gs.v_up_orign);
-                            graphics.camera.move_camera_to_bbx_limits();
-
-                            gs.change_state(States::Dismiss)
-                        }
-                        5 => {
-                            gs.anim_state.opcode = 0;
-                            graphics
-                                .camera
-                                .move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
-                            #[cfg(target_arch = "wasm32")]
-                            change_bend_step(0);
-                            gs.change_state(States::FullAnimate)
-                        }
-                        _ => {
-                            g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
-                            gs.anim_state = next_stage;
-                            gs.change_state(States::FullAnimate)
-                        }
-                    }
-                }
-                ChangeDornDir => {
-                    if (signum(gs.v_up_orign.z) < 0.0) {
-                        gs.v_up_orign = P_UP;
-                    } else {
-                        gs.v_up_orign = P_UP_REVERSE;
-                    }
-                    cyls_comps.clear();
-                    tor_comps.clear();
-                    let (cyls, tors) = {
-                        if (!gs.is_reversed) {
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
-                                pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
-                                    lraclr_arr_i32.as_slice(),
-                                ))
-                            }
-                            cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign)
-                        } else {
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr_reversed);
-                                pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
-                                    lraclr_arr_i32.as_slice(),
-                                ))
-                            }
-                            cnc_to_poly(&gs.lraclr_arr_reversed, &gs.v_up_orign)
-                        }
-                    };
-                    gs.tor_candidates = tors;
-                    gs.cyl_candidates = cyls;
-                    let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
-                    gs.cyl_candidates.iter_mut().for_each(|cyl| {
-                        let (v_buff, i_buff) = cyl.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut cyls_comps, cyl.clone());
-                        g_scene.id_buffers.insert(
-                            cyl.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
-                        );
-                        bbx += (cyl.bbx.clone());
-                    });
-                    gs.tor_candidates.iter().for_each(|tor| {
-                        let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
-                        let e_id: EntityId = entities.add_entity(&mut tor_comps, tor.clone());
-                        g_scene.id_buffers.insert(
-                            tor.id,
-                            GlobalSceneItem {
-                                e_id,
-                                v_buffer: v_buff,
-                                i_buffer: i_buff,
-                            },
-                        );
-
-                        bbx += (tor.bbx.clone());
-                    });
-                    //graphics.camera.set_tot_bbx(bbx);
-                    //graphics.camera.move_camera_to_bbx_limits();
-                    graphics.camera.set_up_dir(&gs.v_up_orign);
-                    gs.change_state(States::Dismiss)
-                    
-                }
-                LoadLRA(v) => {
-                    let mut lra_cmds: Vec<LRACLR> = vec![];
-                    if (v.len() % 8 == 0 && !v.is_empty()) {
-                        v.chunks(8).for_each(|cmd| {
-                            let id1 = cmd[0];
-                            let id2 = cmd[1];
-                            let l = cmd[2];
-                            let lt = cmd[3];
-                            let r = cmd[4];
-                            let a = cmd[5];
-                            let clr = cmd[6];
-                            let pipe_radius = cmd[7];
-                            let lra_cmd = LRACLR {
-                                id1: id1.round() as i32,
-                                id2: id2.round() as i32,
-                                l: abs(l as f64),
-                                lt: abs(lt as f64),
-                                r: r as f64,
-                                a: abs(a as f64),
-                                clr: abs(clr as f64),
-                                pipe_radius: abs(pipe_radius as f64),
-                            };
-                            lra_cmds.push(lra_cmd);
-                        });
-                    }
-
-                    if (lra_cmds.is_empty()) {
                         gs.change_state(States::Dismiss)
-                    } else {
-                        lra_cmds[0].r = 0.0;
-                        gs.change_state( ReadyToLoad((lra_cmds, false)))
                     }
-                }
-                
-                States::NewBendParams(params) => {
-                    g_scene.bend_params.set_params_from_f32vec(&params);
-                    gs.revert_state()
+                    5 => {
+                        gs.anim_state.opcode = 0;
+                        graphics
+                            .camera
+                            .move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
+                        #[cfg(target_arch = "wasm32")]
+                        change_bend_step(0);
+                        gs.change_state(States::FullAnimate)
+                    }
+                    _ => {
+                        g_scene.dorn.dorn_action(&next_stage, &gs.v_up_orign);
+                        gs.anim_state = next_stage;
+                        gs.change_state(States::FullAnimate)
+                    }
                 }
             }
-        };
-        gs.state = next_state;
-    }
+            ChangeDornDir => {
+                if (signum(gs.v_up_orign.z) < 0.0) {
+                    gs.v_up_orign = P_UP;
+                } else {
+                    gs.v_up_orign = P_UP_REVERSE;
+                }
+
+                let (cyls, tors) = {
+                    if (!gs.is_reversed) {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr);
+                            pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
+                                lraclr_arr_i32.as_slice(),
+                            ))
+                        }
+                        cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign)
+                    } else {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let lraclr_arr_i32 = LRACLR::to_array(&gs.lraclr_arr_reversed);
+                            pipe_bend_ops(wasm_bindgen_futures::js_sys::Int32Array::from(
+                                lraclr_arr_i32.as_slice(),
+                            ))
+                        }
+                        cnc_to_poly(&gs.lraclr_arr_reversed, &gs.v_up_orign)
+                    }
+                };
+                let (v, i) = all_to_one(&cyls, &tors);
+                g_scene.mesh_size = i.len();
+                graphics.queue.write_buffer(
+                    &g_scene.i_buffer_mesh,
+                    0,
+                    bytemuck::cast_slice(&MESH_ZEROS_I),
+                );
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics
+                    .queue
+                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+
+                let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
+                cyls.iter().for_each(|cyl| {
+                    bbx += (cyl.bbx.clone());
+                });
+                tors.iter().for_each(|tor| {
+                    let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
+                    bbx += (tor.bbx.clone());
+                });
+                graphics.camera.set_up_dir(&gs.v_up_orign);
+                gs.change_state(States::Dismiss)
+            }
+            LoadLRA(v) => {
+                let mut lra_cmds: Vec<LRACLR> = vec![];
+                if (v.len() % 8 == 0 && !v.is_empty()) {
+                    v.chunks(8).for_each(|cmd| {
+                        let id1 = cmd[0];
+                        let id2 = cmd[1];
+                        let l = cmd[2];
+                        let lt = cmd[3];
+                        let r = cmd[4];
+                        let a = cmd[5];
+                        let clr = cmd[6];
+                        let pipe_radius = cmd[7];
+                        let lra_cmd = LRACLR {
+                            id1: id1.round() as i32,
+                            id2: id2.round() as i32,
+                            l: abs(l as f64),
+                            lt: abs(lt as f64),
+                            r: r as f64,
+                            a: abs(a as f64),
+                            clr: abs(clr as f64),
+                            pipe_radius: abs(pipe_radius as f64),
+                        };
+                        lra_cmds.push(lra_cmd);
+                    });
+                }
+
+                if (lra_cmds.is_empty()) {
+                    gs.change_state(States::Dismiss)
+                } else {
+                    lra_cmds[0].r = 0.0;
+                    gs.change_state(ReadyToLoad((lra_cmds, false)))
+                }
+            }
+            States::NewBendParams(params) => {
+                g_scene.bend_params.set_params_from_f32vec(&params);
+                gs.revert_state()
+            }
+        }
+    };
+    gs.state = next_state;
+
 }
 pub fn render(
     mut graphics: UniqueViewMut<Graphics>,
     mut g_scene: UniqueViewMut<GlobalScene>,
     mut gs: UniqueViewMut<GlobalState>,
-    mut cyls_comps: ViewMut<MainCylinder>,
-    mut tor_comps: ViewMut<BendToro>,
 ) {
     //if (gs.is_next_frame_ready) {
     match graphics.surface.get_current_texture() {
@@ -927,103 +871,47 @@ pub fn render(
                 );
                 render_pass.draw(0..6, 0..1);
             }
-            //CYL MESHES
+            //PIPE_MESHES
             {
-                cyls_comps.as_slice().iter().for_each(|cyl| {
-                    match g_scene.id_buffers.get(&cyl.id) {
-                        None => {}
-                        Some(rd) => {
-                            let count = rd.i_buffer.size() as u64 / mem::size_of::<i32>() as u64;
-                            let mut render_pass: RenderPass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("Render Pass 2"),
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &smaa_frame,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: Some(
-                                        wgpu::RenderPassDepthStencilAttachment {
-                                            view: &depth_view,
-                                            depth_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Load,
-                                                store: StoreOp::Store,
-                                            }),
-                                            stencil_ops: None,
-                                        },
-                                    ),
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                });
-                            render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
-                            render_pass.set_bind_group(0, &bg, &[]);
-                            render_pass.set_vertex_buffer(0, rd.v_buffer.slice(..));
-                            render_pass
-                                .set_index_buffer(rd.i_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                            render_pass.draw_indexed(
-                                Range {
-                                    start: 0,
-                                    end: count as u32,
+                let count = g_scene.mesh_size;
+                if(count>0){
+                    let mut render_pass: RenderPass =
+                        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass 2"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &smaa_frame,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
                                 },
-                                0,
-                                Range { start: 0, end: 1 },
-                            );
-                            //warn!("count {:?} {:?}",cyl.id,count);
-                        }
-                    }
-                });
-            }
-            //TOR MESHES
-            {
-                tor_comps.as_slice().iter().for_each(|cyl| {
-                    match g_scene.id_buffers.get(&cyl.id) {
-                        None => {}
-                        Some(rd) => {
-                            let count = rd.i_buffer.size() as u64 / mem::size_of::<i32>() as u64;
-                            let mut render_pass: RenderPass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("Render Pass 2"),
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &smaa_frame,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: Some(
-                                        wgpu::RenderPassDepthStencilAttachment {
-                                            view: &depth_view,
-                                            depth_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Load,
-                                                store: StoreOp::Store,
-                                            }),
-                                            stencil_ops: None,
-                                        },
-                                    ),
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                });
-                            render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
-                            render_pass.set_bind_group(0, &bg, &[]);
-                            render_pass.set_vertex_buffer(0, rd.v_buffer.slice(..));
-                            render_pass
-                                .set_index_buffer(rd.i_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                            render_pass.draw_indexed(
-                                Range {
-                                    start: 0,
-                                    end: count as u32,
-                                },
-                                0,
-                                Range { start: 0, end: 1 },
-                            );
-                            //warn!("count {:?} {:?}",cyl.id,count);
-                        }
-                    }
-                });
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &depth_view,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
+                    render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
+                    render_pass.set_bind_group(0, &bg, &[]);
+                    render_pass.set_vertex_buffer(0, g_scene.v_buffer_mesh.slice(..));
+                    render_pass
+                        .set_index_buffer(g_scene.i_buffer_mesh.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(
+                        Range {
+                            start: 0,
+                            end: count as u32,
+                        },
+                        0,
+                        Range { start: 0, end: 1 },
+                    );
+                }
+  
             }
             //DORN MESHES
             {
@@ -1481,6 +1369,7 @@ pub fn render(
             graphics.queue.submit(iter::once(encoder.finish()));
             smaa_frame.resolve();
             out.present();
+            graphics.window.request_redraw();
         }
         Err(e) => {
             warn!("no surf {:?}", e)
@@ -1494,7 +1383,6 @@ pub fn check_remote(
     mut gs: UniqueViewMut<GlobalState>,
     mut cmd: UniqueViewMut<InCmd>,
 ) {
-    if (gs.is_next_frame_ready) {
         match cmd.check_curr_command() {
             States::Dismiss => {}
             ReadyToLoad((v, is_reset_camera)) => {
@@ -1525,7 +1413,6 @@ pub fn check_remote(
                 gs.state = NewBendParams(v);
             }
         }
-    }
 }
 pub fn on_keyboard(
     event: KeyEvent,
@@ -1551,7 +1438,7 @@ pub fn on_keyboard(
                                 g_scene.bend_step = 1;
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
                                 //let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
-                                gs.state = ReadyToLoad((lraclr_arr,true));
+                                gs.state = ReadyToLoad((lraclr_arr, true));
                                 gs.v_up_orign = P_UP_REVERSE;
                                 //let obj_file = ops.all_to_one_obj_bin();
                                 //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
@@ -1575,7 +1462,7 @@ pub fn on_keyboard(
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
                                 let lraclr_arr_reversed: Vec<LRACLR> =
                                     cnc::reverse_lraclr(&lraclr_arr);
-                                gs.state = ReadyToLoad((lraclr_arr,true));
+                                gs.state = ReadyToLoad((lraclr_arr, true));
                                 gs.v_up_orign = P_UP_REVERSE;
 
                                 //gs.state = ReadyToLoad((prerender,lraclr_arr_reversed));

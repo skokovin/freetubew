@@ -196,23 +196,3 @@ impl MeshPipeLine {
 
 }
 
-pub fn update_mesh_render_vertexes(steps_data:&Vec<StepVertexBuffer>, graphics: &mut UniqueViewMut<Graphics>){
-    graphics.mesh_pipe_line.i_buffer = vec![];
-    graphics.mesh_pipe_line.v_buffer = vec![];
-    let mut index = 0;
-    steps_data.iter().for_each(|item| {
-        let i_buffer: Buffer =graphics.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Index Mesh Buffer {index}").as_str()),
-            contents: bytemuck::cast_slice(&item.indxes),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let v_buffer: Buffer = graphics.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Vertex Mesh Buffer {index}").as_str()),
-            contents: bytemuck::cast_slice(&item.buffer),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        graphics.mesh_pipe_line.i_buffer.push(i_buffer);
-        graphics.mesh_pipe_line.v_buffer.push(v_buffer);
-        index = index + 1;
-    });
-}
