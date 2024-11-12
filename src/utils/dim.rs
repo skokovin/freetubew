@@ -1,4 +1,4 @@
-use crate::algo::cnc::LRACLR;
+
 use crate::algo::{
     angle_with_sign, BendToro, MainCircle, MainCylinder, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT,
     P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE,
@@ -14,12 +14,11 @@ use rand::random;
 use rusttype::{point, Font, Scale};
 use shipyard::Unique;
 use std::f64::consts::PI;
+use std::mem;
 use std::ops::{Mul, Sub};
 use truck_base::bounding_box::BoundingBox;
 use truck_geometry::prelude::Plane;
-use web_sys::console::warn;
-use wgpu::util::DeviceExt;
-use wgpu::{Buffer, Device, Queue, Sampler, Texture, TextureFormat, TextureView};
+use wgpu::{Buffer, BufferAddress, Device, Queue, Sampler, Texture, TextureView};
 
 const DIM_X_THICKNESS: f64 = 3.0;
 const DIM_REF_L_RADIUS: f64 = 1.5;
@@ -30,6 +29,10 @@ const DIM_X_ID: i32 = 201;
 const DIM_Z_ID: i32 = 202;
 const DIM_B_ID: i32 = 203;
 const FONT_ROBOTO_REGULAR: &[u8; 171676] = include_bytes!("../files/Roboto-Regular.ttf");
+
+const BUFFER_SIZE_LIMIT: usize = 16590 * 3;
+const ZEROS_I: [i32;BUFFER_SIZE_LIMIT] = [0;BUFFER_SIZE_LIMIT];
+const ZEROS_F: [f32;BUFFER_SIZE_LIMIT] = [0.0;BUFFER_SIZE_LIMIT];
 
 const TXT_SIZE_W: u32 = 880;
 const TXT_SIZE_H: u32 = 340;
@@ -90,24 +93,23 @@ impl DimX {
             ..Default::default()
         });
 
-        let v_txt: Vec<MeshVertex> = vec![];
-        let v_txt_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("DimX TXT Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&v_txt),
-            usage: wgpu::BufferUsages::VERTEX,
+        let v_txt_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("DimX TXT Buffer"),
+            size: (TXT_SIZE_W * TXT_SIZE_H * mem::size_of::<f32>() as u32) as BufferAddress,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-
-        let i: Vec<u32> = vec![];
-        let v: Vec<MeshVertex> = vec![];
-        let i_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&i),
-            usage: wgpu::BufferUsages::INDEX,
+        let i_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Arrow1 Mesh I Buffer"),
+            size: (BUFFER_SIZE_LIMIT * mem::size_of::<i32>()) as BufferAddress,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-        let v_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&v),
-            usage: wgpu::BufferUsages::VERTEX,
+        let v_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(format!("Arrow1 Mesh V Buffer {DIM_X_ID}").as_str()),
+            size: (BUFFER_SIZE_LIMIT * mem::size_of::<MeshVertex>()) as BufferAddress,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         Self {
@@ -174,17 +176,11 @@ impl DimX {
             index = last_index;
             i.extend_from_slice(rl3.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl3.step_vertex_buffer.buffer.as_slice());
+            
+            queue.write_buffer(&self.i_buffer_x, 0, bytemuck::cast_slice(&ZEROS_I));
+            queue.write_buffer(&self.i_buffer_x, 0, bytemuck::cast_slice(&i));
+            queue.write_buffer(&self.v_buffer_x, 0, bytemuck::cast_slice(&v));
 
-            self.i_buffer_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-                contents: bytemuck::cast_slice(&i),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-            self.v_buffer_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-                contents: bytemuck::cast_slice(&v),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
             //TXT LAYOUT
             {
                 let l = calc_ref_len_offset(self.pipe_radius) * v_up_orign.z;
@@ -234,12 +230,8 @@ impl DimX {
                 v_txt.push(ma3);
                 v_txt.push(ma4);
                 v_txt.push(ma5);
-                self.v_txt_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(format!("TXT Buffer {DIM_X_ID}").as_str()),
-                    contents: bytemuck::cast_slice(&v_txt),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
                 self.update_glyphs(queue);
+                queue.write_buffer(&self.v_txt_buffer, 0, bytemuck::cast_slice(&v_txt));
             }
             self.is_dirty = false
         }
@@ -699,24 +691,23 @@ impl DimZ {
             ..Default::default()
         });
 
-        let i: Vec<u32> = vec![];
-        let v: Vec<MeshVertex> = vec![];
-        let i_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&i),
-            usage: wgpu::BufferUsages::INDEX,
+        let v_txt_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("DimX TXT Buffer"),
+            size: (TXT_SIZE_W * TXT_SIZE_H * mem::size_of::<f32>() as u32) as BufferAddress,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-        let v_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&v),
-            usage: wgpu::BufferUsages::VERTEX,
+        let i_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Arrow1 Mesh I Buffer"),
+            size: (BUFFER_SIZE_LIMIT * mem::size_of::<i32>()) as BufferAddress,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-
-        let v_txt: Vec<MeshVertex> = vec![];
-        let v_txt_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("DimX TXT Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&v_txt),
-            usage: wgpu::BufferUsages::VERTEX,
+        let v_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(format!("Arrow1 Mesh V Buffer {DIM_X_ID}").as_str()),
+            size: (BUFFER_SIZE_LIMIT * mem::size_of::<MeshVertex>()) as BufferAddress,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         Self {
@@ -757,17 +748,9 @@ impl DimZ {
             index = last_index;
             i.extend_from_slice(arci.as_slice());
             v.extend_from_slice(arcv.as_slice());
-
-            self.i_buffer_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-                contents: bytemuck::cast_slice(&i),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-            self.v_buffer_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-                contents: bytemuck::cast_slice(&v),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+            queue.write_buffer(&self.i_buffer_x, 0, bytemuck::cast_slice(&ZEROS_I));
+            queue.write_buffer(&self.i_buffer_x, 0, bytemuck::cast_slice(&i));
+            queue.write_buffer(&self.v_buffer_x, 0, bytemuck::cast_slice(&v));
             //TXT LAYOUT
             {
                 let len = calc_ref_len_offset(self.pipe_radius) as f32 - 40.0;
@@ -816,12 +799,8 @@ impl DimZ {
                 v_txt.push(ma3);
                 v_txt.push(ma4);
                 v_txt.push(ma5);
-                self.v_txt_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(format!("TXT Buffer {DIM_X_ID}").as_str()),
-                    contents: bytemuck::cast_slice(&v_txt),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
                 self.update_glyphs(queue);
+                queue.write_buffer(&self.v_txt_buffer, 0, bytemuck::cast_slice(&v_txt));
             }
             self.is_dirty = false;
         }
@@ -1677,25 +1656,23 @@ impl DimB {
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-
-        let v_txt: Vec<MeshVertex> = vec![];
-        let v_txt_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("DimX TXT Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&v_txt),
-            usage: wgpu::BufferUsages::VERTEX,
+        let v_txt_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("DimX TXT Buffer"),
+            size: (TXT_SIZE_W * TXT_SIZE_H * mem::size_of::<f32>() as u32) as BufferAddress,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-
-        let i: Vec<u32> = vec![];
-        let v: Vec<MeshVertex> = vec![];
-        let i_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&i),
-            usage: wgpu::BufferUsages::INDEX,
+        let i_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Arrow1 Mesh I Buffer"),
+            size: (BUFFER_SIZE_LIMIT * mem::size_of::<i32>()) as BufferAddress,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-        let v_buffer: Buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-            contents: bytemuck::cast_slice(&v),
-            usage: wgpu::BufferUsages::VERTEX,
+        let v_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(format!("Arrow1 Mesh V Buffer {DIM_X_ID}").as_str()),
+            size: (BUFFER_SIZE_LIMIT * mem::size_of::<MeshVertex>()) as BufferAddress,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         Self {
@@ -1718,7 +1695,7 @@ impl DimB {
             let mut i: Vec<u32> = vec![];
             let mut v: Vec<MeshVertex> = vec![];
             let mut index: u32 = 0;
-            
+
             let (rl1, last_index) = DimB::generate_line_b_x(
                 DIM_B_ID,
                 0.0,
@@ -1740,6 +1717,7 @@ impl DimB {
                 index,
             );
             index = last_index;
+            
             i.extend_from_slice(rl2.step_vertex_buffer.indxes.as_slice());
             v.extend_from_slice(rl2.step_vertex_buffer.buffer.as_slice());
 
@@ -1757,16 +1735,9 @@ impl DimB {
             i.extend_from_slice(arci.as_slice());
             v.extend_from_slice(arcv.as_slice());
 
-            self.i_buffer_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-                contents: bytemuck::cast_slice(&i),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-            self.v_buffer_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(format!("Arrow1 Mesh Buffer {DIM_X_ID}").as_str()),
-                contents: bytemuck::cast_slice(&v),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+            queue.write_buffer(&self.i_buffer_x, 0, bytemuck::cast_slice(&ZEROS_I));
+            queue.write_buffer(&self.i_buffer_x, 0, bytemuck::cast_slice(&i));
+            queue.write_buffer(&self.v_buffer_x, 0, bytemuck::cast_slice(&v));
             //TXT LAYOUT
             {
                 let l = calc_ref_len_offset(self.pipe_radius) * v_up_orign.z;
@@ -1817,12 +1788,8 @@ impl DimB {
                 v_txt.push(ma3);
                 v_txt.push(ma4);
                 v_txt.push(ma5);
-                self.v_txt_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(format!("TXT Buffer {DIM_X_ID}").as_str()),
-                    contents: bytemuck::cast_slice(&v_txt),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
                 self.update_glyphs(queue);
+                queue.write_buffer(&self.v_txt_buffer, 0, bytemuck::cast_slice(&v_txt));
             }
 
             self.is_dirty = false;
@@ -1880,11 +1847,10 @@ impl DimB {
         pipe_radius: f64,
         v_up_orign: &Vector3<f64>,
         last_index: u32,
-    ) -> (MainCylinder, u32) 
-    {
+    ) -> (MainCylinder, u32) {
         let r = Rad::from(Deg(r_deg));
         let cp: Point3<f64> = Point3::new(0.0, y * v_up_orign.z, 0.0);
-        let len = (calc_ref_len(pipe_radius)+y) * v_up_orign.z;
+        let len = (calc_ref_len(pipe_radius) + y) * v_up_orign.z;
 
         let rotation: Basis3<f64> = Rotation3::from_axis_angle(P_UP.mul(v_up_orign.z), r);
         let dir_y = rotation.rotate_vector(P_RIGHT_REVERSE);
@@ -2208,14 +2174,13 @@ impl DimB {
         pipe_radius: f64,
         v_up_orign: &Vector3<f64>,
         last_index: u32,
-    ) -> (Vec<MeshVertex>, Vec<u32>, u32) 
-    {
+    ) -> (Vec<MeshVertex>, Vec<u32>, u32) {
         let mut index: u32 = last_index;
         let mut indxes: Vec<u32> = vec![];
         let mut buffer: Vec<MeshVertex> = vec![];
 
         let bend_angle = Rad::from(Deg(r_deg));
-        let len = calc_ref_len_offset(pipe_radius)+y;
+        let len = calc_ref_len_offset(pipe_radius) + y;
         let cp: Point3<f64> = Point3::new(0.0, y * v_up_orign.z, 0.0);
         let mut ref_line_a_dir: Vector3<f64> = P_RIGHT_REVERSE.mul(v_up_orign.z);
         let mut pa: Point3<f64> = cp + ref_line_a_dir.mul(len);

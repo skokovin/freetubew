@@ -34,6 +34,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
 
+#[cfg(target_arch = "wasm32")]
 use crate::remote::in_state::bend_settings;
 #[cfg(target_arch = "wasm32")]
 use crate::remote::in_state::change_bend_step;
@@ -1550,7 +1551,7 @@ pub fn on_keyboard(
                                 g_scene.bend_step = 1;
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
                                 //let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
-                                gs.state = ReadyToLoad((lraclr_arr));
+                                gs.state = ReadyToLoad((lraclr_arr,true));
                                 gs.v_up_orign = P_UP_REVERSE;
                                 //let obj_file = ops.all_to_one_obj_bin();
                                 //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
@@ -1574,7 +1575,7 @@ pub fn on_keyboard(
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
                                 let lraclr_arr_reversed: Vec<LRACLR> =
                                     cnc::reverse_lraclr(&lraclr_arr);
-                                gs.state = ReadyToLoad(lraclr_arr);
+                                gs.state = ReadyToLoad((lraclr_arr,true));
                                 gs.v_up_orign = P_UP_REVERSE;
 
                                 //gs.state = ReadyToLoad((prerender,lraclr_arr_reversed));
