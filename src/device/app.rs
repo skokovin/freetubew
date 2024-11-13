@@ -409,8 +409,8 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output = Graphic
                 let surface_config: SurfaceConfiguration = surface
                     .get_default_config(
                         &adapter,
-                        canvas.client_width() as u32,
-                        canvas.client_height() as u32,
+                        (canvas.client_width() as f64*rc_window.scale_factor()) as u32,
+                        (canvas.client_height() as f64*rc_window.scale_factor()) as u32,
                     )
                     .unwrap();
                 info!("ADAPTER ATTRIBS {:?}", adapter.get_info());

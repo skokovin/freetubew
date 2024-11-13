@@ -274,7 +274,7 @@ impl GlobalScene {
             mouse_y: 0.0,
         }
     }
-    pub fn resize(&mut self,device: &Device, w: u32, h: u32) {
+    pub fn resize(&mut self, device: &Device, w: u32, h: u32) {
         let offscreen_width: u32 = GlobalScene::calculate_offset_pad(w as u32);
         let mut offscreen_data: Vec<i32> =
             Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
@@ -284,9 +284,9 @@ impl GlobalScene {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        self.offscreen_width= offscreen_width;
-        self.offscreen_data= offscreen_data;
-        self.offscreen_buffer= offscreen_buffer;
+        self.offscreen_width = offscreen_width;
+        self.offscreen_data = offscreen_data;
+        self.offscreen_buffer = offscreen_buffer;
         self.is_offscreen_requested = false;
         match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
             Ok(mut is_offscreen_ready) => {
@@ -380,11 +380,11 @@ pub fn unset_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
     gs.is_right_mouse_pressed = false;
 }
 pub fn mouse_left_pressed(mut gs: UniqueViewMut<GlobalScene>) {
-    warn!("{:?} {:?}",gs.mouse_x ,gs.mouse_y);
+    
 }
-pub fn mouse_move(pos:PhysicalPosition<f64>,mut gs: UniqueViewMut<GlobalScene>,) {
-    gs.mouse_x=pos.x;
-    gs.mouse_y=pos.y;
+pub fn mouse_move(pos: PhysicalPosition<f64>, mut gs: UniqueViewMut<GlobalScene>) {
+    gs.mouse_x = pos.x;
+    gs.mouse_y = pos.y;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -429,19 +429,22 @@ pub fn resize_window(
             graphics
                 .camera
                 .resize(canvas.client_width() as u32, canvas.client_height() as u32);
-            graphics.surface_config.width = canvas.client_width() as u32;
-            graphics.surface_config.height = canvas.client_height() as u32;
+
+            graphics.surface_config.width =
+                (canvas.client_width() as f64 * graphics.window.scale_factor()) as u32;
+            graphics.surface_config.height =
+                (canvas.client_height() as f64 * graphics.window.scale_factor()) as u32;
             graphics
                 .surface
                 .configure(&graphics.device, &graphics.surface_config);
             gs.smaa_target.resize(
                 &graphics.device,
-                canvas.client_width() as u32,
-                canvas.client_height() as u32,
+                (canvas.client_width() as f64 * graphics.window.scale_factor()) as u32,
+                (canvas.client_height() as f64 * graphics.window.scale_factor()) as u32,
             );
             let arr: [i32; 4] = [
-                canvas.client_width() as i32,
-                canvas.client_height() as i32,
+                (canvas.client_width() as f64 * graphics.window.scale_factor()) as i32,
+                (canvas.client_height() as f64 * graphics.window.scale_factor()) as i32,
                 0,
                 0,
             ];
@@ -453,7 +456,11 @@ pub fn resize_window(
                         contents: bytemuck::cast_slice(&arr),
                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     });
-            g_scene.resize(&graphics.device, canvas.client_width() as u32, canvas.client_height() as u32);
+            g_scene.resize(
+                &graphics.device,
+                (canvas.client_width() as f64 * graphics.window.scale_factor()) as u32,
+                (canvas.client_height() as f64 * graphics.window.scale_factor()) as u32,
+            );
         }
     }
 }
@@ -790,7 +797,6 @@ pub fn render(
     mut g_scene: UniqueViewMut<GlobalScene>,
     mut gs: UniqueViewMut<GlobalState>,
 ) {
-    //if (gs.is_next_frame_ready) {
     match graphics.surface.get_current_texture() {
         Ok(out) => {
             g_scene.dorn.update(&graphics.device);
@@ -819,8 +825,11 @@ pub fn render(
                 bytemuck::cast_slice(graphics.camera.get_forward_dir_buffer()),
             );
             //graphics.queue.write_buffer(&graphics.mesh_pipe_line.material_buffer, 0, bytemuck::cast_slice(&&graphics.mesh_pipe_line.materials));
-            let gw = out.texture.width();
-            let gh = out.texture.height();
+            //let gw = out.texture.width();
+            //let gh = out.texture.height();
+            let gw = graphics.surface_config.width;
+            let gh = graphics.surface_config.height;
+
             let resolution: [f32; 4] = [gw as f32, gh as f32, 0.0, 0.0];
             let light_position: &[f32; 3] = graphics.camera.eye.as_ref();
             let eye_position: &[f32; 3] = graphics.camera.eye.as_ref();
@@ -1453,8 +1462,8 @@ pub fn render(
             out.present();
             graphics.window.request_redraw();
 
-            if(is_offscreen_ready() && g_scene.is_offscreen_requested){
-                g_scene.is_offscreen_requested=false;
+            if (is_offscreen_ready() && g_scene.is_offscreen_requested) {
+                g_scene.is_offscreen_requested = false;
                 match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
                     Ok(mut is_offscreen_ready) => {
                         *is_offscreen_ready = false;
@@ -1471,16 +1480,27 @@ pub fn render(
 
                 let mut rows: Vec<Vec<[i32; 4]>> = vec![];
 
-                let click_aspect_ratio: f32 = g_scene.mouse_x as f32 / graphics.surface_config.width as f32;
-                let click_x_compensated: usize = (click_aspect_ratio * g_scene.offscreen_width as f32) as usize;
-                result.chunks(g_scene.offscreen_width as usize).for_each(|row| {
-                    rows.push(Vec::from(row));
-                });
+                let click_aspect_ratio: f32 =
+                    g_scene.mouse_x as f32 / graphics.surface_config.width as f32;
+                let click_x_compensated: usize =
+                    (click_aspect_ratio * g_scene.offscreen_width as f32) as usize;
+                result
+                    .chunks(g_scene.offscreen_width as usize)
+                    .for_each(|row| {
+                        rows.push(Vec::from(row));
+                    });
                 let selected = &rows[g_scene.mouse_y as usize][click_x_compensated];
-                if(selected[3]==0){
-                    warn!("RESULT SELECTED {:?}",selected[0]);
+
+                if (selected[3] == 0) {
+                    warn!(
+                        "RESULT SELECTED {:?} SF {:?}",
+                        selected[0],
+                        graphics.window.scale_factor()
+                    );
+                }else{
+                    warn!("UNSELECT ALL");
                 }
-               
+
                 //warn!("OFFSCREEN_BUFFER_MAPPED {:?}", result.len());
             }
         }
@@ -1488,7 +1508,6 @@ pub fn render(
             warn!("no surf {:?}", e)
         }
     }
-    //}
 }
 
 pub fn render_selection(
@@ -1667,10 +1686,8 @@ pub fn render_selection(
             },
             Err(_) => {}
         });
-        g_scene.is_offscreen_requested=true;
+        g_scene.is_offscreen_requested = true;
     }
-    
-  
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1789,9 +1806,7 @@ pub fn on_keyboard(
 
 fn is_offscreen_ready() -> bool {
     match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
-        Ok(mut is_offscreen_ready) => {
-            is_offscreen_ready.clone()
-        }
+        Ok(mut is_offscreen_ready) => is_offscreen_ready.clone(),
         Err(_) => true,
     }
 }
