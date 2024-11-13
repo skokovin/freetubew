@@ -15,14 +15,11 @@ use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::{camera_zoom, update_camera_by_mouse, Camera};
 #[cfg(target_arch = "wasm32")]
 use crate::device::graphics::check_remote;
-use crate::device::graphics::{
-    init_graphics, key_frame, on_keyboard, render, resize_window, set_right_mouse_pressed,
-    unset_right_mouse_pressed, GlobalState, Graphics,
-};
+use crate::device::graphics::{init_graphics, key_frame, mouse_left_pressed, mouse_move, on_keyboard, render, render_selection, resize_window, set_right_mouse_pressed, unset_right_mouse_pressed, GlobalState, Graphics};
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::txt_pipeline::TxtPipeLine;
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalSize};
+use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::error::OsError;
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
@@ -83,6 +80,7 @@ impl ApplicationHandler<Graphics> for App {
                 WindowEvent::RedrawRequested => {
                     self.world.run(key_frame);
                     self.world.run(render);
+                   
                     #[cfg(target_arch = "wasm32")]
                     {
                         self.world.run(check_remote);
@@ -111,7 +109,9 @@ impl ApplicationHandler<Graphics> for App {
                 }
                 WindowEvent::ModifiersChanged(_) => {}
                 WindowEvent::Ime(_) => {}
-                WindowEvent::CursorMoved { .. } => {}
+                WindowEvent::CursorMoved { device_id, position } => {
+                    self.world.run_with_data(mouse_move, position);
+                }
                 WindowEvent::CursorEntered { .. } => {}
                 WindowEvent::CursorLeft { .. } => {}
                 WindowEvent::MouseWheel { device_id, delta, phase } => {
@@ -130,7 +130,11 @@ impl ApplicationHandler<Graphics> for App {
                     button,
                 } => match button {
                     MouseButton::Left => match state {
-                        ElementState::Pressed => {}
+                        ElementState::Pressed => {
+                            self.world.run(mouse_left_pressed);
+                            self.world.run(render_selection);
+                            
+                        }
                         ElementState::Released => {}
                     },
                     MouseButton::Right => match state {

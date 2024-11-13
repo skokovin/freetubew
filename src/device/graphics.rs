@@ -19,12 +19,13 @@ use crate::utils::dorn::Dorn;
 use cgmath::num_traits::{abs, signum};
 use cgmath::Point3;
 use log::warn;
+use once_cell::sync::Lazy;
 use shipyard::{EntitiesViewMut, EntityId, Unique, UniqueViewMut, ViewMut, World};
 use smaa::{SmaaFrame, SmaaMode, SmaaTarget};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::{iter, mem};
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::Vector3;
@@ -33,19 +34,27 @@ use web_sys::HtmlCanvasElement;
 use web_time::{Instant, SystemTime};
 use wgpu::util::DeviceExt;
 use wgpu::{
-    Adapter, BindGroup, BindingResource, Buffer, BufferAddress, CommandEncoder, Device, Queue,
-    RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture, TextureFormat, TextureView,
-    TextureViewDescriptor,
+    Adapter, BindGroup, BindingResource, Buffer, BufferAddress, BufferAsyncError, BufferSlice,
+    CommandEncoder, Device, Queue, RenderPass, StoreOp, Surface, SurfaceConfiguration, Texture,
+    TextureFormat, TextureView, TextureViewDescriptor, COPY_BYTES_PER_ROW_ALIGNMENT,
 };
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, KeyEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
+pub static IS_OFFSCREEN_BUFFER_MAPPED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
 const MESH_BUFFER_LIMIT: usize = 2000000;
 const MESH_ZEROS_I: [i32; MESH_BUFFER_LIMIT] = [0; MESH_BUFFER_LIMIT];
 const FRAMERATE_SECONDS: f64 = 0.1;
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 1.0,
+};
+const BACKGROUND_COLOR_SELECTION: wgpu::Color = wgpu::Color {
     r: 0.0,
     g: 0.0,
     b: 0.0,
@@ -212,10 +221,16 @@ pub struct GlobalScene {
     pub mesh_size: usize,
     pub v_buffer_mesh: Buffer,
     pub i_buffer_mesh: Buffer,
+    pub offscreen_width: u32,
+    pub offscreen_data: Vec<i32>,
+    pub offscreen_buffer: Buffer,
+    pub is_offscreen_requested: bool,
+    pub mouse_x: f64,
+    pub mouse_y: f64,
 }
 
 impl GlobalScene {
-    pub fn new(device: &Device, v_up_orign: &cgmath::Vector3<f64>) -> Self {
+    pub fn new(device: &Device, v_up_orign: &cgmath::Vector3<f64>, w: u32, h: u32) -> Self {
         let i_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Mesh I Buffer"),
             size: (MESH_BUFFER_LIMIT * mem::size_of::<i32>()) as BufferAddress,
@@ -232,6 +247,15 @@ impl GlobalScene {
                 | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let offscreen_width: u32 = GlobalScene::calculate_offset_pad(w as u32);
+        let mut offscreen_data: Vec<i32> =
+            Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
+        let offscreen_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("OFSSCREEN_BUFFER"),
+            size: offscreen_data.capacity() as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
         Self {
             bend_step: 1,
             dorn: Dorn::new(&device, &v_up_orign),
@@ -242,6 +266,45 @@ impl GlobalScene {
             mesh_size: 0,
             v_buffer_mesh: i_buffer,
             i_buffer_mesh: v_buffer,
+            offscreen_width: offscreen_width,
+            offscreen_data: offscreen_data,
+            offscreen_buffer: offscreen_buffer,
+            is_offscreen_requested: false,
+            mouse_x: 0.0,
+            mouse_y: 0.0,
+        }
+    }
+    pub fn resize(&mut self,device: &Device, w: u32, h: u32) {
+        let offscreen_width: u32 = GlobalScene::calculate_offset_pad(w as u32);
+        let mut offscreen_data: Vec<i32> =
+            Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
+        let offscreen_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("OFSSCREEN_BUFFER"),
+            size: offscreen_data.capacity() as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        self.offscreen_width= offscreen_width;
+        self.offscreen_data= offscreen_data;
+        self.offscreen_buffer= offscreen_buffer;
+        self.is_offscreen_requested = false;
+        match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
+            Ok(mut is_offscreen_ready) => {
+                *is_offscreen_ready = false;
+            }
+            Err(_) => {}
+        }
+    }
+    fn calculate_offset_pad(curr_mem: u32) -> u32 {
+        if (curr_mem < COPY_BYTES_PER_ROW_ALIGNMENT) {
+            COPY_BYTES_PER_ROW_ALIGNMENT
+        } else {
+            let mut count = curr_mem / COPY_BYTES_PER_ROW_ALIGNMENT;
+            if (curr_mem % COPY_BYTES_PER_ROW_ALIGNMENT != 0) {
+                count = count + 1;
+            }
+            let memcount = count * COPY_BYTES_PER_ROW_ALIGNMENT;
+            memcount
         }
     }
 }
@@ -260,6 +323,7 @@ pub struct Graphics {
     pub mesh_pipe_line: MeshPipeLine,
     pub txt_pipe_line: TxtPipeLine,
 }
+
 unsafe impl Send for Graphics {}
 unsafe impl Sync for Graphics {}
 
@@ -289,7 +353,12 @@ pub fn init_graphics(world: &World, gr: Graphics) {
         smaa_target: smaa_target,
         is_reversed: false,
     };
-    let g_scene = GlobalScene::new(&gr.device, &gs.v_up_orign);
+    let g_scene = GlobalScene::new(
+        &gr.device,
+        &gs.v_up_orign,
+        gr.surface_config.width,
+        gr.surface_config.height,
+    );
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -310,12 +379,20 @@ pub fn set_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
 pub fn unset_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
     gs.is_right_mouse_pressed = false;
 }
+pub fn mouse_left_pressed(mut gs: UniqueViewMut<GlobalScene>) {
+    warn!("{:?} {:?}",gs.mouse_x ,gs.mouse_y);
+}
+pub fn mouse_move(pos:PhysicalPosition<f64>,mut gs: UniqueViewMut<GlobalScene>,) {
+    gs.mouse_x=pos.x;
+    gs.mouse_y=pos.y;
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn resize_window(
     new_size: PhysicalSize<u32>,
     mut graphics: UniqueViewMut<Graphics>,
     mut gs: UniqueViewMut<GlobalState>,
+    mut g_scene: UniqueViewMut<GlobalScene>,
 ) {
     if new_size.width > 0 && new_size.height > 0 {
         graphics.camera.resize(new_size.width, new_size.height);
@@ -335,6 +412,7 @@ pub fn resize_window(
                     contents: bytemuck::cast_slice(&arr),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
+        g_scene.resize(&graphics.device, new_size.width, new_size.height);
     }
 }
 #[cfg(target_arch = "wasm32")]
@@ -342,6 +420,7 @@ pub fn resize_window(
     new_size: PhysicalSize<u32>,
     mut graphics: UniqueViewMut<Graphics>,
     mut gs: UniqueViewMut<GlobalState>,
+    mut g_scene: UniqueViewMut<GlobalScene>,
 ) {
     use winit::platform::web::WindowExtWebSys;
     match graphics.window.canvas() {
@@ -374,10 +453,11 @@ pub fn resize_window(
                         contents: bytemuck::cast_slice(&arr),
                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     });
+            g_scene.resize(&graphics.device, canvas.client_width() as u32, canvas.client_height() as u32);
         }
     }
 }
-
+#[inline]
 pub fn key_frame(
     mut graphics: UniqueViewMut<Graphics>,
     mut gs: UniqueViewMut<GlobalState>,
@@ -703,8 +783,8 @@ pub fn key_frame(
         }
     };
     gs.state = next_state;
-
 }
+#[inline]
 pub fn render(
     mut graphics: UniqueViewMut<Graphics>,
     mut g_scene: UniqueViewMut<GlobalScene>,
@@ -821,7 +901,6 @@ pub fn render(
                     ],
                     label: Some("Mesh Bind Group"),
                 });
-
             {
                 let render_pass: RenderPass =
                     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -874,7 +953,7 @@ pub fn render(
             //PIPE_MESHES
             {
                 let count = g_scene.mesh_size;
-                if(count>0){
+                if (count > 0) {
                     let mut render_pass: RenderPass =
                         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Render Pass 2"),
@@ -886,22 +965,26 @@ pub fn render(
                                     store: StoreOp::Store,
                                 },
                             })],
-                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: &depth_view,
-                                depth_ops: Some(wgpu::Operations {
-                                    load: wgpu::LoadOp::Load,
-                                    store: StoreOp::Store,
-                                }),
-                                stencil_ops: None,
-                            }),
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &depth_view,
+                                    depth_ops: Some(wgpu::Operations {
+                                        load: wgpu::LoadOp::Load,
+                                        store: StoreOp::Store,
+                                    }),
+                                    stencil_ops: None,
+                                },
+                            ),
                             timestamp_writes: None,
                             occlusion_query_set: None,
                         });
                     render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
                     render_pass.set_bind_group(0, &bg, &[]);
                     render_pass.set_vertex_buffer(0, g_scene.v_buffer_mesh.slice(..));
-                    render_pass
-                        .set_index_buffer(g_scene.i_buffer_mesh.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.set_index_buffer(
+                        g_scene.i_buffer_mesh.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
                     render_pass.draw_indexed(
                         Range {
                             start: 0,
@@ -911,7 +994,6 @@ pub fn render(
                         Range { start: 0, end: 1 },
                     );
                 }
-  
             }
             //DORN MESHES
             {
@@ -1370,6 +1452,37 @@ pub fn render(
             smaa_frame.resolve();
             out.present();
             graphics.window.request_redraw();
+
+            if(is_offscreen_ready() && g_scene.is_offscreen_requested){
+                g_scene.is_offscreen_requested=false;
+                match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
+                    Ok(mut is_offscreen_ready) => {
+                        *is_offscreen_ready = false;
+                    }
+                    Err(_) => {}
+                }
+                let mut result: Vec<[i32; 4]> = vec![];
+                {
+                    let slice: BufferSlice = g_scene.offscreen_buffer.slice(..);
+                    let view = slice.get_mapped_range();
+                    result.extend_from_slice(bytemuck::cast_slice(&view[..]));
+                }
+                g_scene.offscreen_buffer.unmap();
+
+                let mut rows: Vec<Vec<[i32; 4]>> = vec![];
+
+                let click_aspect_ratio: f32 = g_scene.mouse_x as f32 / graphics.surface_config.width as f32;
+                let click_x_compensated: usize = (click_aspect_ratio * g_scene.offscreen_width as f32) as usize;
+                result.chunks(g_scene.offscreen_width as usize).for_each(|row| {
+                    rows.push(Vec::from(row));
+                });
+                let selected = &rows[g_scene.mouse_y as usize][click_x_compensated];
+                if(selected[3]==0){
+                    warn!("RESULT SELECTED {:?}",selected[0]);
+                }
+               
+                //warn!("OFFSCREEN_BUFFER_MAPPED {:?}", result.len());
+            }
         }
         Err(e) => {
             warn!("no surf {:?}", e)
@@ -1377,42 +1490,225 @@ pub fn render(
     }
     //}
 }
+
+pub fn render_selection(
+    mut graphics: UniqueViewMut<Graphics>,
+    mut g_scene: UniqueViewMut<GlobalScene>,
+) {
+    if (!g_scene.is_offscreen_requested) {
+        let sel_texture_desc = wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: g_scene.offscreen_width,
+                height: graphics.surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba32Sint,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            label: None,
+            view_formats: &[],
+        };
+        let sel_texture: Texture = graphics.device.create_texture(&sel_texture_desc);
+        let sel_texture_view: TextureView = sel_texture.create_view(&Default::default());
+        let sel_depth_texture: Texture = graphics.device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: g_scene.offscreen_width,
+                height: graphics.surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            label: None,
+            view_formats: &[],
+        });
+        let sel_depth_view: TextureView =
+            sel_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder: CommandEncoder =
+            graphics
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Sel Encoder D"),
+                });
+        {
+            let render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass1"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &sel_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &sel_depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        //MESH
+        {
+            let bg: BindGroup = graphics
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &graphics.mesh_pipe_line.mesh_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: graphics.mesh_pipe_line.camera_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: graphics.mesh_pipe_line.light_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: graphics.mesh_pipe_line.material_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: graphics.mesh_pipe_line.metadata_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: g_scene.dorn.scale_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: g_scene.dorn.translate_buffer.as_entire_binding(),
+                        },
+                    ],
+                    label: Some("Mesh Bind Group"),
+                });
+            let count = g_scene.mesh_size;
+            if (count > 0) {
+                let mut render_pass: RenderPass =
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass 2"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &sel_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &sel_depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_selection_pipeline);
+                render_pass.set_bind_group(0, &bg, &[]);
+                render_pass.set_vertex_buffer(0, g_scene.v_buffer_mesh.slice(..));
+                render_pass
+                    .set_index_buffer(g_scene.i_buffer_mesh.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(
+                    Range {
+                        start: 0,
+                        end: count as u32,
+                    },
+                    0,
+                    Range { start: 0, end: 1 },
+                );
+            }
+        }
+
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &sel_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &g_scene.offscreen_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    // This needs to be a multiple of 256. Normally we would need to pad
+                    // it but we here know it will work out anyways.
+                    //bytes_per_row: Some((self.mesh_pipeline.offscreen_width * OFFSCREEN_TEXEL_SIZE)),
+                    bytes_per_row: Some(g_scene.offscreen_width * OFFSCREEN_TEXEL_SIZE),
+
+                    rows_per_image: Some(graphics.surface_config.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: g_scene.offscreen_width,
+                height: graphics.surface_config.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        graphics.queue.submit(iter::once(encoder.finish()));
+        let host_offscreen: BufferSlice = g_scene.offscreen_buffer.slice(..);
+        host_offscreen.map_async(wgpu::MapMode::Read, move |result| match result {
+            Ok(_) => match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
+                Ok(mut is_offscreen_ready) => {
+                    *is_offscreen_ready = true;
+                }
+                Err(_) => {}
+            },
+            Err(_) => {}
+        });
+        g_scene.is_offscreen_requested=true;
+    }
+    
+  
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn check_remote(
     mut g_scene: UniqueViewMut<GlobalScene>,
     mut gs: UniqueViewMut<GlobalState>,
     mut cmd: UniqueViewMut<InCmd>,
 ) {
-        match cmd.check_curr_command() {
-            States::Dismiss => {}
-            ReadyToLoad((v, is_reset_camera)) => {
-                gs.v_up_orign = P_UP_REVERSE;
+    match cmd.check_curr_command() {
+        States::Dismiss => {}
+        ReadyToLoad((v, is_reset_camera)) => {
+            gs.v_up_orign = P_UP_REVERSE;
+            g_scene.bend_step = 1;
+            gs.state = ReadyToLoad((v, is_reset_camera));
+        }
+        FullAnimate => {
+            gs.anim_state = AnimState::default();
+            g_scene.bend_step = 1;
+            gs.state = FullAnimate
+        }
+        ReverseLRACLR => {
+            if (!gs.lraclr_arr_reversed.is_empty()) {
                 g_scene.bend_step = 1;
-                gs.state = ReadyToLoad((v, is_reset_camera));
-            }
-            FullAnimate => {
-                gs.anim_state = AnimState::default();
-                g_scene.bend_step = 1;
-                gs.state = FullAnimate
-            }
-            ReverseLRACLR => {
-                if (!gs.lraclr_arr_reversed.is_empty()) {
-                    g_scene.bend_step = 1;
-                    gs.state = ReverseLRACLR
-                }
-            }
-            States::ChangeDornDir => {
-                g_scene.bend_step = 1;
-                gs.state = ChangeDornDir;
-            }
-            States::LoadLRA(v) => {
-                g_scene.bend_step = 1;
-                gs.state = LoadLRA(v);
-            }
-            States::NewBendParams(v) => {
-                gs.state = NewBendParams(v);
+                gs.state = ReverseLRACLR
             }
         }
+        States::ChangeDornDir => {
+            g_scene.bend_step = 1;
+            gs.state = ChangeDornDir;
+        }
+        States::LoadLRA(v) => {
+            g_scene.bend_step = 1;
+            gs.state = LoadLRA(v);
+        }
+        States::NewBendParams(v) => {
+            gs.state = NewBendParams(v);
+        }
+    }
 }
 pub fn on_keyboard(
     event: KeyEvent,
@@ -1488,5 +1784,14 @@ pub fn on_keyboard(
             }
         },
         _ => {}
+    }
+}
+
+fn is_offscreen_ready() -> bool {
+    match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
+        Ok(mut is_offscreen_ready) => {
+            is_offscreen_ready.clone()
+        }
+        Err(_) => true,
     }
 }

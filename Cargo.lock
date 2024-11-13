@@ -442,9 +442,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.1.37"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40545c26d092346d8a8dab71ee48e7685a7a9cba76e634790c215b41a4a7b4cf"
+checksum = "1aeb932158bd710538c73702db6945cb68a8fb08c519e6e12706b94263b36db8"
 dependencies = [
  "jobserver",
  "libc",
@@ -3024,7 +3024,7 @@ checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
 [[package]]
 name = "truck-base"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "cgmath",
  "matext4cgmath",
@@ -3035,7 +3035,7 @@ dependencies = [
 [[package]]
 name = "truck-derivers"
 version = "0.1.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -3046,7 +3046,7 @@ dependencies = [
 [[package]]
 name = "truck-geometry"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "serde",
  "thiserror",
@@ -3057,7 +3057,7 @@ dependencies = [
 [[package]]
 name = "truck-geotrait"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "getrandom",
  "rand",
@@ -3069,7 +3069,7 @@ dependencies = [
 [[package]]
 name = "truck-meshalgo"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "array-macro",
  "derive_more",
@@ -3087,7 +3087,7 @@ dependencies = [
 [[package]]
 name = "truck-modeling"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "derive_more",
  "rustc-hash 2.0.0",
@@ -3103,7 +3103,7 @@ dependencies = [
 [[package]]
 name = "truck-polymesh"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "array-macro",
  "bytemuck",
@@ -3118,7 +3118,7 @@ dependencies = [
 [[package]]
 name = "truck-shapeops"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "derive_more",
  "itertools 0.13.0",
@@ -3134,7 +3134,7 @@ dependencies = [
 [[package]]
 name = "truck-stepio"
 version = "0.3.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "chrono",
  "derive_more",
@@ -3151,7 +3151,7 @@ dependencies = [
 [[package]]
 name = "truck-topology"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#43782c45450b3a673f9b42b33676102f17f18f44"
+source = "git+https://github.com/ricosjp/truck.git#0df87bca14ed9b5373b423b6fbac96cd7b3c9161"
 dependencies = [
  "parking_lot",
  "rayon",
