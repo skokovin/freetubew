@@ -25,6 +25,7 @@ use smaa::{SmaaFrame, SmaaMode, SmaaTarget};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{iter, mem};
 use truck_base::bounding_box::BoundingBox;
@@ -43,7 +44,7 @@ use winit::event::{ElementState, KeyEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
-pub static IS_OFFSCREEN_BUFFER_MAPPED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+pub static IS_OFFSCREEN_BUFFER_MAPPED: AtomicBool = AtomicBool::new(false);
 pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
 const MESH_BUFFER_LIMIT: usize = 2000000;
 const MESH_ZEROS_I: [i32; MESH_BUFFER_LIMIT] = [0; MESH_BUFFER_LIMIT];
@@ -288,12 +289,8 @@ impl GlobalScene {
         self.offscreen_data = offscreen_data;
         self.offscreen_buffer = offscreen_buffer;
         self.is_offscreen_requested = false;
-        match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
-            Ok(mut is_offscreen_ready) => {
-                *is_offscreen_ready = false;
-            }
-            Err(_) => {}
-        }
+
+        IS_OFFSCREEN_BUFFER_MAPPED.store(false, Ordering::Relaxed);
     }
     fn calculate_offset_pad(curr_mem: u32) -> u32 {
         if (curr_mem < COPY_BYTES_PER_ROW_ALIGNMENT) {
@@ -379,9 +376,7 @@ pub fn set_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
 pub fn unset_right_mouse_pressed(mut gs: UniqueViewMut<GlobalState>) {
     gs.is_right_mouse_pressed = false;
 }
-pub fn mouse_left_pressed(mut gs: UniqueViewMut<GlobalScene>) {
-    
-}
+pub fn mouse_left_pressed(mut gs: UniqueViewMut<GlobalScene>) {}
 pub fn mouse_move(pos: PhysicalPosition<f64>, mut gs: UniqueViewMut<GlobalScene>) {
     gs.mouse_x = pos.x;
     gs.mouse_y = pos.y;
@@ -1462,14 +1457,11 @@ pub fn render(
             out.present();
             graphics.window.request_redraw();
 
-            if (is_offscreen_ready() && g_scene.is_offscreen_requested) {
+            if (IS_OFFSCREEN_BUFFER_MAPPED.load(Ordering::Relaxed)
+                && g_scene.is_offscreen_requested)
+            {
                 g_scene.is_offscreen_requested = false;
-                match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
-                    Ok(mut is_offscreen_ready) => {
-                        *is_offscreen_ready = false;
-                    }
-                    Err(_) => {}
-                }
+                IS_OFFSCREEN_BUFFER_MAPPED.store(false, Ordering::Relaxed);
                 let mut result: Vec<[i32; 4]> = vec![];
                 {
                     let slice: BufferSlice = g_scene.offscreen_buffer.slice(..);
@@ -1497,7 +1489,7 @@ pub fn render(
                         selected[0],
                         graphics.window.scale_factor()
                     );
-                }else{
+                } else {
                     warn!("UNSELECT ALL");
                 }
 
@@ -1677,14 +1669,8 @@ pub fn render_selection(
         );
         graphics.queue.submit(iter::once(encoder.finish()));
         let host_offscreen: BufferSlice = g_scene.offscreen_buffer.slice(..);
-        host_offscreen.map_async(wgpu::MapMode::Read, move |result| match result {
-            Ok(_) => match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
-                Ok(mut is_offscreen_ready) => {
-                    *is_offscreen_ready = true;
-                }
-                Err(_) => {}
-            },
-            Err(_) => {}
+        host_offscreen.map_async(wgpu::MapMode::Read, move |result| {
+            IS_OFFSCREEN_BUFFER_MAPPED.store(true, Ordering::Relaxed);
         });
         g_scene.is_offscreen_requested = true;
     }
@@ -1801,12 +1787,5 @@ pub fn on_keyboard(
             }
         },
         _ => {}
-    }
-}
-
-fn is_offscreen_ready() -> bool {
-    match IS_OFFSCREEN_BUFFER_MAPPED.try_lock() {
-        Ok(mut is_offscreen_ready) => is_offscreen_ready.clone(),
-        Err(_) => true,
     }
 }
