@@ -508,12 +508,12 @@ fn create_graphics_old2(event_loop: &ActiveEventLoop) -> impl Future<Output = Gr
                                                     panic!("CANT ATTACH CANVAS")
                                                 }
                                                 Some(_n) => {
-                                                    warn! {"ATTACHED CANVAS SIZE is :{} {}",canvas.client_width(),canvas.client_height()}
-                                                    let _sw = &canvas.client_width();
-                                                    let _sh = &canvas.client_height();
+                                                    //warn! {"ATTACHED CANVAS SIZE is :{} {}",canvas.client_width(),canvas.client_height()}
+                                                    //let _sw = &canvas.client_width();
+                                                    //let _sh = &canvas.client_height();
 
-                                                    warn! {"Window SIZE is :{:?} {:?}",window.inner_size().width,window.inner_size().height}
-                                                    window.request_inner_size(ws);
+                                                    //warn! {"Window SIZE is :{:?} {:?}",window.inner_size().width,window.inner_size().height}
+                                                    //window.request_inner_size(ws);
                                                     (window, canvas)
                                                 }
                                             }
