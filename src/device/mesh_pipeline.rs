@@ -9,41 +9,17 @@ use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferAddress, Device, FrontFace, PipelineLayout,
     RenderPipeline, TextureFormat,
 };
-const METADATA_COUNT: usize = 256;
-const STRIGHT_COLOR: u32 = 76;
-const BEND_COLOR: u32 = 37;
+
 pub struct MeshPipeLine {
-    pub camera_buffer: Buffer,
-    pub material_buffer: Buffer,
-    pub materials: Vec<Material>,
-    pub light_buffer: Buffer,
+
     pub mesh_bind_group_layout: BindGroupLayout,
     pub mesh_render_pipeline: RenderPipeline,
     pub mesh_selection_pipeline: RenderPipeline,
-    pub metadata_buffer: Buffer,
+
 }
 
 impl MeshPipeLine {
     pub fn new(device: &Device, format: &TextureFormat, w: i32, h: i32) -> Self {
-        let camera_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Camera Uniform Buffer"),
-            size: 144,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let material_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Material Uniform Buffer"),
-            size: (size_of::<Material>() * MATERIALS_COUNT) as BufferAddress,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let light_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Light Uniform Buffer"),
-            size: 48,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/mesh_shader.wgsl").into()),
@@ -172,7 +148,6 @@ impl MeshPipeLine {
                 multiview: None,
                 cache: None,
             });
-
         let mesh_selection_pipeline: RenderPipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Mesh Selection Pipeline"),
@@ -213,30 +188,10 @@ impl MeshPipeLine {
                 multiview: None,
                 cache: None,
             });
-
-        let mut metadata_default: Vec<[i32; 4]> = vec![];
-        for i in 0..METADATA_COUNT {
-            if (!i.is_odd()) {
-                metadata_default.push([STRIGHT_COLOR as i32, 0, 0, 0]);
-            } else {
-                metadata_default.push([BEND_COLOR as i32, 0, 0, 0]);
-            }
-        }
-        let metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(format!("Vertex Mesh Buffer").as_str()),
-            contents: bytemuck::cast_slice(&metadata_default),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
         Self {
-            camera_buffer: camera_buffer,
-            material_buffer: material_buffer,
-            materials: Material::generate_materials(),
-            light_buffer: light_buffer,
             mesh_bind_group_layout: mesh_bind_group_layout,
             mesh_render_pipeline: mesh_render_pipeline,
             mesh_selection_pipeline: mesh_selection_pipeline,
-            metadata_buffer: metadata_buffer,
         }
     }
 }

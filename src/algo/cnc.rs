@@ -18,6 +18,7 @@ use std::ops::{Mul, Sub};
 use log::warn;
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::{Point3, Vector3};
+use truck_stepio::out;
 use web_sys::console::warn;
 
 const L: i32 = 0;
@@ -684,7 +685,6 @@ fn generate_tor_by_2pts(
     tor.triangulate(&fwd_dir_s);
     tor
 }
-
 pub fn optimize_lraclr(lraclrs: &mut Vec<LRACLR>) {
     lraclrs.iter_mut().for_each(|lracl| {
         if (abs(lracl.r) >= 360.0) {
@@ -949,7 +949,6 @@ pub fn cnc_to_poly_animate(
         }
     }
 }
-
 pub fn all_to_one(c: &Vec<MainCylinder>, t: &Vec<BendToro>) -> (Vec<MeshVertex>, Vec<i32>) {
     let mut v:Vec<MeshVertex>=vec![];
     c.iter().for_each(|c|{
@@ -960,4 +959,39 @@ pub fn all_to_one(c: &Vec<MainCylinder>, t: &Vec<BendToro>) -> (Vec<MeshVertex>,
     });
     let i:Vec<i32> =(0.. v.len()as i32).collect();
     (v,i)
+}
+pub fn all_to_stp(cyls: &Vec<MainCylinder>, tors: &Vec<BendToro>) -> Vec<u8> {
+    use truck_modeling::*;
+    let mut shells: Vec<truck_topology::Shell<Point3, Curve,Surface>>=vec![];
+    tors.iter().for_each(|t|{
+        let p=t.ca.loc+t.ca.radius_dir*t.r;
+        let vertex1 = builder::vertex(p);
+        let circle = builder::rsweep(&vertex1,t.ca.loc,t.ca.dir, Rad(7.0));
+        let disk = builder::try_attach_plane(&[circle]).unwrap();
+        let solid: truck_topology::Solid<Point3, Curve, Surface> = builder::rsweep(&disk, t.bend_center_point, t.bend_plane_norm, t.angle());
+        let shells_loc: Vec<truck_topology::Shell<Point3, Curve, Surface>> =solid.into_boundaries();
+        shells.extend(shells_loc);
+    });
+    cyls.iter().for_each(|c|{
+        let p=c.ca.loc+c.ca.radius_dir*c.r;
+        let vertex1 = builder::vertex(p);
+        let circle = builder::rsweep(&vertex1,c.ca.loc,c.ca.dir, Rad(7.0));
+        let disk = builder::try_attach_plane(&[circle]).unwrap();
+        let v=c.ca.dir.mul(c.h);
+        let solid=builder::tsweep(&disk, v);
+        let shells_loc: Vec<truck_topology::Shell<Point3, Curve, Surface>> =solid.into_boundaries();
+        shells.extend(shells_loc);
+    });
+    let solid=Solid::new(shells);
+    let step_string = out::CompleteStepDisplay::new(
+        out::StepModel::from(&solid.compress()),
+        out::StepHeaderDescriptor {
+            organization_system: "shape-to-step".to_owned(),
+            ..Default::default()
+        },
+    ).to_string();
+    let mut step_file: Vec<u8> = Vec::new();
+    std::io::Write::write_all(&mut step_file, step_string.as_ref()).unwrap();
+    let _ = ruststep::parser::parse(&step_string).unwrap();
+    step_file
 }

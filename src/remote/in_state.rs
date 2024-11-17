@@ -1,13 +1,15 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
+use cgmath::num_traits::abs;
+use cgmath::{Deg, Rad};
 use log::{info, warn, Level};
 use once_cell::sync::Lazy;
 use shipyard::Unique;
 use web_sys::js_sys::{Float32Array, Uint8Array};
-use crate::algo::analyze_bin;
-use crate::algo::cnc::LRACLR;
+use crate::algo::{analyze_bin, P_UP_REVERSE};
+use crate::algo::cnc::{all_to_stp, cnc_to_poly, LRACLR};
 use crate::device::graphics::{Graphics, States};
-use crate::device::graphics::States::{ChangeDornDir, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR, Dismiss, NewBendParams};
+use crate::device::graphics::States::{ChangeDornDir, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR, Dismiss, NewBendParams, SelectFromWeb};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(target_arch = "wasm32")]
@@ -39,6 +41,8 @@ pub enum RemoteCommand {
     Reverse,
     ReverseDorn,
     OnChangeBendParams((Vec<f32>)),
+    OnSelectByTable(i32),
+    OnStpFileRequest((Vec<f32>)),
 }
 
 
@@ -88,6 +92,42 @@ impl InCmd {
                             }
                             RemoteCommand::OnChangeBendParams(params) => {
                                 NewBendParams(params)
+                            }
+                            RemoteCommand::OnSelectByTable(id) => {
+                                SelectFromWeb(id)
+                            }
+                            RemoteCommand::OnStpFileRequest(v) => {
+                                let mut lra_cmds: Vec<LRACLR> = vec![];
+                                if (v.len() % 8 == 0 && !v.is_empty()) {
+                                    v.chunks(8).for_each(|cmd| {
+                                        let id1 = cmd[0];
+                                        let id2 = cmd[1];
+                                        let l = cmd[2];
+                                        let lt = cmd[3];
+                                        let r = cmd[4];
+                                        let a = cmd[5];
+                                        let clr = cmd[6];
+                                        let pipe_radius = cmd[7];
+                                        let lra_cmd = LRACLR {
+                                            id1: id1.round() as i32,
+                                            id2: id2.round() as i32,
+                                            l: abs(l as f64),
+                                            lt: Rad::from(Deg(a as f64)).0*clr as f64,
+                                            r: r as f64,
+                                            a: abs(a as f64),
+                                            clr: abs(clr as f64),
+                                            pipe_radius: abs(pipe_radius as f64),
+                                        };
+                                        lra_cmds.push(lra_cmd);
+                                    });
+                                }
+                                let (cyls, tors) = cnc_to_poly(&lra_cmds, &P_UP_REVERSE);
+                                let file=all_to_stp(&cyls,&tors);
+                                #[cfg(target_arch = "wasm32")]{
+                                    pipe_stp_file(wasm_bindgen_futures::js_sys::Uint8Array::from(file.as_slice()));
+                                }
+                               
+                                Dismiss 
                             }
                         }
                     }
@@ -191,7 +231,35 @@ pub async unsafe fn change_bend_params(arr: Float32Array) {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async unsafe fn select_by_table(id:i32) {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let _ = console_log::init_with_level(Level::Warn);
+    //let mut handler_v: Vec<f32> = arr.to_vec();
+    match COMMANDS.lock() {
+        Ok(mut m) => {
+                m.values.push_back(RemoteCommand::OnSelectByTable(id));
+        }
+        Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
+    }
+}
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async unsafe fn stp_file_request(arr: Float32Array) {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let _ = console_log::init_with_level(Level::Warn);
+    let mut handler_v: Vec<f32> = arr.to_vec();
+    match COMMANDS.lock() {
+        Ok(mut m) => {
+            if(handler_v.len()>2){
+                m.values.push_back(RemoteCommand::OnStpFileRequest(handler_v));
+            }
+        }
+        Err(_e) => { warn!("CANT LOCK COMMANDS MEM") }
+    }
+}
 
 //////////FROM THIS
 #[cfg(target_arch = "wasm32")]
@@ -210,4 +278,15 @@ extern "C" {
 #[wasm_bindgen(js_namespace = wvservice)]
 extern "C" {
     pub fn bend_settings(settings: Float32Array);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn select_by_id(id: i32);
+}
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_namespace = wvservice)]
+extern "C" {
+    pub fn pipe_stp_file(ids: Uint8Array);
 }

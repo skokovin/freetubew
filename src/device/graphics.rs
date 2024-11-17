@@ -2,9 +2,7 @@ use crate::algo::cnc::{all_to_one, cnc_to_poly, LRACLR};
 use crate::algo::{analyze_bin, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
-use crate::device::graphics::States::{
-    ChangeDornDir, Dismiss, FullAnimate, LoadLRA, NewBendParams, ReadyToLoad, ReverseLRACLR,
-};
+use crate::device::graphics::States::{ChangeDornDir, Dismiss, FullAnimate, LoadLRA, NewBendParams, ReadyToLoad, ReverseLRACLR, SelectFromWeb};
 use crate::device::mesh_pipeline::MeshPipeLine;
 use crate::device::txt_pipeline::TxtPipeLine;
 use crate::device::MeshVertex;
@@ -17,19 +15,25 @@ use crate::remote::in_state::{pipe_bend_ops, InCmd};
 use crate::utils::dim::{DimB, DimX, DimZ};
 use crate::utils::dorn::Dorn;
 use cgmath::num_traits::{abs, signum};
-use cgmath::Point3;
+use cgmath::{Deg, Point3, Rad};
 use log::warn;
-use once_cell::sync::Lazy;
+//use once_cell::sync::Lazy;
 use shipyard::{EntitiesViewMut, EntityId, Unique, UniqueViewMut, ViewMut, World};
 use smaa::{SmaaFrame, SmaaMode, SmaaTarget};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::ops::Range;
+use std::ops::{Mul, Range};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{iter, mem};
+use std::f64::consts::PI;
+use is_odd::IsOdd;
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::Vector3;
+use truck_modeling::Curve;
+use truck_stepio::out;
+use truck_stepio::out::StepModel;
+use truck_topology::Solid;
 use web_sys::js_sys::Float32Array;
 use web_sys::HtmlCanvasElement;
 use web_time::{Instant, SystemTime};
@@ -44,11 +48,17 @@ use winit::event::{ElementState, KeyEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Window;
+use crate::utils::materials::{Material, MATERIALS_COUNT};
+
+const METADATA_COUNT: usize = 256;
+const STRIGHT_COLOR: u32 = 76;
+const BEND_COLOR: u32 = 37;
 pub static IS_OFFSCREEN_BUFFER_MAPPED: AtomicBool = AtomicBool::new(false);
 pub const OFFSCREEN_TEXEL_SIZE: u32 = 16;
 const MESH_BUFFER_LIMIT: usize = 2000000;
 const MESH_ZEROS_I: [i32; MESH_BUFFER_LIMIT] = [0; MESH_BUFFER_LIMIT];
 const FRAMERATE_SECONDS: f64 = 0.1;
+const SELECTION_COLOR: i32 = 1;
 const BACKGROUND_COLOR: wgpu::Color = wgpu::Color {
     r: 0.0,
     g: 0.0,
@@ -70,6 +80,7 @@ pub enum States {
     ChangeDornDir,
     LoadLRA(Vec<f32>),
     NewBendParams(Vec<f32>),
+    SelectFromWeb(i32),
 }
 pub struct AnimState {
     pub id: i32,
@@ -228,10 +239,47 @@ pub struct GlobalScene {
     pub is_offscreen_requested: bool,
     pub mouse_x: f64,
     pub mouse_y: f64,
+    pub camera_buffer: Buffer,
+    pub material_buffer: Buffer,
+    pub materials: Vec<Material>,
+    pub light_buffer: Buffer,
+    pub metadata: Vec<[i32; 4]>,
+    pub metadata_buffer: Buffer,
 }
-
 impl GlobalScene {
-    pub fn new(device: &Device, v_up_orign: &cgmath::Vector3<f64>, w: u32, h: u32) -> Self {
+    pub fn new(device: &Device,queue: &Queue, v_up_orign: &cgmath::Vector3<f64>, w: u32, h: u32) -> Self {
+        let camera_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Camera Uniform Buffer"),
+            size: 144,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let material_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Material Uniform Buffer"),
+            size: (size_of::<Material>() * MATERIALS_COUNT) as BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let light_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Light Uniform Buffer"),
+            size: 48,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut metadata_default: Vec<[i32; 4]> = vec![];
+        for i in 0..METADATA_COUNT {
+            if (!i.is_odd()) {
+                metadata_default.push([STRIGHT_COLOR as i32, 0, 0, 0]);
+            } else {
+                metadata_default.push([BEND_COLOR as i32, 0, 0, 0]);
+            }
+        }
+        let metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Vertex Mesh Buffer").as_str()),
+            contents: bytemuck::cast_slice(&metadata_default),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        
         let i_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Mesh I Buffer"),
             size: (MESH_BUFFER_LIMIT * mem::size_of::<i32>()) as BufferAddress,
@@ -257,6 +305,8 @@ impl GlobalScene {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        let materials=Material::generate_materials();
+        queue.write_buffer(&material_buffer, 0,bytemuck::cast_slice(&materials),);
         Self {
             bend_step: 1,
             dorn: Dorn::new(&device, &v_up_orign),
@@ -273,6 +323,12 @@ impl GlobalScene {
             is_offscreen_requested: false,
             mouse_x: 0.0,
             mouse_y: 0.0,
+            camera_buffer: camera_buffer,
+            material_buffer: material_buffer,
+            materials:materials,
+            light_buffer: light_buffer,
+            metadata: metadata_default,
+            metadata_buffer: metadata_buffer,
         }
     }
     pub fn resize(&mut self, device: &Device, w: u32, h: u32) {
@@ -291,6 +347,31 @@ impl GlobalScene {
         self.is_offscreen_requested = false;
 
         IS_OFFSCREEN_BUFFER_MAPPED.store(false, Ordering::Relaxed);
+    }
+    pub fn unselect_all(&mut self,queue: &Queue) {
+        self.metadata.iter_mut().for_each(|md| { md[1] = 0; });
+        self.select_by_id(queue,-1);
+        
+       #[cfg(target_arch = "wasm32")]{
+           use crate::remote::in_state::select_by_id;
+            select_by_id(-1);
+        }
+    }
+    pub fn select_by_id(&mut self,queue: &Queue, id: i32) {
+        if(id<0){
+            self.update_meta_data(queue);  
+        }else{
+            self.metadata.iter_mut().for_each(|md| { md[1] = 0; });
+            self.metadata[id as usize][1 as usize] = SELECTION_COLOR;
+            self.update_meta_data(queue);
+        }
+       #[cfg(target_arch = "wasm32")]{
+           use crate::remote::in_state::select_by_id;
+            select_by_id(id);
+        }
+    }
+    fn update_meta_data(&mut self,queue: &Queue) {
+        queue.write_buffer(&self.metadata_buffer, 0, bytemuck::cast_slice(&self.metadata), );
     }
     fn calculate_offset_pad(curr_mem: u32) -> u32 {
         if (curr_mem < COPY_BYTES_PER_ROW_ALIGNMENT) {
@@ -320,7 +401,6 @@ pub struct Graphics {
     pub mesh_pipe_line: MeshPipeLine,
     pub txt_pipe_line: TxtPipeLine,
 }
-
 unsafe impl Send for Graphics {}
 unsafe impl Sync for Graphics {}
 
@@ -352,6 +432,7 @@ pub fn init_graphics(world: &World, gr: Graphics) {
     };
     let g_scene = GlobalScene::new(
         &gr.device,
+        &gr.queue,
         &gs.v_up_orign,
         gr.surface_config.width,
         gr.surface_config.height,
@@ -474,8 +555,7 @@ pub fn key_frame(
                 gs.lraclr_arr = lraclr.clone();
                 gs.lraclr_arr_reversed = cnc::reverse_lraclr(&gs.lraclr_arr);
                 let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign);
-
-                let (v, i) = all_to_one(&cyls, &tors);
+                     let (v, i) = all_to_one(&cyls, &tors);
                 g_scene.mesh_size = i.len();
                 graphics.queue.write_buffer(
                     &g_scene.i_buffer_mesh,
@@ -584,17 +664,9 @@ pub fn key_frame(
 
                 let (v, i) = all_to_one(&cyls, &tors);
                 g_scene.mesh_size = i.len();
-                graphics.queue.write_buffer(
-                    &g_scene.i_buffer_mesh,
-                    0,
-                    bytemuck::cast_slice(&MESH_ZEROS_I),
-                );
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&MESH_ZEROS_I), );
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
 
                 #[cfg(target_arch = "wasm32")]
                 if (gs.anim_state.op_counter != next_stage.op_counter) {
@@ -678,9 +750,7 @@ pub fn key_frame(
                     }
                     5 => {
                         gs.anim_state.opcode = 0;
-                        graphics
-                            .camera
-                            .move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
+                        graphics.camera.move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
                         #[cfg(target_arch = "wasm32")]
                         change_bend_step(0);
                         gs.change_state(States::FullAnimate)
@@ -761,7 +831,7 @@ pub fn key_frame(
                             id1: id1.round() as i32,
                             id2: id2.round() as i32,
                             l: abs(l as f64),
-                            lt: abs(lt as f64),
+                            lt: Rad::from(Deg(a as f64)).0*clr as f64,
                             r: r as f64,
                             a: abs(a as f64),
                             clr: abs(clr as f64),
@@ -780,6 +850,10 @@ pub fn key_frame(
             }
             States::NewBendParams(params) => {
                 g_scene.bend_params.set_params_from_f32vec(&params);
+                gs.revert_state()
+            }
+            States::SelectFromWeb(id) => {
+                g_scene.select_by_id(&graphics.queue,id.clone());
                 gs.revert_state()
             }
         }
@@ -805,23 +879,20 @@ pub fn render(
 
             let mvp = graphics.camera.get_mvp_buffer().clone();
             graphics.queue.write_buffer(
-                &graphics.mesh_pipe_line.camera_buffer,
+                &g_scene.camera_buffer,
                 0,
                 bytemuck::cast_slice(&mvp),
             );
             graphics.queue.write_buffer(
-                &graphics.mesh_pipe_line.camera_buffer,
+                &g_scene.camera_buffer,
                 64,
                 bytemuck::cast_slice(graphics.camera.get_norm_buffer()),
             );
             graphics.queue.write_buffer(
-                &graphics.mesh_pipe_line.camera_buffer,
+                &g_scene.camera_buffer,
                 128,
                 bytemuck::cast_slice(graphics.camera.get_forward_dir_buffer()),
             );
-            //graphics.queue.write_buffer(&graphics.mesh_pipe_line.material_buffer, 0, bytemuck::cast_slice(&&graphics.mesh_pipe_line.materials));
-            //let gw = out.texture.width();
-            //let gh = out.texture.height();
             let gw = graphics.surface_config.width;
             let gh = graphics.surface_config.height;
 
@@ -829,17 +900,17 @@ pub fn render(
             let light_position: &[f32; 3] = graphics.camera.eye.as_ref();
             let eye_position: &[f32; 3] = graphics.camera.eye.as_ref();
             graphics.queue.write_buffer(
-                &graphics.mesh_pipe_line.light_buffer,
+                &g_scene.light_buffer,
                 0,
                 bytemuck::cast_slice(light_position),
             );
             graphics.queue.write_buffer(
-                &graphics.mesh_pipe_line.light_buffer,
+                &g_scene.light_buffer,
                 16,
                 bytemuck::cast_slice(eye_position),
             );
             graphics.queue.write_buffer(
-                &graphics.mesh_pipe_line.light_buffer,
+                &g_scene.light_buffer,
                 32,
                 bytemuck::cast_slice(&resolution),
             );
@@ -880,19 +951,19 @@ pub fn render(
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: graphics.mesh_pipe_line.camera_buffer.as_entire_binding(),
+                            resource: g_scene.camera_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: graphics.mesh_pipe_line.light_buffer.as_entire_binding(),
+                            resource: g_scene.light_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: graphics.mesh_pipe_line.material_buffer.as_entire_binding(),
+                            resource: g_scene.material_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: graphics.mesh_pipe_line.metadata_buffer.as_entire_binding(),
+                            resource: g_scene.metadata_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
@@ -1093,29 +1164,23 @@ pub fn render(
                                     entries: &[
                                         wgpu::BindGroupEntry {
                                             binding: 0,
-                                            resource: graphics
-                                                .mesh_pipe_line
-                                                .camera_buffer
-                                                .as_entire_binding(),
+                                            resource: g_scene.camera_buffer.as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 1,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .light_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 2,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .material_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 3,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .metadata_buffer
                                                 .as_entire_binding(),
                                         },
@@ -1230,29 +1295,25 @@ pub fn render(
                                     entries: &[
                                         wgpu::BindGroupEntry {
                                             binding: 0,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .camera_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 1,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .light_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 2,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .material_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 3,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .metadata_buffer
                                                 .as_entire_binding(),
                                         },
@@ -1367,29 +1428,25 @@ pub fn render(
                                     entries: &[
                                         wgpu::BindGroupEntry {
                                             binding: 0,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .camera_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 1,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .light_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 2,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .material_buffer
                                                 .as_entire_binding(),
                                         },
                                         wgpu::BindGroupEntry {
                                             binding: 3,
-                                            resource: graphics
-                                                .mesh_pipe_line
+                                            resource: g_scene
                                                 .metadata_buffer
                                                 .as_entire_binding(),
                                         },
@@ -1457,9 +1514,7 @@ pub fn render(
             out.present();
             graphics.window.request_redraw();
 
-            if (IS_OFFSCREEN_BUFFER_MAPPED.load(Ordering::Relaxed)
-                && g_scene.is_offscreen_requested)
-            {
+            if (IS_OFFSCREEN_BUFFER_MAPPED.load(Ordering::Relaxed) && g_scene.is_offscreen_requested) {
                 g_scene.is_offscreen_requested = false;
                 IS_OFFSCREEN_BUFFER_MAPPED.store(false, Ordering::Relaxed);
                 let mut result: Vec<[i32; 4]> = vec![];
@@ -1482,18 +1537,11 @@ pub fn render(
                         rows.push(Vec::from(row));
                     });
                 let selected = &rows[g_scene.mouse_y as usize][click_x_compensated];
-
                 if (selected[3] == 0) {
-                    warn!(
-                        "RESULT SELECTED {:?} SF {:?}",
-                        selected[0],
-                        graphics.window.scale_factor()
-                    );
+                    g_scene.select_by_id(&graphics.queue,selected[0]);
                 } else {
-                    warn!("UNSELECT ALL");
+                    g_scene.unselect_all(&graphics.queue);
                 }
-
-                //warn!("OFFSCREEN_BUFFER_MAPPED {:?}", result.len());
             }
         }
         Err(e) => {
@@ -1577,19 +1625,19 @@ pub fn render_selection(
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: graphics.mesh_pipe_line.camera_buffer.as_entire_binding(),
+                            resource: g_scene.camera_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: graphics.mesh_pipe_line.light_buffer.as_entire_binding(),
+                            resource: g_scene.light_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: graphics.mesh_pipe_line.material_buffer.as_entire_binding(),
+                            resource: g_scene.material_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: graphics.mesh_pipe_line.metadata_buffer.as_entire_binding(),
+                            resource: g_scene.metadata_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
@@ -1710,6 +1758,9 @@ pub fn check_remote(
         }
         States::NewBendParams(v) => {
             gs.state = NewBendParams(v);
+        }
+        States::SelectFromWeb(id) => {
+            gs.state = SelectFromWeb(id);
         }
     }
 }

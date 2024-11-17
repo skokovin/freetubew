@@ -166,15 +166,32 @@ impl Camera {
     }
     pub fn move_to_anim_pos(&mut self, pipe_len: f64, up_dir: &Vector3<f64>) {
         self.center_p = Point3::new(0.0, 0.0, 0.0);
+        let center: Point3<f32> = Point3::new(
+            self.center_p.x as f32,
+            self.center_p.y as f32,
+            self.center_p.z as f32,
+        );
+        self.eye.x= -pipe_len as f32;
+        self.eye.y= pipe_len as f32;
+        self.eye.z= pipe_len as f32;
+
+        self.head_forward= center.sub(self.eye);
+        
+        self.update();
+    }
+    pub fn move_to_anim_pos_old(&mut self, pipe_len: f64, up_dir: &Vector3<f64>) {
+        self.center_p = Point3::new(0.0, 0.0, 0.0);
         let dist = pipe_len * 2.0; //* ZOOM_SENSITIVITY as f64;
         let center: Point3<f32> = Point3::new(
             self.center_p.x as f32,
             self.center_p.y as f32,
             self.center_p.z as f32,
         );
-        self.eye = center - self.head_forward * dist as f32;
+        warn!("magnitude {:?}",self.head_forward.magnitude());
+        self.eye = center + self.head_forward * -dist as f32;
         self.update();
     }
+    
     pub fn zoom(&mut self, delta: f32) {
         let incr = self.tot_bbx.diameter() as f32 * 0.3 * delta;
         self.eye = self.eye + self.head_forward * incr;

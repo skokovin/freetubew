@@ -243,11 +243,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output = Graphic
             wsize.height as i32,
         );
 
-        queue.write_buffer(
-            &mesh_pipe_line.material_buffer,
-            0,
-            bytemuck::cast_slice(&mesh_pipe_line.materials),
-        );
+        
 
         Graphics {
             device: device,
@@ -439,11 +435,7 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output = Graphic
                     canvas.client_width() as i32,
                     canvas.client_height() as i32,
                 );
-                queue.write_buffer(
-                    &mesh_pipe_line.material_buffer,
-                    0,
-                    bytemuck::cast_slice(&mesh_pipe_line.materials),
-                );
+   
                 let mut camera=Camera::default();
                 camera.resize(canvas.client_width() as u32, canvas.client_height() as u32);
                 
@@ -598,11 +590,7 @@ fn create_graphics_old2(event_loop: &ActiveEventLoop) -> impl Future<Output = Gr
             window_size.height as i32,
         );
 
-        queue.write_buffer(
-            &mesh_pipe_line.material_buffer,
-            0,
-            bytemuck::cast_slice(&mesh_pipe_line.materials),
-        );
+
 
         Graphics {
             device: device,
@@ -728,12 +716,6 @@ fn create_graphics_old(event_loop: &ActiveEventLoop) -> impl Future<Output = Gra
         let mesh_pipe_line = MeshPipeLine::new(&device, &format, _sw as i32, _sh as i32);
 
         let txt_pipe_line = TxtPipeLine::new(&device, &queue, &format, _sw as i32, _sh as i32);
-
-        queue.write_buffer(
-            &mesh_pipe_line.material_buffer,
-            0,
-            bytemuck::cast_slice(&mesh_pipe_line.materials),
-        );
 
         Graphics {
             device: device,
