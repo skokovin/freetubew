@@ -1,5 +1,5 @@
 use crate::algo::cnc::{all_to_one, cnc_to_poly, LRACLR};
-use crate::algo::{analyze_bin, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
+use crate::algo::{analyze_bin, analyze_bin_with_known_radius, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
 use crate::device::graphics::States::{ChangeDornDir, Dismiss, FullAnimate, LoadLRA, NewBendParams, ReadyToLoad, ReverseLRACLR, SelectFromWeb};
@@ -247,7 +247,7 @@ pub struct GlobalScene {
     pub metadata_buffer: Buffer,
 }
 impl GlobalScene {
-    pub fn new(device: &Device,queue: &Queue, v_up_orign: &cgmath::Vector3<f64>, w: u32, h: u32) -> Self {
+    pub fn new(device: &Device, queue: &Queue, v_up_orign: &cgmath::Vector3<f64>, w: u32, h: u32) -> Self {
         let camera_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Camera Uniform Buffer"),
             size: 144,
@@ -279,34 +279,29 @@ impl GlobalScene {
             contents: bytemuck::cast_slice(&metadata_default),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        
+
         let i_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Mesh I Buffer"),
             size: (MESH_BUFFER_LIMIT * mem::size_of::<i32>()) as BufferAddress,
-            usage: wgpu::BufferUsages::INDEX
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
             mapped_at_creation: false,
         });
         let v_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(format!("Mesh V Buffer").as_str()),
             size: (MESH_BUFFER_LIMIT * mem::size_of::<MeshVertex>()) as BufferAddress,
-            usage: wgpu::BufferUsages::INDEX
-                | wgpu::BufferUsages::VERTEX
-                | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let offscreen_width: u32 = GlobalScene::calculate_offset_pad(w as u32);
-        let mut offscreen_data: Vec<i32> =
-            Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
+        let mut offscreen_data: Vec<i32> = Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
         let offscreen_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("OFSSCREEN_BUFFER"),
             size: offscreen_data.capacity() as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let materials=Material::generate_materials();
-        queue.write_buffer(&material_buffer, 0,bytemuck::cast_slice(&materials),);
+        let materials = Material::generate_materials();
+        queue.write_buffer(&material_buffer, 0, bytemuck::cast_slice(&materials));
         Self {
             bend_step: 1,
             dorn: Dorn::new(&device, &v_up_orign),
@@ -325,7 +320,7 @@ impl GlobalScene {
             mouse_y: 0.0,
             camera_buffer: camera_buffer,
             material_buffer: material_buffer,
-            materials:materials,
+            materials: materials,
             light_buffer: light_buffer,
             metadata: metadata_default,
             metadata_buffer: metadata_buffer,
@@ -333,8 +328,7 @@ impl GlobalScene {
     }
     pub fn resize(&mut self, device: &Device, w: u32, h: u32) {
         let offscreen_width: u32 = GlobalScene::calculate_offset_pad(w as u32);
-        let mut offscreen_data: Vec<i32> =
-            Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
+        let mut offscreen_data: Vec<i32> = Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
         let offscreen_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("OFSSCREEN_BUFFER"),
             size: offscreen_data.capacity() as u64,
@@ -348,30 +342,30 @@ impl GlobalScene {
 
         IS_OFFSCREEN_BUFFER_MAPPED.store(false, Ordering::Relaxed);
     }
-    pub fn unselect_all(&mut self,queue: &Queue) {
+    pub fn unselect_all(&mut self, queue: &Queue) {
         self.metadata.iter_mut().for_each(|md| { md[1] = 0; });
-        self.select_by_id(queue,-1);
-        
-       #[cfg(target_arch = "wasm32")]{
-           use crate::remote::in_state::select_by_id;
+        self.select_by_id(queue, -1);
+
+        #[cfg(target_arch = "wasm32")]{
+            use crate::remote::in_state::select_by_id;
             select_by_id(-1);
         }
     }
-    pub fn select_by_id(&mut self,queue: &Queue, id: i32) {
-        if(id<0){
-            self.update_meta_data(queue);  
-        }else{
+    pub fn select_by_id(&mut self, queue: &Queue, id: i32) {
+        if (id < 0) {
+            self.update_meta_data(queue);
+        } else {
             self.metadata.iter_mut().for_each(|md| { md[1] = 0; });
             self.metadata[id as usize][1 as usize] = SELECTION_COLOR;
             self.update_meta_data(queue);
         }
-       #[cfg(target_arch = "wasm32")]{
-           use crate::remote::in_state::select_by_id;
+        #[cfg(target_arch = "wasm32")]{
+            use crate::remote::in_state::select_by_id;
             select_by_id(id);
         }
     }
-    fn update_meta_data(&mut self,queue: &Queue) {
-        queue.write_buffer(&self.metadata_buffer, 0, bytemuck::cast_slice(&self.metadata), );
+    fn update_meta_data(&mut self, queue: &Queue) {
+        queue.write_buffer(&self.metadata_buffer, 0, bytemuck::cast_slice(&self.metadata));
     }
     fn calculate_offset_pad(curr_mem: u32) -> u32 {
         if (curr_mem < COPY_BYTES_PER_ROW_ALIGNMENT) {
@@ -474,20 +468,14 @@ pub fn resize_window(
         graphics.camera.resize(new_size.width, new_size.height);
         graphics.surface_config.width = new_size.width;
         graphics.surface_config.height = new_size.height;
-        graphics
-            .surface
-            .configure(&graphics.device, &graphics.surface_config);
-        gs.smaa_target
-            .resize(&graphics.device, new_size.width, new_size.height);
+        graphics.surface.configure(&graphics.device, &graphics.surface_config);
+        gs.smaa_target.resize(&graphics.device, new_size.width, new_size.height);
         let arr: [i32; 4] = [new_size.width as i32, new_size.height as i32, 0, 0];
-        graphics.background_pipe_line.add_data_buffer =
-            graphics
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(format!("AddData Uniform Buffer").as_str()),
-                    contents: bytemuck::cast_slice(&arr),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+        graphics.background_pipe_line.add_data_buffer = graphics.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(format!("AddData Uniform Buffer").as_str()),
+            contents: bytemuck::cast_slice(&arr),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
         g_scene.resize(&graphics.device, new_size.width, new_size.height);
     }
 }
@@ -502,17 +490,11 @@ pub fn resize_window(
     match graphics.window.canvas() {
         None => {}
         Some(canvas) => {
-            graphics
-                .camera
-                .resize(canvas.client_width() as u32, canvas.client_height() as u32);
+            graphics.camera.resize(canvas.client_width() as u32, canvas.client_height() as u32);
 
-            graphics.surface_config.width =
-                (canvas.client_width() as f64 * graphics.window.scale_factor()) as u32;
-            graphics.surface_config.height =
-                (canvas.client_height() as f64 * graphics.window.scale_factor()) as u32;
-            graphics
-                .surface
-                .configure(&graphics.device, &graphics.surface_config);
+            graphics.surface_config.width = (canvas.client_width() as f64 * graphics.window.scale_factor()) as u32;
+            graphics.surface_config.height = (canvas.client_height() as f64 * graphics.window.scale_factor()) as u32;
+            graphics.surface.configure(&graphics.device, &graphics.surface_config);
             gs.smaa_target.resize(
                 &graphics.device,
                 (canvas.client_width() as f64 * graphics.window.scale_factor()) as u32,
@@ -524,14 +506,11 @@ pub fn resize_window(
                 0,
                 0,
             ];
-            graphics.background_pipe_line.add_data_buffer =
-                graphics
-                    .device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some(format!("AddData Uniform Buffer").as_str()),
-                        contents: bytemuck::cast_slice(&arr),
-                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    });
+            graphics.background_pipe_line.add_data_buffer = graphics.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(format!("AddData Uniform Buffer").as_str()),
+                contents: bytemuck::cast_slice(&arr),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
             g_scene.resize(
                 &graphics.device,
                 (canvas.client_width() as f64 * graphics.window.scale_factor()) as u32,
@@ -555,19 +534,11 @@ pub fn key_frame(
                 gs.lraclr_arr = lraclr.clone();
                 gs.lraclr_arr_reversed = cnc::reverse_lraclr(&gs.lraclr_arr);
                 let (cyls, tors) = cnc_to_poly(&gs.lraclr_arr, &gs.v_up_orign);
-                     let (v, i) = all_to_one(&cyls, &tors);
+                let (v, i) = all_to_one(&cyls, &tors);
                 g_scene.mesh_size = i.len();
-                graphics.queue.write_buffer(
-                    &g_scene.i_buffer_mesh,
-                    0,
-                    bytemuck::cast_slice(&MESH_ZEROS_I),
-                );
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&MESH_ZEROS_I));
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
 
                 let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
                 cyls.iter().for_each(|cyl| {
@@ -624,12 +595,8 @@ pub fn key_frame(
                     0,
                     bytemuck::cast_slice(&MESH_ZEROS_I),
                 );
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
                 let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
                 cyls.iter().for_each(|cyl| {
                     bbx += (cyl.bbx.clone());
@@ -664,7 +631,7 @@ pub fn key_frame(
 
                 let (v, i) = all_to_one(&cyls, &tors);
                 g_scene.mesh_size = i.len();
-                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&MESH_ZEROS_I), );
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&MESH_ZEROS_I));
                 graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
                 graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
 
@@ -797,12 +764,8 @@ pub fn key_frame(
                     0,
                     bytemuck::cast_slice(&MESH_ZEROS_I),
                 );
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
-                graphics
-                    .queue
-                    .write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
 
                 let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
                 cyls.iter().for_each(|cyl| {
@@ -831,7 +794,7 @@ pub fn key_frame(
                             id1: id1.round() as i32,
                             id2: id2.round() as i32,
                             l: abs(l as f64),
-                            lt: Rad::from(Deg(a as f64)).0*clr as f64,
+                            lt: Rad::from(Deg(a as f64)).0 * clr as f64,
                             r: r as f64,
                             a: abs(a as f64),
                             clr: abs(clr as f64),
@@ -853,7 +816,7 @@ pub fn key_frame(
                 gs.revert_state()
             }
             States::SelectFromWeb(id) => {
-                g_scene.select_by_id(&graphics.queue,id.clone());
+                g_scene.select_by_id(&graphics.queue, id.clone());
                 gs.revert_state()
             }
         }
@@ -869,13 +832,9 @@ pub fn render(
     match graphics.surface.get_current_texture() {
         Ok(out) => {
             g_scene.dorn.update(&graphics.device);
-            g_scene
-                .dim_x
-                .update(&graphics.device, &graphics.queue, &gs.v_up_orign);
+            g_scene.dim_x.update(&graphics.device, &graphics.queue, &gs.v_up_orign);
             g_scene.dim_z.update(&graphics.device, &graphics.queue);
-            g_scene
-                .dim_b
-                .update(&graphics.device, &graphics.queue, &gs.v_up_orign);
+            g_scene.dim_b.update(&graphics.device, &graphics.queue, &gs.v_up_orign);
 
             let mvp = graphics.camera.get_mvp_buffer().clone();
             graphics.queue.write_buffer(
@@ -931,92 +890,82 @@ pub fn render(
                 label: None,
                 view_formats: &vec![],
             });
-            let depth_view: TextureView =
-                depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let depth_view: TextureView = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let smaa_frame: SmaaFrame =
-                gs.smaa_target
-                    .start_frame(&graphics.device, &graphics.queue, &view);
+            let smaa_frame: SmaaFrame = gs.smaa_target.start_frame(&graphics.device, &graphics.queue, &view);
 
-            let mut encoder: CommandEncoder =
-                graphics
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Render Encoder D"),
-                    });
-            let bg: BindGroup = graphics
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &graphics.mesh_pipe_line.mesh_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: g_scene.camera_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: g_scene.light_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: g_scene.material_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: g_scene.metadata_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: g_scene.dorn.scale_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: g_scene.dorn.translate_buffer.as_entire_binding(),
-                        },
-                    ],
-                    label: Some("Mesh Bind Group"),
-                });
+            let mut encoder: CommandEncoder = graphics.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder D"),
+            });
+            let bg: BindGroup = graphics.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &graphics.mesh_pipe_line.mesh_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: g_scene.camera_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: g_scene.light_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: g_scene.material_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: g_scene.metadata_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: g_scene.dorn.scale_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: g_scene.dorn.translate_buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("Mesh Bind Group"),
+            });
             {
-                let render_pass: RenderPass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render Pass1"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &smaa_frame,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &depth_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: StoreOp::Store,
-                            }),
-                            stencil_ops: None,
+                let render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass1"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &smaa_frame,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: StoreOp::Store,
                         }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
             }
             //BACKGROUND
             {
-                let mut render_pass: RenderPass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render Pass 2"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &smaa_frame,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass 2"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &smaa_frame,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
                 render_pass.set_pipeline(&graphics.background_pipe_line.render_pipeline);
                 render_pass.set_bind_group(
                     0,
@@ -1029,8 +978,89 @@ pub fn render(
             {
                 let count = g_scene.mesh_size;
                 if (count > 0) {
-                    let mut render_pass: RenderPass =
-                        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass 2"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &smaa_frame,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(
+                            wgpu::RenderPassDepthStencilAttachment {
+                                view: &depth_view,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            },
+                        ),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
+                    render_pass.set_bind_group(0, &bg, &[]);
+                    render_pass.set_vertex_buffer(0, g_scene.v_buffer_mesh.slice(..));
+                    render_pass.set_index_buffer(
+                        g_scene.i_buffer_mesh.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.draw_indexed(
+                        Range {
+                            start: 0,
+                            end: count as u32,
+                        },
+                        0,
+                        Range { start: 0, end: 1 },
+                    );
+                }
+            }
+            //DORN MESHES
+            {
+                let count = g_scene.dorn.i_buffer.size() as u64 / mem::size_of::<i32>() as u64;
+                let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass 2"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &smaa_frame,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
+                render_pass.set_bind_group(0, &bg, &[]);
+                render_pass.set_vertex_buffer(0, g_scene.dorn.v_buffer.slice(..));
+                render_pass.set_index_buffer(g_scene.dorn.i_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(
+                    Range {
+                        start: 0,
+                        end: count as u32,
+                    },
+                    0,
+                    Range { start: 0, end: 1 },
+                );
+            }
+            //DIM MESHES
+            {
+                if (g_scene.dim_x.is_active) {
+                    {
+                        let count = g_scene.dim_x.i_buffer_x.size() as u64 / mem::size_of::<i32>() as u64;
+                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Render Pass 2"),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                                 view: &smaa_frame,
@@ -1053,92 +1083,6 @@ pub fn render(
                             timestamp_writes: None,
                             occlusion_query_set: None,
                         });
-                    render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
-                    render_pass.set_bind_group(0, &bg, &[]);
-                    render_pass.set_vertex_buffer(0, g_scene.v_buffer_mesh.slice(..));
-                    render_pass.set_index_buffer(
-                        g_scene.i_buffer_mesh.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(
-                        Range {
-                            start: 0,
-                            end: count as u32,
-                        },
-                        0,
-                        Range { start: 0, end: 1 },
-                    );
-                }
-            }
-            //DORN MESHES
-            {
-                let count = g_scene.dorn.i_buffer.size() as u64 / mem::size_of::<i32>() as u64;
-                let mut render_pass: RenderPass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render Pass 2"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &smaa_frame,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &depth_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
-                render_pass.set_bind_group(0, &bg, &[]);
-                render_pass.set_vertex_buffer(0, g_scene.dorn.v_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(g_scene.dorn.i_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(
-                    Range {
-                        start: 0,
-                        end: count as u32,
-                    },
-                    0,
-                    Range { start: 0, end: 1 },
-                );
-            }
-            //DIM MESHES
-            {
-                if (g_scene.dim_x.is_active) {
-                    {
-                        let count =
-                            g_scene.dim_x.i_buffer_x.size() as u64 / mem::size_of::<i32>() as u64;
-                        let mut render_pass: RenderPass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Render Pass 2"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &smaa_frame,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Load,
-                                        store: StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &depth_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
                         render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
                         render_pass.set_bind_group(0, &bg, &[]);
                         render_pass.set_vertex_buffer(0, g_scene.dim_x.v_buffer_x.slice(..));
@@ -1156,85 +1100,72 @@ pub fn render(
                         );
                     }
                     {
-                        let tbg: BindGroup =
-                            graphics
-                                .device
-                                .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    layout: &graphics.txt_pipe_line.txt_bind_group_layout,
-                                    entries: &[
-                                        wgpu::BindGroupEntry {
-                                            binding: 0,
-                                            resource: g_scene.camera_buffer.as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 1,
-                                            resource: g_scene
-                                                .light_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 2,
-                                            resource: g_scene
-                                                .material_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 3,
-                                            resource: g_scene
-                                                .metadata_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 4,
-                                            resource: g_scene.dorn.scale_buffer.as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 5,
-                                            resource: g_scene
-                                                .dorn
-                                                .translate_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 6,
-                                            //resource:BindingResource::TextureView(&graphics.txt_pipe_line.diffuse_texture_view),
-                                            resource: BindingResource::TextureView(
-                                                &g_scene.dim_x.diffuse_texture_view,
-                                            ),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 7,
-                                            resource: BindingResource::Sampler(
-                                                &g_scene.dim_x.diffuse_sampler,
-                                            ),
-                                        },
-                                    ],
-                                    label: Some("Txt Bind Group"),
-                                });
-                        let mut render_pass: RenderPass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Render Pass 2"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &smaa_frame,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
+                        let tbg: BindGroup = graphics.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            layout: &graphics.txt_pipe_line.txt_bind_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: g_scene.camera_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: g_scene.light_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: g_scene.material_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 3,
+                                    resource: g_scene.metadata_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 4,
+                                    resource: g_scene.dorn.scale_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 5,
+                                    resource: g_scene.dorn.translate_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 6,
+                                    //resource:BindingResource::TextureView(&graphics.txt_pipe_line.diffuse_texture_view),
+                                    resource: BindingResource::TextureView(
+                                        &g_scene.dim_x.diffuse_texture_view,
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 7,
+                                    resource: BindingResource::Sampler(
+                                        &g_scene.dim_x.diffuse_sampler,
+                                    ),
+                                },
+                            ],
+                            label: Some("Txt Bind Group"),
+                        });
+                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass 2"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &smaa_frame,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &depth_view,
+                                    depth_ops: Some(wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
                                         store: StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &depth_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
+                                    }),
+                                    stencil_ops: None,
+                                },
+                            ),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
                         render_pass.set_pipeline(&graphics.txt_pipe_line.txt_render_pipeline);
                         render_pass.set_bind_group(0, &tbg, &[]);
                         render_pass.set_vertex_buffer(0, g_scene.dim_x.v_txt_buffer.slice(..));
@@ -1244,32 +1175,30 @@ pub fn render(
 
                 if (g_scene.dim_z.is_active) {
                     {
-                        let count =
-                            g_scene.dim_z.i_buffer_x.size() as u64 / mem::size_of::<i32>() as u64;
-                        let mut render_pass: RenderPass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Render Pass 2"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &smaa_frame,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
+                        let count = g_scene.dim_z.i_buffer_x.size() as u64 / mem::size_of::<i32>() as u64;
+                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass 2"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &smaa_frame,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &depth_view,
+                                    depth_ops: Some(wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
                                         store: StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &depth_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
+                                    }),
+                                    stencil_ops: None,
+                                },
+                            ),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
                         render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
                         render_pass.set_bind_group(0, &bg, &[]);
                         render_pass.set_vertex_buffer(0, g_scene.dim_z.v_buffer_x.slice(..));
@@ -1287,87 +1216,72 @@ pub fn render(
                         );
                     }
                     {
-                        let tbg: BindGroup =
-                            graphics
-                                .device
-                                .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    layout: &graphics.txt_pipe_line.txt_bind_group_layout,
-                                    entries: &[
-                                        wgpu::BindGroupEntry {
-                                            binding: 0,
-                                            resource: g_scene
-                                                .camera_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 1,
-                                            resource: g_scene
-                                                .light_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 2,
-                                            resource: g_scene
-                                                .material_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 3,
-                                            resource: g_scene
-                                                .metadata_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 4,
-                                            resource: g_scene.dorn.scale_buffer.as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 5,
-                                            resource: g_scene
-                                                .dorn
-                                                .translate_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 6,
-                                            //resource:BindingResource::TextureView(&graphics.txt_pipe_line.diffuse_texture_view),
-                                            resource: BindingResource::TextureView(
-                                                &g_scene.dim_z.diffuse_texture_view,
-                                            ),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 7,
-                                            resource: BindingResource::Sampler(
-                                                &g_scene.dim_z.diffuse_sampler,
-                                            ),
-                                        },
-                                    ],
-                                    label: Some("Txt Bind Group"),
-                                });
-                        let mut render_pass: RenderPass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Render Pass 2"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &smaa_frame,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
+                        let tbg: BindGroup = graphics.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            layout: &graphics.txt_pipe_line.txt_bind_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: g_scene.camera_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: g_scene.light_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: g_scene.material_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 3,
+                                    resource: g_scene.metadata_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 4,
+                                    resource: g_scene.dorn.scale_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 5,
+                                    resource: g_scene.dorn.translate_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 6,
+                                    //resource:BindingResource::TextureView(&graphics.txt_pipe_line.diffuse_texture_view),
+                                    resource: BindingResource::TextureView(
+                                        &g_scene.dim_z.diffuse_texture_view,
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 7,
+                                    resource: BindingResource::Sampler(
+                                        &g_scene.dim_z.diffuse_sampler,
+                                    ),
+                                },
+                            ],
+                            label: Some("Txt Bind Group"),
+                        });
+                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass 2"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &smaa_frame,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &depth_view,
+                                    depth_ops: Some(wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
                                         store: StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &depth_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
+                                    }),
+                                    stencil_ops: None,
+                                },
+                            ),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
                         render_pass.set_pipeline(&graphics.txt_pipe_line.txt_render_pipeline);
                         render_pass.set_bind_group(0, &tbg, &[]);
                         render_pass.set_vertex_buffer(0, g_scene.dim_z.v_txt_buffer.slice(..));
@@ -1377,32 +1291,30 @@ pub fn render(
 
                 if (g_scene.dim_b.is_active) {
                     {
-                        let count =
-                            g_scene.dim_b.i_buffer_x.size() as u64 / mem::size_of::<i32>() as u64;
-                        let mut render_pass: RenderPass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Render Pass 2"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &smaa_frame,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
+                        let count = g_scene.dim_b.i_buffer_x.size() as u64 / mem::size_of::<i32>() as u64;
+                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass 2"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &smaa_frame,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &depth_view,
+                                    depth_ops: Some(wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
                                         store: StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &depth_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
+                                    }),
+                                    stencil_ops: None,
+                                },
+                            ),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
                         render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
                         render_pass.set_bind_group(0, &bg, &[]);
                         render_pass.set_vertex_buffer(0, g_scene.dim_b.v_buffer_x.slice(..));
@@ -1420,87 +1332,72 @@ pub fn render(
                         );
                     }
                     {
-                        let tbg: BindGroup =
-                            graphics
-                                .device
-                                .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    layout: &graphics.txt_pipe_line.txt_bind_group_layout,
-                                    entries: &[
-                                        wgpu::BindGroupEntry {
-                                            binding: 0,
-                                            resource: g_scene
-                                                .camera_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 1,
-                                            resource: g_scene
-                                                .light_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 2,
-                                            resource: g_scene
-                                                .material_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 3,
-                                            resource: g_scene
-                                                .metadata_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 4,
-                                            resource: g_scene.dorn.scale_buffer.as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 5,
-                                            resource: g_scene
-                                                .dorn
-                                                .translate_buffer
-                                                .as_entire_binding(),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 6,
-                                            //resource:BindingResource::TextureView(&graphics.txt_pipe_line.diffuse_texture_view),
-                                            resource: BindingResource::TextureView(
-                                                &g_scene.dim_b.diffuse_texture_view,
-                                            ),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 7,
-                                            resource: BindingResource::Sampler(
-                                                &g_scene.dim_b.diffuse_sampler,
-                                            ),
-                                        },
-                                    ],
-                                    label: Some("Txt Bind Group"),
-                                });
-                        let mut render_pass: RenderPass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("Render Pass 2"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &smaa_frame,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
+                        let tbg: BindGroup = graphics.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            layout: &graphics.txt_pipe_line.txt_bind_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: g_scene.camera_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: g_scene.light_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: g_scene.material_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 3,
+                                    resource: g_scene.metadata_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 4,
+                                    resource: g_scene.dorn.scale_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 5,
+                                    resource: g_scene.dorn.translate_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 6,
+                                    //resource:BindingResource::TextureView(&graphics.txt_pipe_line.diffuse_texture_view),
+                                    resource: BindingResource::TextureView(
+                                        &g_scene.dim_b.diffuse_texture_view,
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 7,
+                                    resource: BindingResource::Sampler(
+                                        &g_scene.dim_b.diffuse_sampler,
+                                    ),
+                                },
+                            ],
+                            label: Some("Txt Bind Group"),
+                        });
+                        let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Render Pass 2"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &smaa_frame,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &depth_view,
+                                    depth_ops: Some(wgpu::Operations {
                                         load: wgpu::LoadOp::Load,
                                         store: StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &depth_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: StoreOp::Store,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
+                                    }),
+                                    stencil_ops: None,
+                                },
+                            ),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
                         render_pass.set_pipeline(&graphics.txt_pipe_line.txt_render_pipeline);
                         render_pass.set_bind_group(0, &tbg, &[]);
                         render_pass.set_vertex_buffer(0, g_scene.dim_b.v_txt_buffer.slice(..));
@@ -1527,18 +1424,14 @@ pub fn render(
 
                 let mut rows: Vec<Vec<[i32; 4]>> = vec![];
 
-                let click_aspect_ratio: f32 =
-                    g_scene.mouse_x as f32 / graphics.surface_config.width as f32;
-                let click_x_compensated: usize =
-                    (click_aspect_ratio * g_scene.offscreen_width as f32) as usize;
-                result
-                    .chunks(g_scene.offscreen_width as usize)
-                    .for_each(|row| {
-                        rows.push(Vec::from(row));
-                    });
+                let click_aspect_ratio: f32 = g_scene.mouse_x as f32 / graphics.surface_config.width as f32;
+                let click_x_compensated: usize = (click_aspect_ratio * g_scene.offscreen_width as f32) as usize;
+                result.chunks(g_scene.offscreen_width as usize).for_each(|row| {
+                    rows.push(Vec::from(row));
+                });
                 let selected = &rows[g_scene.mouse_y as usize][click_x_compensated];
                 if (selected[3] == 0) {
-                    g_scene.select_by_id(&graphics.queue,selected[0]);
+                    g_scene.select_by_id(&graphics.queue, selected[0]);
                 } else {
                     g_scene.unselect_all(&graphics.queue);
                 }
@@ -1585,14 +1478,10 @@ pub fn render_selection(
             label: None,
             view_formats: &[],
         });
-        let sel_depth_view: TextureView =
-            sel_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder: CommandEncoder =
-            graphics
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Sel Encoder D"),
-                });
+        let sel_depth_view: TextureView = sel_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder: CommandEncoder = graphics.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Sel Encoder D"),
+        });
         {
             let render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass1"),
@@ -1618,67 +1507,63 @@ pub fn render_selection(
         }
         //MESH
         {
-            let bg: BindGroup = graphics
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &graphics.mesh_pipe_line.mesh_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: g_scene.camera_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: g_scene.light_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: g_scene.material_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: g_scene.metadata_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: g_scene.dorn.scale_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: g_scene.dorn.translate_buffer.as_entire_binding(),
-                        },
-                    ],
-                    label: Some("Mesh Bind Group"),
-                });
+            let bg: BindGroup = graphics.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &graphics.mesh_pipe_line.mesh_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: g_scene.camera_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: g_scene.light_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: g_scene.material_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: g_scene.metadata_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: g_scene.dorn.scale_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: g_scene.dorn.translate_buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("Mesh Bind Group"),
+            });
             let count = g_scene.mesh_size;
             if (count > 0) {
-                let mut render_pass: RenderPass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Render Pass 2"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &sel_texture_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &sel_depth_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: StoreOp::Store,
-                            }),
-                            stencil_ops: None,
+                let mut render_pass: RenderPass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass 2"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &sel_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &sel_depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: StoreOp::Store,
                         }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
                 render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_selection_pipeline);
                 render_pass.set_bind_group(0, &bg, &[]);
                 render_pass.set_vertex_buffer(0, g_scene.v_buffer_mesh.slice(..));
-                render_pass
-                    .set_index_buffer(g_scene.i_buffer_mesh.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.set_index_buffer(g_scene.i_buffer_mesh.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(
                     Range {
                         start: 0,
@@ -1810,8 +1695,7 @@ pub fn on_keyboard(
                             None => {}
                             Some(mut ops) => {
                                 let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-                                let lraclr_arr_reversed: Vec<LRACLR> =
-                                    cnc::reverse_lraclr(&lraclr_arr);
+                                let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
                                 gs.state = ReadyToLoad((lraclr_arr, true));
                                 gs.v_up_orign = P_UP_REVERSE;
 
@@ -1833,8 +1717,28 @@ pub fn on_keyboard(
         PhysicalKey::Code(KeyCode::F6) => match event.state {
             ElementState::Pressed => {}
             ElementState::Released => {
-                g_scene.dim_x.is_active = true;
-                g_scene.dim_x.set_scale(300.0);
+                g_scene.bend_step = 1;
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/Dorn.stp")).as_slice());
+                let stp: Vec<u8> = Vec::from((include_bytes!("../files/D19_203.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/D7.stp")).as_slice());
+
+                match analyze_bin_with_known_radius(&stp) {
+                    None => {}
+                    Some(mut ops) => {
+                        let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
+                        lraclr_arr.iter().for_each(|lr| {
+                            warn!("{:?}",lr);
+                        });
+
+                        let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
+                        gs.state = ReadyToLoad((lraclr_arr, true));
+                        gs.v_up_orign = P_UP_REVERSE;
+
+                        //gs.state = ReadyToLoad((prerender,lraclr_arr_reversed));
+                        //let obj_file = ops.all_to_one_obj_bin();
+                        //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
+                    }
+                };
             }
         },
         _ => {}

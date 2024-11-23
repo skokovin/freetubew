@@ -1,7 +1,4 @@
-use crate::algo::{
-    project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, EXTRA_LEN_CALC,
-    EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE,
-};
+use crate::algo::{project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE};
 use crate::device::graphics::{AnimState, BendParameters};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::{abs, signum};
@@ -10,7 +7,7 @@ use cgmath::{
 };
 use is_odd::IsOdd;
 use itertools::Itertools;
-use rand::random;
+use rand::{random, Rng};
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::fmt::{Display, Formatter};
@@ -115,6 +112,8 @@ impl CncOps {
             cyls_path.iter().for_each(|c| {
                 if (c.ca_tor != u64::MAX || c.cb_tor != u64::MAX) {
                     cyls_path_cleared.push(c.clone());
+                }else{
+                    warn!("HAS GAP")
                 }
             });
             if (cyls.len() == 2 && bends.len() == 1) {
@@ -123,7 +122,9 @@ impl CncOps {
                 tot_ops_cyls.push(OpElem::CYL(cyls[1].clone()));
             } else {
                 match MainCylinder::find_ends(&cyls_path_cleared) {
-                    None => {}
+                    None => {
+                        panic!("CANT FIND ENDS");
+                    }
                     Some(ends) => {
                         let mut curr = ends[0].clone();
                         tot_ops_cyls.push(OpElem::CYL(ends[0].clone()));
@@ -213,8 +214,7 @@ impl CncOps {
                     match ops1 {
                         OpElem::CYL(_) => {}
                         OpElem::TOR(t) => {
-                            if (!(cyl.cb.loc.distance(t.ca.loc).abs() < TOLE)
-                                && !(cyl.cb.loc.distance(t.cb.loc).abs() < TOLE))
+                            if (!(cyl.cb.loc.distance(t.ca.loc).abs() < TOLE) && !(cyl.cb.loc.distance(t.cb.loc).abs() < TOLE))
                             {
                                 cyl.reverse_my_points();
                             }
@@ -396,8 +396,7 @@ impl CncOps {
                                                 t.bend_plane_norm,
                                                 t.ca.dir,
                                                 prev,
-                                            )
-                                            .determinant();
+                                            ).determinant();
                                             let angle = det.atan2(dot);
                                             let d = prev.dot(t.bend_plane_norm);
                                             let d_frwd = prev_fwd.dot(t.cb.dir);
@@ -453,7 +452,7 @@ impl CncOps {
     }
     pub fn generate_cyl(h: f64, radius: f64) -> MainCylinder {
         let mut mc: MainCylinder = MainCylinder {
-            id: 0,
+            id: rand::thread_rng().gen_range(0..1024),
             ca: MainCircle {
                 id: random(),
                 radius: radius,
@@ -470,9 +469,9 @@ impl CncOps {
             },
             h: h,
             r: radius,
-            r_gr_id: 0,
-            ca_tor: 0,
-            cb_tor: 0,
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
+            ca_tor: u64::MAX,
+            cb_tor: u64::MAX,
             step_vertex_buffer: StepVertexBuffer::default(),
             bbx: BoundingBox::default(),
         };
@@ -491,14 +490,7 @@ fn generate_dummy_cyl(id: u64, stright_len: f64, radius: f64) -> MainCylinder {
         P_UP,
     )
 }
-fn generate_cyl_by_2pts(
-    id: u64,
-    sp: Point3,
-    ep: Point3,
-    radius: f64,
-    fwd_dir: Vector3,
-    up_dir: Vector3,
-) -> MainCylinder {
+fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: Vector3, up_dir: Vector3) -> MainCylinder {
     let h: f64 = sp.distance(ep);
     let mut mc: MainCylinder = MainCylinder {
         id: id,
@@ -518,9 +510,9 @@ fn generate_cyl_by_2pts(
         },
         h: h,
         r: radius,
-        r_gr_id: 0,
-        ca_tor: 0,
-        cb_tor: 0,
+        r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
+        ca_tor: u64::MAX,
+        cb_tor: u64::MAX,
         step_vertex_buffer: StepVertexBuffer::default(),
         bbx: BoundingBox::default(),
     };
@@ -635,8 +627,7 @@ pub fn cnc_to_poly(
             let rotation_x_half: Basis3<f64> = Rotation3::from_axis_angle(v_up, bend_angle_half);
             let v_frw_half = rotation_x_half.rotate_vector(v_frw_s);
             let ep = sp + v_frw_half.mul(dist_x);
-            let tor: BendToro =
-                generate_tor_by_2pts(current_step, sp, ep, pipe_r, v_frw_s, v_frw, v_up, bend_r);
+            let tor: BendToro = generate_tor_by_2pts(current_step, sp, ep, pipe_r, v_frw_s, v_frw, v_up, bend_r);
             current_step = current_step + 1;
             sp = ep;
             //tor.to_obj();
@@ -678,7 +669,7 @@ fn generate_tor_by_2pts(
             dir: fwd_dir_e,
             radius_dir: up_dir,
         },
-        r_gr_id: 0,
+        r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         step_vertex_buffer: StepVertexBuffer::default(),
         bbx: BoundingBox::default(),
     };
@@ -754,8 +745,7 @@ pub fn cnc_to_poly_animate(
                             out_cyls.push(cyl);
                         } else {
                             let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
-                            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) =
-                                cnc_to_poly(&reversed, &v_up_orign);
+                            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                             out_cyls = cyls;
                             out_tors = tors;
                         }
@@ -788,8 +778,7 @@ pub fn cnc_to_poly_animate(
                             out_cyls.push(cyl);
                         } else {
                             let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
-                            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) =
-                                cnc_to_poly(&reversed, &v_up_orign);
+                            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                             out_cyls = cyls;
                             out_tors = tors;
                         }
@@ -820,8 +809,7 @@ pub fn cnc_to_poly_animate(
                         });
                         let mut reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
                         reversed[0].r = curr_r;
-                        let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) =
-                            cnc_to_poly(&reversed, &v_up_orign);
+                        let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                         out_cyls = cyls;
                         out_tors = tors;
                         //warn!("last rot stage id {:?}  {:?} of {:?}",id,next_stage,curr_r);
@@ -834,16 +822,14 @@ pub fn cnc_to_poly_animate(
                         }
                         (out_cyls, out_tors, next_stage)
                     } else {
-                        let next_stage: AnimState =
-                            AnimState::new(id, 1, next_val, stright_len, curr.clone(), op_counter);
+                        let next_stage: AnimState = AnimState::new(id, 1, next_val, stright_len, curr.clone(), op_counter);
                         lraclr_arr.iter().take(indx + 1).for_each(|lr| {
                             anim_lra.push(lr.clone());
                         });
 
                         let mut reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
                         reversed[0].r = next_stage.value;
-                        let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) =
-                            cnc_to_poly(&reversed, &v_up_orign);
+                        let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
                         out_cyls = cyls;
                         out_tors = tors;
 
@@ -898,8 +884,7 @@ pub fn cnc_to_poly_animate(
 
             let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
 
-            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) =
-                cnc_to_poly(&reversed, &v_up_orign);
+            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
             out_cyls = cyls;
             out_tors = tors;
 
@@ -934,8 +919,7 @@ pub fn cnc_to_poly_animate(
             let mut reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
             reversed[0].a = next_stage.value;
 
-            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) =
-                cnc_to_poly(&reversed, &v_up_orign);
+            let (cyls, tors): (Vec<MainCylinder>, Vec<BendToro>) = cnc_to_poly(&reversed, &v_up_orign);
             out_cyls = cyls;
             out_tors = tors;
             if (next_stage.stright_len > 0.0) {
@@ -950,39 +934,39 @@ pub fn cnc_to_poly_animate(
     }
 }
 pub fn all_to_one(c: &Vec<MainCylinder>, t: &Vec<BendToro>) -> (Vec<MeshVertex>, Vec<i32>) {
-    let mut v:Vec<MeshVertex>=vec![];
-    c.iter().for_each(|c|{
+    let mut v: Vec<MeshVertex> = vec![];
+    c.iter().for_each(|c| {
         v.extend_from_slice(c.step_vertex_buffer.buffer.as_slice());
     });
-    t.iter().for_each(|t|{
+    t.iter().for_each(|t| {
         v.extend_from_slice(t.step_vertex_buffer.buffer.as_slice());
     });
-    let i:Vec<i32> =(0.. v.len()as i32).collect();
-    (v,i)
+    let i: Vec<i32> = (0..v.len() as i32).collect();
+    (v, i)
 }
 pub fn all_to_stp(cyls: &Vec<MainCylinder>, tors: &Vec<BendToro>) -> Vec<u8> {
     use truck_modeling::*;
-    let mut shells: Vec<truck_topology::Shell<Point3, Curve,Surface>>=vec![];
-    tors.iter().for_each(|t|{
-        let p=t.ca.loc+t.ca.radius_dir*t.r;
+    let mut shells: Vec<truck_topology::Shell<Point3, Curve, Surface>> = vec![];
+    tors.iter().for_each(|t| {
+        let p = t.ca.loc + t.ca.radius_dir * t.r;
         let vertex1 = builder::vertex(p);
-        let circle = builder::rsweep(&vertex1,t.ca.loc,t.ca.dir, Rad(7.0));
+        let circle = builder::rsweep(&vertex1, t.ca.loc, t.ca.dir, Rad(7.0));
         let disk = builder::try_attach_plane(&[circle]).unwrap();
         let solid: truck_topology::Solid<Point3, Curve, Surface> = builder::rsweep(&disk, t.bend_center_point, t.bend_plane_norm, t.angle());
-        let shells_loc: Vec<truck_topology::Shell<Point3, Curve, Surface>> =solid.into_boundaries();
+        let shells_loc: Vec<truck_topology::Shell<Point3, Curve, Surface>> = solid.into_boundaries();
         shells.extend(shells_loc);
     });
-    cyls.iter().for_each(|c|{
-        let p=c.ca.loc+c.ca.radius_dir*c.r;
+    cyls.iter().for_each(|c| {
+        let p = c.ca.loc + c.ca.radius_dir * c.r;
         let vertex1 = builder::vertex(p);
-        let circle = builder::rsweep(&vertex1,c.ca.loc,c.ca.dir, Rad(7.0));
+        let circle = builder::rsweep(&vertex1, c.ca.loc, c.ca.dir, Rad(7.0));
         let disk = builder::try_attach_plane(&[circle]).unwrap();
-        let v=c.ca.dir.mul(c.h);
-        let solid=builder::tsweep(&disk, v);
-        let shells_loc: Vec<truck_topology::Shell<Point3, Curve, Surface>> =solid.into_boundaries();
+        let v = c.ca.dir.mul(c.h);
+        let solid = builder::tsweep(&disk, v);
+        let shells_loc: Vec<truck_topology::Shell<Point3, Curve, Surface>> = solid.into_boundaries();
         shells.extend(shells_loc);
     });
-    let solid=Solid::new(shells);
+    let solid = Solid::new(shells);
     let step_string = out::CompleteStepDisplay::new(
         out::StepModel::from(&solid.compress()),
         out::StepHeaderDescriptor {

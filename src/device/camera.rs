@@ -97,12 +97,13 @@ impl Camera {
         //gs.v_up_orign
     }
     pub fn move_camera_to_bbx_limits(&mut self) {
-        self.center_p = self.tot_bbx.center();
-        //self.center_p = Point3::new(0.0, 0.0, 0.0);
+        //self.center_p = self.tot_bbx.center();
+        self.center_p = Point3::new(0.0, 0.0, 0.0);
 
         self.reset_pos();
         let cp = self.center_p;
         let ep = self.tot_bbx.max();
+
         let head_forward = cp.sub(ep).normalize();
         let head_forward32: Vector3<f32> = Vector3::new(
             head_forward.x as f32,
@@ -132,6 +133,8 @@ impl Camera {
         self.is_dirty = true;
         self.update();
     }
+
+
     pub fn reset_pos(&mut self) {
         /*  self.yaw = 0.0;
         self.pitch = 0.0;
