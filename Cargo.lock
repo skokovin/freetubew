@@ -386,9 +386,9 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "bytes"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ac0150caa2ae65ca5bd83f25c7de183dea78d4d366469f148435e2acfbad0da"
+checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
 name = "calloop"
@@ -754,12 +754,12 @@ checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
 name = "errno"
-version = "0.3.9"
+version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "534c5cf6194dfab3db3242765c03bbe257cf92f22b38f6bc0c58d59108a820ba"
+checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1006,9 +1006,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.15.1"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a9bfc1af68b1726ea47d3d5109de126281def866b33970e10fbab11b5dafab3"
+checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
 
 [[package]]
 name = "heck"
@@ -1103,7 +1103,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "707907fe3c25f5424cce2cb7e1cbcafee6bdbe735ca90ef77c29e84591e5b9da"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.1",
+ "hashbrown 0.15.2",
 ]
 
 [[package]]
@@ -1244,9 +1244,9 @@ checksum = "03087c2bad5e1034e8cace5926dec053fb3790248370865f5117a7d0213354c8"
 
 [[package]]
 name = "libc"
-version = "0.2.164"
+version = "0.2.166"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "433bfe06b8c75da9b2e3fbea6e5329ff87748f0b144ef75306e674c3f6f7c13f"
+checksum = "c2ccc108bbc0b1331bd061864e7cd823c0cab660bbe6970e66e2c0614decde36"
 
 [[package]]
 name = "libfuzzer-sys"
@@ -2789,9 +2789,9 @@ dependencies = [
 
 [[package]]
 name = "tracing"
-version = "0.1.40"
+version = "0.1.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3523ab5a71916ccf420eebdf5521fcef02141234bbc0b8a49f2fdc4544364ef"
+checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
 dependencies = [
  "pin-project-lite",
  "tracing-core",
@@ -2799,14 +2799,14 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.32"
+version = "0.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
+checksum = "e672c95779cf947c5311f83787af4fa8fffd12fb27e4993211a84bdfd9610f9c"
 
 [[package]]
 name = "truck-base"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "cgmath",
  "matext4cgmath",
@@ -2817,7 +2817,7 @@ dependencies = [
 [[package]]
 name = "truck-derivers"
 version = "0.1.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -2828,7 +2828,7 @@ dependencies = [
 [[package]]
 name = "truck-geometry"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "serde",
  "thiserror",
@@ -2839,7 +2839,7 @@ dependencies = [
 [[package]]
 name = "truck-geotrait"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "getrandom",
  "rand",
@@ -2851,7 +2851,7 @@ dependencies = [
 [[package]]
 name = "truck-meshalgo"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "array-macro",
  "derive_more",
@@ -2869,7 +2869,7 @@ dependencies = [
 [[package]]
 name = "truck-modeling"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "derive_more",
  "rustc-hash 2.0.0",
@@ -2885,7 +2885,7 @@ dependencies = [
 [[package]]
 name = "truck-polymesh"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "array-macro",
  "bytemuck",
@@ -2900,7 +2900,7 @@ dependencies = [
 [[package]]
 name = "truck-stepio"
 version = "0.3.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "chrono",
  "derive_more",
@@ -2917,7 +2917,7 @@ dependencies = [
 [[package]]
 name = "truck-topology"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#88ac7a1a54b2618f9d549d6b71cf3f55984c0d07"
+source = "git+https://github.com/ricosjp/truck.git#26e1817d190fd6cf283f5f0ce3e5e7db2e2434d8"
 dependencies = [
  "parking_lot",
  "rayon",
@@ -3233,9 +3233,9 @@ checksum = "53a85b86a771b1c87058196170769dd264f66c0782acf1ae6cc51bfd64b39082"
 
 [[package]]
 name = "wgpu"
-version = "23.0.0"
+version = "23.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76ab52f2d3d18b70d5ab8dd270a1cff3ebe6dbe4a7d13c1cc2557138a9777fdc"
+checksum = "80f70000db37c469ea9d67defdc13024ddf9a5f1b89cb2941b812ad7cde1735a"
 dependencies = [
  "arrayvec",
  "cfg_aliases 0.1.1",
@@ -3258,9 +3258,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core"
-version = "23.0.0"
+version = "23.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e0c68e7b6322a03ee5b83fcd92caeac5c2a932f6457818179f4652ad2a9c065"
+checksum = "d63c3c478de8e7e01786479919c8769f62a22eec16788d8c2ac77ce2c132778a"
 dependencies = [
  "arrayvec",
  "bit-vec",
@@ -3283,9 +3283,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-hal"
-version = "23.0.0"
+version = "23.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de6e7266b869de56c7e3ed72a954899f71d14fec6cc81c102b7530b92947601b"
+checksum = "89364b8a0b211adc7b16aeaf1bd5ad4a919c1154b44c9ce27838213ba05fd821"
 dependencies = [
  "android_system_properties",
  "arrayvec",

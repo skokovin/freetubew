@@ -1,5 +1,5 @@
 use crate::algo::cnc::{all_to_one, cnc_to_poly, LRACLR};
-use crate::algo::{analyze_bin, analyze_bin_with_known_radius, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
+use crate::algo::{analyze_stp, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
 use crate::device::graphics::States::{ChangeDornDir, Dismiss, FullAnimate, LoadLRA, NewBendParams, ReadyToLoad, ReverseLRACLR, SelectFromWeb};
@@ -1667,18 +1667,14 @@ pub fn on_keyboard(
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
-                        match analyze_bin(&stp) {
-                            None => {}
-                            Some(mut ops) => {
-                                g_scene.bend_step = 1;
-                                let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-                                //let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
-                                gs.state = ReadyToLoad((lraclr_arr, true));
-                                gs.v_up_orign = P_UP_REVERSE;
-                                //let obj_file = ops.all_to_one_obj_bin();
-                                //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
-                            }
-                        };
+                        g_scene.bend_step = 1;
+                        let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                        //let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
+                        gs.state = ReadyToLoad((lraclr_arr, true));
+                        gs.v_up_orign = P_UP_REVERSE;
+                        //let obj_file = ops.all_to_one_obj_bin();
+                        //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
+
                     }
                 }
             }
@@ -1691,19 +1687,15 @@ pub fn on_keyboard(
                     {
                         g_scene.bend_step = 1;
                         let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
-                        match analyze_bin(&stp) {
-                            None => {}
-                            Some(mut ops) => {
-                                let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-                                let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
-                                gs.state = ReadyToLoad((lraclr_arr, true));
-                                gs.v_up_orign = P_UP_REVERSE;
+                        let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                        let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
+                        gs.state = ReadyToLoad((lraclr_arr, true));
+                        gs.v_up_orign = P_UP_REVERSE;
 
-                                //gs.state = ReadyToLoad((prerender,lraclr_arr_reversed));
-                                //let obj_file = ops.all_to_one_obj_bin();
-                                //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
-                            }
-                        };
+                        //gs.state = ReadyToLoad((prerender,lraclr_arr_reversed));
+                        //let obj_file = ops.all_to_one_obj_bin();
+                        //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
+
                     }
                 }
             }
@@ -1718,27 +1710,19 @@ pub fn on_keyboard(
             ElementState::Pressed => {}
             ElementState::Released => {
                 g_scene.bend_step = 1;
-                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/Dorn.stp")).as_slice());
-                let stp: Vec<u8> = Vec::from((include_bytes!("../files/D19_203.stp")).as_slice());
-                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/D7.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/1.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/13.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/12.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/10.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/9.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/3.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
+                let stp: Vec<u8> = Vec::from((include_bytes!("../files/16.stp")).as_slice());
 
-                match analyze_bin_with_known_radius(&stp) {
-                    None => {}
-                    Some(mut ops) => {
-                        let lraclr_arr: Vec<LRACLR> = ops.calculate_lraclr();
-                        lraclr_arr.iter().for_each(|lr| {
-                            warn!("{:?}",lr);
-                        });
-
-                        let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
-                        gs.state = ReadyToLoad((lraclr_arr, true));
-                        gs.v_up_orign = P_UP_REVERSE;
-
-                        //gs.state = ReadyToLoad((prerender,lraclr_arr_reversed));
-                        //let obj_file = ops.all_to_one_obj_bin();
-                        //warn!("FILE ANALYZED C {:?}",prerender.steps_data.len());
-                    }
-                };
+                let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
+                gs.state = ReadyToLoad((lraclr_arr, true));
+                gs.v_up_orign = P_UP_REVERSE;
             }
         },
         _ => {}

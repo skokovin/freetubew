@@ -55,7 +55,7 @@ is-odd = "1.1.0"
 palette = { version = "0.7.6", default-features = true, features = ["named", "named_from_str", "bytemuck"] }
 #wgpu={git = "https://github.com/gfx-rs/wgpu.git",features = ["webgpu"]}
 #wgpu = { version = "22.1.0", default-features = false,features = ["webgl","wgsl"]}
-wgpu = { version = "23.0.0", features = ["webgl"] }
+wgpu = { version = "23.0.1", features = ["webgpu"] }
 image = "0.25.5"
 rand = "0.8.5"
 bytemuck = { version = "1.20.0", features = ["derive"] }

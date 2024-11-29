@@ -13,7 +13,7 @@ pub mod app;
 pub mod txt_pipeline;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable,Default)]
 pub struct MeshVertex {
     pub position: [f32; 4],
     pub normal: [f32; 4],
@@ -49,7 +49,7 @@ impl MeshVertex {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug,Default)]
 pub struct StepVertexBuffer {
     pub buffer: Vec<MeshVertex>,
     pub indxes: Vec<u32>,

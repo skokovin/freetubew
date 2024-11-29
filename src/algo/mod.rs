@@ -1,11 +1,11 @@
 pub mod cnc;
-use crate::algo::cnc::{CncOps, OpElem};
+use crate::algo::cnc::{LRACLR};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::real::Real;
 use cgmath::{Basis3, Deg, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
 use encoding_rs::WINDOWS_1251;
 use encoding_rs_io::DecodeReaderBytesBuilder;
-use itertools::Itertools;
+use itertools::{ChunkBy, Itertools};
 use rand::{random, Rng};
 use ruststep::ast::Name;
 use ruststep::tables::PlaceHolder;
@@ -17,8 +17,11 @@ use std::f64::consts::PI;
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::ops::{Mul, Sub};
+use std::vec::IntoIter;
 use cgmath::num_traits::abs;
+use cgmath::num_traits::float::FloatCore;
 use log::warn;
+
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::{Point3, Vector3};
 use truck_geometry::nurbs::NurbsCurve;
@@ -38,7 +41,7 @@ pub const TESS_TOL_TOR_ANGLE: f64 = 18.0;
 pub const TESS_TOR_STEP: u64 = 20;
 pub const Z_FIGHTING_FACTOR: f32 = 1.0;
 const CAP_TRIANGULATION: Rad<f64> = Rad(PI / 180.0);
-pub const TOLE: f64 = 0.1;
+pub const TOLE: f64 = 0.9;
 pub const EXTRA_LEN_CALC: f64 = 3.0;
 pub const EXTRA_R_CALC: f64 = 1.2;
 pub const MAX_BEND_RADIUS: f64 = 500.0;
@@ -121,8 +124,26 @@ pub struct MainCircle {
     pub loc: Point3,
     pub dir: Vector3,
     pub radius_dir: Vector3,
+    pub r_gr_id: u64,
 }
 impl MainCircle {
+    pub fn gen_points(&self) -> Vec<Point3> {
+        let mut pts_a: Vec<Point3> = vec![];
+        let mut pts_b: Vec<Point3> = vec![];
+        float_range(0.0, PI, PI / 18.0).for_each(|angle| {
+            let rotation: Basis3<f64> = Rotation3::from_axis_angle(self.dir, Rad(angle));
+            let nv = rotation.rotate_vector(self.radius_dir);
+            let p_a = self.loc + nv * self.radius;
+            pts_a.push(p_a);
+            let p_b = self.loc + nv * -self.radius;
+            pts_b.push(p_b);
+        });
+        let first = pts_a[0].clone();
+        pts_b.remove(0);
+        pts_a.extend(pts_b);
+        pts_a.push(first);
+        pts_a
+    }
     pub fn gen_points_with_tol(&self, step_size: f64) -> Vec<Point3> {
         let mut pts_a: Vec<Point3> = vec![];
         let mut pts_b: Vec<Point3> = vec![];
@@ -214,6 +235,7 @@ impl MainCylinder {
             loc: Point3::new(0.0, 0.0, 0.0),
             dir: -P_FORWARD,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
         };
 
         let cb = MainCircle {
@@ -222,6 +244,7 @@ impl MainCylinder {
             loc: Point3::new(0.0, 0.0, 0.0) - P_FORWARD * h,
             dir: -P_FORWARD,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -262,7 +285,6 @@ impl MainCylinder {
             let p = self.ca.loc.clone() + nv * self.ca.radius;
             pts.push(p);
         });
-
         float_range(0.0, PI * 2.0, PI / 18.0).for_each(|angle| {
             let rotation: Basis3<f64> = Rotation3::from_axis_angle(self.cb.dir, Rad(angle));
             let nv = rotation.rotate_vector(self.cb.radius_dir.clone());
@@ -1147,6 +1169,7 @@ impl BendToro {
             loc: start_point,
             dir: -P_FORWARD,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
         };
         let cb = MainCircle {
             id: rand::thread_rng().gen_range(0..1024),
@@ -1154,6 +1177,7 @@ impl BendToro {
             loc: end_point,
             dir: -P_FORWARD,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
         };
 
         let mut tor = BendToro {
@@ -1373,6 +1397,7 @@ impl BendToro {
                 loc: pc0,
                 dir: cdir0,
                 radius_dir: r_dir_0,
+                r_gr_id: (round_by_dec(self.r, 5) * DIVIDER) as u64,
             };
             let mc1 = MainCircle {
                 id: rand::thread_rng().gen_range(0..1024),
@@ -1380,6 +1405,7 @@ impl BendToro {
                 loc: pc1,
                 dir: cdir1,
                 radius_dir: r_dir_1,
+                r_gr_id: (round_by_dec(self.r, 5) * DIVIDER) as u64,
             };
             circles.push(mc0);
             circles.push(mc1);
@@ -1595,6 +1621,7 @@ impl BendToro {
                 loc: pc0,
                 dir: cdir0,
                 radius_dir: r_dir_0,
+                r_gr_id: (round_by_dec(self.r, 5) * DIVIDER) as u64,
             };
             let mc1 = MainCircle {
                 id: rand::thread_rng().gen_range(0..1024),
@@ -1602,6 +1629,7 @@ impl BendToro {
                 loc: pc1,
                 dir: cdir1,
                 radius_dir: r_dir_1,
+                r_gr_id: (round_by_dec(self.r, 5) * DIVIDER) as u64,
             };
             circles.push(mc0);
             circles.push(mc1);
@@ -1779,6 +1807,36 @@ impl BendToro {
         pts.push(self.cb.loc.clone());
         pts
     }
+
+    pub fn default() -> Self {
+        Self {
+            id: 100000,
+            r: 0.0,
+            bend_radius: 0.0,
+            bend_center_point: Point3::origin(),
+            bend_plane_norm: Vector3::unit_x(),
+            radius_dir: Vector3::unit_x(),
+            ca: MainCircle {
+                id: 0,
+                radius: 0.0,
+                loc: Point3::origin(),
+                dir: Vector3::unit_x(),
+                radius_dir: Vector3::unit_x(),
+                r_gr_id: 0,
+            },
+            cb: MainCircle {
+                id: 0,
+                radius: 0.0,
+                loc: Point3::origin(),
+                dir: Vector3::unit_x(),
+                radius_dir: Vector3::unit_x(),
+                r_gr_id: 0,
+            },
+            r_gr_id: 0,
+            step_vertex_buffer: Default::default(),
+            bbx: Default::default(),
+        }
+    }
 }
 
 pub fn float_range(start: f64, threshold: f64, step_size: f64) -> impl Iterator<Item=f64> {
@@ -1787,7 +1845,6 @@ pub fn float_range(start: f64, threshold: f64, step_size: f64) -> impl Iterator<
         (next < threshold).then_some(next)
     })
 }
-
 pub fn intersect_line_by_plane(
     cylinder_dir_vec: &Vector3,
     radius_vec: &Vector3,
@@ -1826,7 +1883,6 @@ pub fn round_by_dec(x: f64, decimals: u32) -> f64 {
     let y = 10i64.pow(decimals);
     (x * y as f64).round() / y as f64
 }
-
 pub fn extract_vertex(t: &Table, vertex: &PlaceHolder<VertexPointHolder>, scale: f64) -> Option<Point3> {
     match vertex {
         Ref(name) => match t.vertex_point.get(&name_to_id(name.clone())) {
@@ -1915,41 +1971,7 @@ pub fn extract_plane_points(table: &Table, scale: f64) -> Vec<Point3> {
     });
     points
 }
-pub fn analyze_bin(arr: &Vec<u8>) -> Option<CncOps> {
-    let mut transcoded = DecodeReaderBytesBuilder::new().encoding(Some(WINDOWS_1251)).build(arr.as_slice());
-    let mut buf: Vec<u8> = vec![];
-    let mut stp: String = String::new();
-    match transcoded.read_to_end(&mut buf) {
-        Ok(b) => match String::from_utf8(buf) {
-            Ok(cont) => {
-                stp = cont.clone();
-            }
-            Err(e) => {
-                println!("{:?}", e)
-            }
-        },
-        Err(e) => {
-            println!("{:?}", e)
-        }
-    }
-    let scale = extact_scale(&stp);
-    let exchange = ruststep::parser::parse(&stp).unwrap();
-    let table = Table::from_data_section(&exchange.data[0]);
-    match extract_main_radius(&table, scale) {
-        None => None,
-        Some((cyls, bends)) => {
-            let ops: CncOps = CncOps::new(&cyls, &bends);
-            if (!ops.ops.is_empty()) {
-                let extra_len_pts: Vec<Point3> = extract_plane_points(&table, scale);
-                let mut extra_len_ops = ops.calculate_extra_len(&extra_len_pts);
-                Some(extra_len_ops)
-            } else {
-                None
-            }
-        }
-    }
-}
-pub fn analyze_bin_with_known_radius(stp: &Vec<u8>) -> Option<CncOps> {
+pub fn analyze_stp(stp: &Vec<u8>) -> Vec<LRACLR> {
     let mut transcoded = DecodeReaderBytesBuilder::new().encoding(Some(WINDOWS_1251)).build(stp.as_slice());
     let mut buf: Vec<u8> = vec![];
     let mut stp: String = String::new();
@@ -1971,31 +1993,30 @@ pub fn analyze_bin_with_known_radius(stp: &Vec<u8>) -> Option<CncOps> {
     let table: Table = Table::from_data_section(&exchange.data[0]);
 
     let (cyls, tors) = extract_cyls(&table, scale);
+
     let cyls_no_dubs = MainCylinder::remove_dublicates(&cyls);
+
     let mut cyls_merged = MainCylinder::merge(&cyls_no_dubs);
 
-
-    //let tors: Vec<BendToro> =extract_tors(&table,scale, &cyls_merged, radius);
     let bend_toros_no_dublicates: Vec<BendToro> = BendToro::remove_dublicates(&tors);
     let merged_tors = BendToro::merge(&bend_toros_no_dublicates);
-    let racalculated_tors: Vec<BendToro> = recalc_tors_tole(&cyls_merged, &merged_tors);
-    /*    let mut counter=0;
-        racalculated_tors.iter().for_each(|c|{
-            c.gen_points();
-            export_to_pt_str(&c.gen_points(),counter.to_string().as_str());
-            counter+=1;
-        });*/
 
-    warn!("cyls_merged {:?}  bend_toros_no_dublicates {:?}",cyls_merged.len(),racalculated_tors.len());
-    let ops: CncOps = CncOps::new(&cyls_merged, &racalculated_tors);
-    if (!ops.ops.is_empty()) {
-        //let extra_len_pts: Vec<Point3> = extract_plane_points(&table,scale);
-        //let mut extra_len_ops = ops.calculate_extra_len(&extra_len_pts);
-        Some(ops)
-        //Some(extra_len_ops)
-    } else {
-        None
-    }
+    let racalculated_tors: Vec<BendToro> = recalc_tors_tole(&cyls_merged, &merged_tors);
+
+
+    let lracmd: Vec<LRACLR> = find_bending_surface(&cyls_merged, &racalculated_tors,&table,scale);
+
+    lracmd
+    //let racalculated_tors: Vec<BendToro> = recalc_tors_tole(&pipe_cyls, &pipe_tors);
+    //warn!("cyls_merged {:?}  bend_toros_no_dublicates {:?}",cyls_merged.len(),racalculated_tors.len());
+    /*    let ops: CncOps = CncOps::new(&pipe_cyls, &racalculated_tors);
+        if (!ops.ops.is_empty()) {
+            let extra_len_pts: Vec<Point3> = extract_plane_points(&table, scale);
+            let mut extra_len_ops = ops.calculate_extra_len(&extra_len_pts);
+            Some(extra_len_ops)
+        } else {
+            None
+        }*/
 }
 pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendToro>) {
     let mut toros: Vec<BendToro> = vec![];
@@ -2057,6 +2078,7 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                                         loc: loc.unwrap().clone(),
                                                                                                                         dir: dir.unwrap().normalize(),
                                                                                                                         radius_dir: dir_rad.unwrap().normalize(),
+                                                                                                                        r_gr_id: (round_by_dec(circle_r, 5) * DIVIDER) as u64,
                                                                                                                     };
                                                                                                                     candidates.push(mc);
                                                                                                                 }
@@ -2174,7 +2196,9 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                                     found = true;
                                                                                                                     let (loc, dir, dir_rad) = extract_position(&table, &ellipse.position, scale);
                                                                                                                     let axe1 = ellipse.semi_axis_1;
-                                                                                                                    let axe2 = ellipse.semi_axis_1;
+                                                                                                                    let axe2 = ellipse.semi_axis_2;
+
+                                                                                                                    warn!("SEMIAXE {:?} {:?}",axe1, axe2);
                                                                                                                     let p1 = loc.unwrap() + dir_rad.unwrap() * axe1;
                                                                                                                     let p2 = loc.unwrap() + dir_rad.unwrap() * axe2;
                                                                                                                     points.push(p1);
@@ -2198,8 +2222,8 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                     }
                                                                                                     let sp = extract_vertex(&table, &c.edge_start, scale).unwrap();
                                                                                                     let ep = extract_vertex(&table, &c.edge_end, scale).unwrap();
-                                                                                                    //points.push(sp);
-                                                                                                    //points.push(ep);
+                                                                                                    points.push(sp);
+                                                                                                    points.push(ep);
                                                                                                 }
                                                                                             }
                                                                                         }
@@ -2219,321 +2243,117 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                             }
                                         }
                                     }
-                                    PlaceHolder::Owned(_) => {}
+                                    PlaceHolder::Owned(_) => {
+                                        warn!("Owned Owned");
+                                    }
                                 }
                             });
                         }
                     }
                 }
                 PlaceHolder::Owned(_) => {}
-            }
-            let no_dubs = remove_circle_dublicates(&candidates);
+            };
+
+
+            let mut no_dubs = remove_circle_dublicates(&candidates);
+            no_dubs.sort_by(|a, b| a.r_gr_id.cmp(&b.r_gr_id));
+
 
             counter = counter + 1;
 
-            if (no_dubs.len() == 2) {
-                let (cyls, tors) = do_cyl_2(&no_dubs[0], &no_dubs[1], &points);
-                cilinders.extend(cyls);
-                toros.extend(tors);
-            }
+            no_dubs.iter().chunk_by(|c| c.r_gr_id).into_iter().for_each(|(k, v)| {
+                //warn!("counter {:?} K {:?} V {:?}",counter, k,  v.into_iter().collect_vec().len());
+            });
 
-            if (no_dubs.len() == 1) {
-                let cyls = do_cyl_1(&no_dubs[0], &points);
-                cilinders.extend(cyls);
-            }
+            no_dubs.iter().chunk_by(|c| c.r_gr_id).into_iter().for_each(|(k, v)| {
+                 let vec = v.into_iter().collect_vec();
+                 let mut nv: Vec<MainCircle> = vec![];
+                 vec.iter().for_each(|c| {
+                     nv.push(c.clone().clone());
+                 });
+                 let count = nv.len();
+                 match count {
+                     1 => {
+                         do_cyl_1(&nv[0], &points);
+                     }
+                     2 => {
+                         let (cyls, tors) = do_cyl_2(&nv[0], &nv[1], &points);
+                         cilinders.extend(cyls);
+                         toros.extend(tors);
+                     }
+                   /*  3 => {
+                         if ((nv[0].radius - nv[1].radius).abs() < TOLE) {
+                             let (cyls, tors) = do_cyl_2(&nv[0], &nv[1], &points);
+                             cilinders.extend(cyls);
+                             toros.extend(tors);
+                         } else if ((nv[0].radius - nv[2].radius).abs() < TOLE) {
+                             let (cyls, tors) = do_cyl_2(&nv[0], &nv[2], &points);
+                             cilinders.extend(cyls);
+                             toros.extend(tors);
+                         } else if ((nv[1].radius - nv[2].radius).abs() < TOLE) {
+                             let (cyls, tors) = do_cyl_2(&nv[1], &nv[2], &points);
+                             cilinders.extend(cyls);
+                             toros.extend(tors);
+                         }
+                     }*/
+                     0 => {}
+                     _ => {
+                         nv.iter().for_each(|c| {
+                             //warn!("no_dubs {:?}  {:?} ",counter, c.radius);
+                             let cyls = do_cyl_1(&c, &points);
+                             cilinders.extend(cyls);
+                         });
+                     }
+                 }
+             });
 
-            if (no_dubs.len() ==3) {
-                let mut two_circles: Vec<(MainCircle)> = vec![];
-                if(no_dubs[0].radius==no_dubs[1].radius){
+
+/*            {
+                if (no_dubs.len() == 2) {
                     let (cyls, tors) = do_cyl_2(&no_dubs[0], &no_dubs[1], &points);
                     cilinders.extend(cyls);
                     toros.extend(tors);
-                }else if (no_dubs[0].radius==no_dubs[2].radius) {
-                    let (cyls, tors) = do_cyl_2(&no_dubs[0], &no_dubs[2], &points);
-                    cilinders.extend(cyls);
-                    toros.extend(tors);
-                }else if(no_dubs[1].radius==no_dubs[2].radius){
-                    let (cyls, tors) = do_cyl_2(&no_dubs[1], &no_dubs[2], &points);
-                    cilinders.extend(cyls);
-                    toros.extend(tors);
                 }
 
+                if (no_dubs.len() == 1) {
+                    let cyls = do_cyl_1(&no_dubs[0], &points);
+                    cilinders.extend(cyls);
+                }
 
-     /*           no_dubs.iter().for_each(|cir|{
-                    warn!("cir {:?} {:?}",counter, cir.radius)
-                })*/
-            }
-
-        });
-    });
-    (cilinders, toros)
-}
-
-pub fn extract_cyls_old(table: &Table, scale: f64, radius: f64) -> (Vec<MainCylinder>, Vec<BendToro>) {
-    let mut toros: Vec<BendToro> = vec![];
-    let mut circles: Vec<MainCylinder> = vec![];
-    table.shell.iter().for_each(|(k, v)| {
-        let mut counter = 0;
-        v.cfs_faces.iter().for_each(|face_holder| {
-            let mut points: Vec<Point3> = vec![];
-            let mut candidates: Vec<(MainCircle)> = vec![];
-            match face_holder {
-                PlaceHolder::Ref(name) => {
-                    let id = name_to_id(name.clone());
-                    match table.face_surface.get(&id) {
-                        None => {}
-                        Some(face_holder) => {
-                            let face_bounds: &Vec<PlaceHolder<FaceBoundHolder>> = &face_holder.bounds;
-                            //warn!("{:?}",face_bounds.len());
-                            let mut oriented_edge_ids: Vec<u64> = vec![];
-                            face_bounds.iter().for_each(|bound_holder| {
-                                match bound_holder {
-                                    PlaceHolder::Ref(bound_holder_name) => {
-                                        match table.face_bound.get(&name_to_id(bound_holder_name.clone())) {
-                                            None => {}
-                                            Some(face_bound_holder) => {
-                                                match &face_bound_holder.bound {
-                                                    PlaceHolder::Ref(name) => {
-                                                        match table.edge_loop.get(&name_to_id(name.clone())) {
-                                                            None => {}
-                                                            Some(edge_loop) => {
-                                                                //warn!("edge_loop.edge_list.len {:?}",edge_loop.edge_list.len());
-                                                                edge_loop.edge_list.iter().for_each(|curve_holder| {
-                                                                    match curve_holder {
-                                                                        PlaceHolder::Ref(name) => {
-                                                                            match table.oriented_edge.get(&name_to_id(name.clone())) {
-                                                                                None => {}
-                                                                                Some(oe_holder) => {
-                                                                                    oriented_edge_ids.push(name_to_id(name.clone()));
-                                                                                    let otientation = oe_holder.orientation.clone();
-                                                                                    match &oe_holder.edge_element {
-                                                                                        PlaceHolder::Ref(name) => {
-                                                                                            match table.edge_curve.get(&name_to_id(name.clone())) {
-                                                                                                None => {}
-                                                                                                Some(c) => {
-                                                                                                    let curve_geom: &PlaceHolder<CurveAnyHolder> = &c.edge_geometry;
-                                                                                                    match curve_geom {
-                                                                                                        PlaceHolder::Ref(name) => {
-                                                                                                            let curve_id = &name_to_id(name.clone());
-                                                                                                            let mut found = false;
-                                                                                                            match table.circle.get(curve_id) {
-                                                                                                                None => {}
-                                                                                                                Some(circle) => {
-                                                                                                                    found = true;
-                                                                                                                    let circle_r = circle.radius * scale;
-                                                                                                                    if (abs(circle_r - radius) < TOLE) {
-                                                                                                                        let (loc, dir, dir_rad) = extract_position(&table, &circle.position, scale);
-                                                                                                                        let mc: MainCircle = MainCircle {
-                                                                                                                            id: curve_id.clone(),
-                                                                                                                            radius: radius,
-                                                                                                                            loc: loc.unwrap().clone(),
-                                                                                                                            dir: dir.unwrap().normalize(),
-                                                                                                                            radius_dir: dir_rad.unwrap().normalize(),
-                                                                                                                        };
-                                                                                                                        candidates.push(mc);
-                                                                                                                    }
-                                                                                                                }
-                                                                                                            }
-                                                                                                            match table.rational_b_spline_curve.get(curve_id) {
-                                                                                                                None => {}
-                                                                                                                Some(spline) => {
-                                                                                                                    found = true;
-                                                                                                                    let wgts = &spline.weights_data;
-
-                                                                                                                    //warn!("C {:?}",b_spline_curve_with_knots.l);
-                                                                                                                    match &spline.non_rational_b_spline_curve {
-                                                                                                                        PlaceHolder::Ref(name) => {}
-                                                                                                                        PlaceHolder::Owned(v) => {
-                                                                                                                            match v {
-                                                                                                                                NonRationalBSplineCurveHolder::BSplineCurveWithKnots(spline) => {
-                                                                                                                                    let mut contrl_points: Vec<CartesianPoint> = vec![];
-                                                                                                                                    spline.control_points_list.iter().for_each(|cp| {
-                                                                                                                                        let pnt = extract_cartesian_point(&table, &cp, scale).unwrap();
-                                                                                                                                        let pp = CartesianPoint {
-                                                                                                                                            label: "".to_string(),
-                                                                                                                                            coordinates: Vec::from([pnt.x, pnt.y, pnt.z]),
-                                                                                                                                        };
-                                                                                                                                        contrl_points.push(pp);
-                                                                                                                                    });
-
-                                                                                                                                    let sspl: BSplineCurveWithKnots = BSplineCurveWithKnots {
-                                                                                                                                        label: "".to_string(),
-                                                                                                                                        degree: spline.degree,
-                                                                                                                                        control_points_list: contrl_points,
-                                                                                                                                        curve_form: spline.curve_form.clone(),
-                                                                                                                                        closed_curve: spline.closed_curve,
-                                                                                                                                        self_intersect: spline.self_intersect,
-                                                                                                                                        knot_multiplicities: spline.knot_multiplicities.clone(),
-                                                                                                                                        knots: spline.knots.clone(),
-                                                                                                                                        knot_spec: spline.knot_spec.clone(),
-                                                                                                                                    };
-                                                                                                                                    let bsc: BSplineCurve<Point3> = (&sspl).try_into().unwrap();
-                                                                                                                                    let res: NurbsCurve<Vector4> = NurbsCurve::try_from_bspline_and_weights(bsc, wgts.clone()).unwrap();
-                                                                                                                                    let mut tess_points: Vec<Point3> = vec![];
-                                                                                                                                    for t in (0..=10) {
-                                                                                                                                        let tess_point = res.subs(t as f64 / 10.0);
-                                                                                                                                        tess_points.push(tess_point);
-                                                                                                                                        //points.push(tess_point);
-                                                                                                                                    }
-                                                                                                                                    if tess_points.len() > 10 {
-                                                                                                                                        let c = circum_center(tess_points[0], tess_points[2], tess_points[5]);
-                                                                                                                                        let r = c.sub(tess_points[0]).magnitude();
-
-                                                                                                                                        if (abs(r - radius) < TOLE) {
-                                                                                                                                            let mc: MainCircle = MainCircle {
-                                                                                                                                                id: curve_id.clone(),
-                                                                                                                                                radius: radius,
-                                                                                                                                                loc: c,
-                                                                                                                                                dir: truck_geometry::prelude::Plane::new(tess_points[0], tess_points[5], tess_points[7]).normal().normalize(),
-                                                                                                                                                radius_dir: c.sub(tess_points[0]).normalize(),
-                                                                                                                                            };
-                                                                                                                                            candidates.push(mc);
-                                                                                                                                        } else {
-                                                                                                                                            points.extend(tess_points)
-                                                                                                                                        }
-                                                                                                                                    }
-                                                                                                                                }
-                                                                                                                                NonRationalBSplineCurveHolder::BezierCurve(c) => {
-                                                                                                                                    warn!("BezierCurve");
-                                                                                                                                }
-                                                                                                                                NonRationalBSplineCurveHolder::QuasiUniformCurve(c) => {
-                                                                                                                                    warn!("QuasiUniformCurve");
-                                                                                                                                }
-                                                                                                                                NonRationalBSplineCurveHolder::UniformCurve(c) => {
-                                                                                                                                    warn!("UniformCurve");
-                                                                                                                                }
-                                                                                                                            }
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                }
-                                                                                                            }
-                                                                                                            match table.b_spline_curve_with_knots.get(curve_id) {
-                                                                                                                None => {}
-                                                                                                                Some(spline) => {
-                                                                                                                    found = true;
-                                                                                                                    let mut contrl_points: Vec<CartesianPoint> = vec![];
-                                                                                                                    spline.control_points_list.iter().for_each(|cp| {
-                                                                                                                        let pnt = extract_cartesian_point(&table, &cp, scale).unwrap();
-                                                                                                                        let pp = CartesianPoint {
-                                                                                                                            label: "".to_string(),
-                                                                                                                            coordinates: Vec::from([pnt.x, pnt.y, pnt.z]),
-                                                                                                                        };
-                                                                                                                        contrl_points.push(pp);
-                                                                                                                    });
-
-                                                                                                                    let sspl: BSplineCurveWithKnots = BSplineCurveWithKnots {
-                                                                                                                        label: "".to_string(),
-                                                                                                                        degree: spline.degree,
-                                                                                                                        control_points_list: contrl_points,
-                                                                                                                        curve_form: spline.curve_form.clone(),
-                                                                                                                        closed_curve: spline.closed_curve,
-                                                                                                                        self_intersect: spline.self_intersect,
-                                                                                                                        knot_multiplicities: spline.knot_multiplicities.clone(),
-                                                                                                                        knots: spline.knots.clone(),
-                                                                                                                        knot_spec: spline.knot_spec.clone(),
-                                                                                                                    };
-
-                                                                                                                    let res: BSplineCurve<Point3> = (&sspl).try_into().unwrap();
-                                                                                                                    let mut tess_points: Vec<Point3> = vec![];
-                                                                                                                    for t in (0..=10) {
-                                                                                                                        let tess_point = res.subs(t as f64 / 10.0);
-                                                                                                                        tess_points.push(tess_point);
-                                                                                                                        //points.push(tess_point);
-                                                                                                                    }
-                                                                                                                    if tess_points.len() > 10 {
-                                                                                                                        let c = circum_center(tess_points[0], tess_points[2], tess_points[5]);
-                                                                                                                        let r = c.sub(tess_points[0]).magnitude();
-                                                                                                                        if (abs(r - radius) < TOLE) {
-                                                                                                                            let mc: MainCircle = MainCircle {
-                                                                                                                                id: curve_id.clone(),
-                                                                                                                                radius: radius,
-                                                                                                                                loc: c,
-                                                                                                                                dir: truck_geometry::prelude::Plane::new(tess_points[0], tess_points[5], tess_points[7]).normal().normalize(),
-                                                                                                                                radius_dir: c.sub(tess_points[0]).normalize(),
-                                                                                                                            };
-                                                                                                                            candidates.push(mc);
-                                                                                                                        } else {
-                                                                                                                            points.extend(tess_points)
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                }
-                                                                                                            }
-                                                                                                            match table.ellipse.get(curve_id) {
-                                                                                                                None => {}
-                                                                                                                Some(ellipse) => {
-                                                                                                                    found = true;
-                                                                                                                    let (loc, dir, dir_rad) = extract_position(&table, &ellipse.position, scale);
-                                                                                                                    let axe1 = ellipse.semi_axis_1;
-                                                                                                                    let axe2 = ellipse.semi_axis_1;
-                                                                                                                    let p1 = loc.unwrap() + dir_rad.unwrap() * axe1;
-                                                                                                                    let p2 = loc.unwrap() + dir_rad.unwrap() * axe2;
-                                                                                                                    points.push(p1);
-                                                                                                                    points.push(p2);
-                                                                                                                }
-                                                                                                            }
-                                                                                                            match table.line.get(curve_id) {
-                                                                                                                None => {}
-                                                                                                                Some(line) => {
-                                                                                                                    found = true;
-                                                                                                                }
-                                                                                                            }
-
-                                                                                                            if (!found) {
-                                                                                                                println!("name ID {:?} ", &name_to_id(name.clone()))
-                                                                                                            }
-
-                                                                                                            //println!("name ID {:?} ", &name_to_id(name.clone()))
-                                                                                                        }
-                                                                                                        PlaceHolder::Owned(_) => {}
-                                                                                                    }
-                                                                                                    let sp = extract_vertex(&table, &c.edge_start, scale).unwrap();
-                                                                                                    let ep = extract_vertex(&table, &c.edge_end, scale).unwrap();
-                                                                                                    //points.push(sp);
-                                                                                                    //points.push(ep);
-                                                                                                }
-                                                                                            }
-                                                                                        }
-                                                                                        PlaceHolder::Owned(_) => {}
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        PlaceHolder::Owned(_) => {}
-                                                                    }
-                                                                });
-                                                            }
-                                                        }
-                                                    }
-                                                    PlaceHolder::Owned(_) => {}
-                                                }
-                                            }
-                                        }
-                                    }
-                                    PlaceHolder::Owned(_) => {}
-                                }
-                            });
-                        }
+                if (no_dubs.len() == 3) {
+                    if ((no_dubs[0].radius - no_dubs[1].radius).abs() < TOLE) {
+                        let (cyls, tors) = do_cyl_2(&no_dubs[0], &no_dubs[1], &points);
+                        cilinders.extend(cyls);
+                        toros.extend(tors);
+                    } else if ((no_dubs[0].radius - no_dubs[2].radius).abs() < TOLE) {
+                        let rr = no_dubs[0].radius;
+                        let (cyls, tors) = do_cyl_2(&no_dubs[0], &no_dubs[2], &points);
+                        cilinders.extend(cyls);
+                        toros.extend(tors);
+                    } else if ((no_dubs[1].radius - no_dubs[2].radius).abs() < TOLE) {
+                        let (cyls, tors) = do_cyl_2(&no_dubs[1], &no_dubs[2], &points);
+                        cilinders.extend(cyls);
+                        toros.extend(tors);
                     }
                 }
-                PlaceHolder::Owned(_) => {}
-            }
-            let no_dubs = remove_circle_dublicates(&candidates);
 
-            counter = counter + 1;
+                if (no_dubs.len() > 3) {
+                    no_dubs.iter().for_each(|c| {
+                        warn!("no_dubs {:?}  {:?} ",counter, c.radius);
+                        let cyls = do_cyl_1(&c, &points);
+                        cilinders.extend(cyls);
+                    });
+                }
+            }*/
 
-            if (no_dubs.len() == 2) {
-                let (cyls, tors) = do_cyl_2(&no_dubs[0], &no_dubs[1], &points);
-                circles.extend(cyls);
-                toros.extend(tors);
-            }
-
-            if (no_dubs.len() == 1) {
-                let cyls = do_cyl_1(&no_dubs[0], &points);
-                circles.extend(cyls);
-            }
         });
     });
-    (circles, toros)
+
+    /*    toros.iter().for_each(|t|{
+           warn!("Toroidal {:?}", t.r_gr_id);
+        });*/
+    //warn!("cilinders {:?} toros {:?}",cilinders.len(), toros.len());
+    (cilinders, toros)
 }
 pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius: f64) -> Vec<BendToro> {
     let mut toros: Vec<BendToro> = vec![];
@@ -2596,6 +2416,7 @@ pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius:
                                                                                                                             loc: loc.unwrap().clone(),
                                                                                                                             dir: dir.unwrap().normalize(),
                                                                                                                             radius_dir: dir_rad.unwrap().normalize(),
+                                                                                                                            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
                                                                                                                         };
                                                                                                                         candidates.push(mc);
                                                                                                                     }
@@ -2653,6 +2474,7 @@ pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius:
                                                                                                                                                 loc: c,
                                                                                                                                                 dir: truck_geometry::prelude::Plane::new(tess_points[0], tess_points[5], tess_points[7]).normal().normalize(),
                                                                                                                                                 radius_dir: c.sub(tess_points[0]).normalize(),
+                                                                                                                                                r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
                                                                                                                                             };
                                                                                                                                             candidates.push(mc);
                                                                                                                                         } else {
@@ -2717,6 +2539,7 @@ pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius:
                                                                                                                                 loc: c,
                                                                                                                                 dir: truck_geometry::prelude::Plane::new(tess_points[0], tess_points[5], tess_points[7]).normal().normalize(),
                                                                                                                                 radius_dir: c.sub(tess_points[0]).normalize(),
+                                                                                                                                r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
                                                                                                                             };
                                                                                                                             candidates.push(mc);
                                                                                                                         } else {
@@ -2807,6 +2630,7 @@ pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius:
                         loc: Point3::new(0.0, 0.0, 0.0),
                         dir: Vector3::new(0.0, 0.0, 0.0),
                         radius_dir: Vector3::new(0.0, 0.0, 0.0),
+                        r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
                     };
                     let mut circle2: MainCircle = MainCircle {
                         id: 0,
@@ -2814,6 +2638,7 @@ pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius:
                         loc: Point3::new(0.0, 0.0, 0.0),
                         dir: Vector3::new(0.0, 0.0, 0.0),
                         radius_dir: Vector3::new(0.0, 0.0, 0.0),
+                        r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
                     };
                     cyls.iter().for_each(|c| {
                         let d11 = circle1_orig.loc.distance(c.ca.loc);
@@ -2871,7 +2696,7 @@ pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius:
                         };
                         toros.push(t);
                     } else {
-                        warn!("NOTFOUND {:?} {:?}", dist1, dist2);
+                        //warn!("NOTFOUND {:?} {:?}", dist1, dist2);
                     }
                 }
             }
@@ -2884,56 +2709,60 @@ pub fn recalc_tors_tole(cyls: &Vec<MainCylinder>, tors: &Vec<BendToro>) -> Vec<B
     tors.iter().for_each(|t| {
         let mut dist1 = f64::MAX;
         let mut dist2 = f64::MAX;
-        let radius = t.ca.radius;
+        let radius = t.r;
 
         let circle1_orig: &MainCircle = &t.ca;
-        let circle2_orig = &t.cb;
+        let circle2_orig: &MainCircle = &t.cb;
         //let plane_v = circle1_orig.dir.cross(circle2_orig.dir);
         //if (plane_v.magnitude() > TOLE) {
         //TOR THERE
         let mut is_1_found = false;
         let mut is_2_found = false;
         let mut circle1: MainCircle = MainCircle {
-            id: 0,
+            id: rand::thread_rng().gen_range(0..1024),
             radius,
             loc: Point3::new(0.0, 0.0, 0.0),
             dir: Vector3::new(0.0, 0.0, 0.0),
             radius_dir: Vector3::new(0.0, 0.0, 0.0),
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         };
         let mut circle2: MainCircle = MainCircle {
-            id: 0,
+            id: rand::thread_rng().gen_range(0..1024),
             radius,
             loc: Point3::new(0.0, 0.0, 0.0),
             dir: Vector3::new(0.0, 0.0, 0.0),
             radius_dir: Vector3::new(0.0, 0.0, 0.0),
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         };
         cyls.iter().for_each(|c| {
-            let d11 = circle1_orig.loc.distance(c.ca.loc);
-            if (d11 < dist1) { dist1 = d11 };
-            let d12 = circle1_orig.loc.distance(c.ca.loc);
-            if (d12 < dist1) { dist1 = d12 };
+            if (c.r_gr_id == t.r_gr_id) {
+                let d11 = circle1_orig.loc.distance(c.ca.loc);
+                if (d11 < dist1) { dist1 = d11 };
+                let d12 = circle1_orig.loc.distance(c.ca.loc);
+                if (d12 < dist1) { dist1 = d12 };
 
-            let d21 = circle2_orig.loc.distance(c.ca.loc);
-            if (d21 < dist2) { dist2 = d21 };
-            let d22 = circle2_orig.loc.distance(c.ca.loc);
-            if (d22 < dist2) { dist2 = d22 };
+                let d21 = circle2_orig.loc.distance(c.ca.loc);
+                if (d21 < dist2) { dist2 = d21 };
+                let d22 = circle2_orig.loc.distance(c.ca.loc);
+                if (d22 < dist2) { dist2 = d22 };
 
-            if (circle1_orig.is_same_pos(&c.ca)) {
-                is_1_found = true;
-                circle1 = c.ca.clone();
-            }
-            if (circle1_orig.is_same_pos(&c.cb)) {
-                is_1_found = true;
-                circle1 = c.cb.clone();
-            }
+                if (circle1_orig.is_same_pos(&c.ca) && !is_1_found) {
+                    is_1_found = true;
+                    circle1 = c.ca.clone();
+                }
+                if (circle1_orig.is_same_pos(&c.cb) && !is_1_found) {
+                    is_1_found = true;
+                    circle1 = c.cb.clone();
+                }
 
-            if (circle2_orig.is_same_pos(&c.ca)) {
-                is_2_found = true;
-                circle2 = c.ca.clone();
-            }
-            if (circle2_orig.is_same_pos(&c.cb)) {
-                is_2_found = true;
-                circle2 = c.cb.clone();
+                if (circle2_orig.is_same_pos(&c.ca) && !is_2_found) {
+                    is_2_found = true;
+                    circle2 = c.ca.clone();
+                }
+                if (circle2_orig.is_same_pos(&c.cb) && !is_2_found) {
+                    is_2_found = true;
+                    circle2 = c.cb.clone();
+                }
             }
         });
 
@@ -2954,7 +2783,7 @@ pub fn recalc_tors_tole(cyls: &Vec<MainCylinder>, tors: &Vec<BendToro>) -> Vec<B
                 bend_radius: hypotenuze_len.abs(),
                 bend_center_point: bend_radius_centre,
                 bend_plane_norm: up_v,
-                radius_dir: circle1.radius_dir,
+                radius_dir: up_v,
                 ca: circle1.clone(),
                 cb: circle2.clone(),
                 r_gr_id: (round_by_dec(circle1.radius, 5) * DIVIDER) as u64,
@@ -2963,360 +2792,11 @@ pub fn recalc_tors_tole(cyls: &Vec<MainCylinder>, tors: &Vec<BendToro>) -> Vec<B
             };
             toros.push(t);
         } else {
-            warn!("NOTFOUND {:?} {:?}", dist1, dist2);
+            //warn!("NOTFOUND {:?} {:?}", dist1, dist2);
         }
         //}
     });
-    /*    let mut toros:Vec<BendToro>=vec![];
-        table.shell.iter().for_each(|(k,v)|{
-            let mut counter=0;
-            v.cfs_faces.iter().for_each(|face_holder| {
-                let mut points: Vec<Point3> = vec![];
-                let mut candidates: Vec<(MainCircle)> = vec![];
 
-                match face_holder {
-                    PlaceHolder::Ref(name) => {
-                        let id = name_to_id(name.clone());
-                        match table.face_surface.get(&id) {
-                            None => {}
-                            Some(face_holder) => {
-                                let face_bounds: &Vec<PlaceHolder<FaceBoundHolder>> = &face_holder.bounds;
-                                //warn!("{:?}",face_bounds.len());
-                                let mut oriented_edge_ids: Vec<u64> = vec![];
-                                face_bounds.iter().for_each(|bound_holder| {
-                                    match bound_holder {
-                                        PlaceHolder::Ref(bound_holder_name) => {
-                                            match table.face_bound.get(&name_to_id(bound_holder_name.clone())) {
-                                                None => {}
-                                                Some(face_bound_holder) => {
-                                                    match &face_bound_holder.bound {
-                                                        PlaceHolder::Ref(name) => {
-                                                            match table.edge_loop.get(&name_to_id(name.clone())) {
-                                                                None => {}
-                                                                Some(edge_loop) => {
-                                                                    //warn!("edge_loop.edge_list.len {:?}",edge_loop.edge_list.len());
-                                                                    edge_loop.edge_list.iter().for_each(|curve_holder| {
-
-                                                                        match curve_holder {
-                                                                            PlaceHolder::Ref(name) => {
-                                                                                match table.oriented_edge.get(&name_to_id(name.clone())) {
-                                                                                    None => {}
-                                                                                    Some(oe_holder) => {
-                                                                                        oriented_edge_ids.push(name_to_id(name.clone()));
-                                                                                        let otientation = oe_holder.orientation.clone();
-                                                                                        match &oe_holder.edge_element {
-                                                                                            PlaceHolder::Ref(name) => {
-                                                                                                match table.edge_curve.get(&name_to_id(name.clone())) {
-                                                                                                    None => {}
-                                                                                                    Some(c) => {
-                                                                                                        let curve_geom: &PlaceHolder<CurveAnyHolder> = &c.edge_geometry;
-                                                                                                        match curve_geom {
-                                                                                                            PlaceHolder::Ref(name) => {
-                                                                                                                let curve_id = &name_to_id(name.clone());
-                                                                                                                let mut found = false;
-                                                                                                                match table.circle.get(curve_id) {
-                                                                                                                    None => {}
-                                                                                                                    Some(circle) => {
-                                                                                                                        found = true;
-                                                                                                                        let circle_r = circle.radius *  scale;
-                                                                                                                        if(abs(circle_r-radius)<TOLE) {
-                                                                                                                            let (loc, dir, dir_rad) = extract_position(&table, &circle.position,scale);
-                                                                                                                            let mc: MainCircle = MainCircle {
-                                                                                                                                id: curve_id.clone(),
-                                                                                                                                radius: radius,
-                                                                                                                                loc: loc.unwrap().clone(),
-                                                                                                                                dir: dir.unwrap().normalize(),
-                                                                                                                                radius_dir: dir_rad.unwrap().normalize(),
-                                                                                                                            };
-                                                                                                                            candidates.push(mc);
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                }
-                                                                                                                match table.rational_b_spline_curve.get(curve_id) {
-                                                                                                                    None => {}
-                                                                                                                    Some(spline) => {
-                                                                                                                        found = true;
-                                                                                                                        let wgts=&spline.weights_data;
-
-                                                                                                                        //warn!("C {:?}",b_spline_curve_with_knots.l);
-                                                                                                                        match &spline.non_rational_b_spline_curve {
-                                                                                                                            PlaceHolder::Ref(name) => {}
-                                                                                                                            PlaceHolder::Owned(v) => {
-                                                                                                                                match v {
-                                                                                                                                    NonRationalBSplineCurveHolder::BSplineCurveWithKnots(spline) => {
-                                                                                                                                        let mut contrl_points: Vec<CartesianPoint> = vec![];
-                                                                                                                                        spline.control_points_list.iter().for_each(|cp| {
-                                                                                                                                            let pnt = extract_cartesian_point(&table, &cp,scale).unwrap();
-                                                                                                                                            let pp = CartesianPoint {
-                                                                                                                                                label: "".to_string(),
-                                                                                                                                                coordinates: Vec::from([pnt.x, pnt.y, pnt.z]),
-                                                                                                                                            };
-                                                                                                                                            contrl_points.push(pp);
-                                                                                                                                        });
-
-                                                                                                                                        let sspl: BSplineCurveWithKnots = BSplineCurveWithKnots {
-                                                                                                                                            label: "".to_string(),
-                                                                                                                                            degree: spline.degree,
-                                                                                                                                            control_points_list: contrl_points,
-                                                                                                                                            curve_form: spline.curve_form.clone(),
-                                                                                                                                            closed_curve: spline.closed_curve,
-                                                                                                                                            self_intersect: spline.self_intersect,
-                                                                                                                                            knot_multiplicities: spline.knot_multiplicities.clone(),
-                                                                                                                                            knots: spline.knots.clone(),
-                                                                                                                                            knot_spec: spline.knot_spec.clone(),
-                                                                                                                                        };
-                                                                                                                                        let bsc: BSplineCurve<Point3> = (&sspl).try_into().unwrap();
-                                                                                                                                        let res: NurbsCurve<Vector4> =NurbsCurve:: try_from_bspline_and_weights(bsc, wgts.clone()).unwrap();
-                                                                                                                                        let mut tess_points: Vec<Point3> = vec![];
-                                                                                                                                        for t in (0..=10) {
-                                                                                                                                            let tess_point = res.subs(t as f64 / 10.0);
-                                                                                                                                            tess_points.push(tess_point);
-                                                                                                                                            //points.push(tess_point);
-                                                                                                                                        }
-                                                                                                                                        if tess_points.len() > 10 {
-                                                                                                                                            let c= circum_center(tess_points[0],tess_points[2],tess_points[5]);
-                                                                                                                                            let r=c.sub(tess_points[0]).magnitude();
-
-                                                                                                                                            if(abs(r-radius)<TOLE){
-                                                                                                                                                let mc: MainCircle = MainCircle {
-                                                                                                                                                    id: curve_id.clone(),
-                                                                                                                                                    radius: radius,
-                                                                                                                                                    loc: c,
-                                                                                                                                                    dir: truck_geometry::prelude::Plane::new(tess_points[0],tess_points[5],tess_points[7]).normal().normalize(),
-                                                                                                                                                    radius_dir: c.sub(tess_points[0]).normalize(),
-                                                                                                                                                };
-                                                                                                                                                candidates.push(mc);
-                                                                                                                                            }
-                                                                                                                                            else{
-                                                                                                                                                points.extend(tess_points)
-                                                                                                                                            }
-                                                                                                                                        }
-                                                                                                                                    }
-                                                                                                                                    NonRationalBSplineCurveHolder::BezierCurve(c) => {
-                                                                                                                                        warn!("BezierCurve");
-                                                                                                                                    }
-                                                                                                                                    NonRationalBSplineCurveHolder::QuasiUniformCurve(c) => {
-                                                                                                                                        warn!("QuasiUniformCurve");
-                                                                                                                                    }
-                                                                                                                                    NonRationalBSplineCurveHolder::UniformCurve(c) => {
-                                                                                                                                        warn!("UniformCurve");
-                                                                                                                                    }
-                                                                                                                                }
-                                                                                                                            }
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                }
-                                                                                                                match table.b_spline_curve_with_knots.get(curve_id) {
-                                                                                                                    None => {}
-                                                                                                                    Some(spline) => {
-                                                                                                                        found = true;
-                                                                                                                        let mut contrl_points: Vec<CartesianPoint> = vec![];
-                                                                                                                        spline.control_points_list.iter().for_each(|cp| {
-                                                                                                                            let pnt = extract_cartesian_point(&table, &cp,scale).unwrap();
-                                                                                                                            let pp = CartesianPoint {
-                                                                                                                                label: "".to_string(),
-                                                                                                                                coordinates: Vec::from([pnt.x, pnt.y, pnt.z]),
-                                                                                                                            };
-                                                                                                                            contrl_points.push(pp);
-                                                                                                                        });
-
-                                                                                                                        let sspl: BSplineCurveWithKnots = BSplineCurveWithKnots {
-                                                                                                                            label: "".to_string(),
-                                                                                                                            degree: spline.degree,
-                                                                                                                            control_points_list: contrl_points,
-                                                                                                                            curve_form: spline.curve_form.clone(),
-                                                                                                                            closed_curve: spline.closed_curve,
-                                                                                                                            self_intersect: spline.self_intersect,
-                                                                                                                            knot_multiplicities: spline.knot_multiplicities.clone(),
-                                                                                                                            knots: spline.knots.clone(),
-                                                                                                                            knot_spec: spline.knot_spec.clone(),
-                                                                                                                        };
-
-                                                                                                                        let res: BSplineCurve<Point3> = (&sspl).try_into().unwrap();
-                                                                                                                        let mut tess_points: Vec<Point3> = vec![];
-                                                                                                                        for t in (0..=10) {
-                                                                                                                            let tess_point = res.subs(t as f64 / 10.0);
-                                                                                                                            tess_points.push(tess_point);
-                                                                                                                            //points.push(tess_point);
-                                                                                                                        }
-                                                                                                                        if tess_points.len() > 10 {
-                                                                                                                            let c= circum_center(tess_points[0],tess_points[2],tess_points[5]);
-                                                                                                                            let r=c.sub(tess_points[0]).magnitude();
-                                                                                                                            if(abs(r-radius)<TOLE){
-                                                                                                                                let mc: MainCircle = MainCircle {
-                                                                                                                                    id: curve_id.clone(),
-                                                                                                                                    radius: radius,
-                                                                                                                                    loc: c,
-                                                                                                                                    dir: truck_geometry::prelude::Plane::new(tess_points[0],tess_points[5],tess_points[7]).normal().normalize(),
-                                                                                                                                    radius_dir: c.sub(tess_points[0]).normalize(),
-                                                                                                                                };
-                                                                                                                                candidates.push(mc);
-                                                                                                                            }else{
-                                                                                                                                points.extend(tess_points)
-                                                                                                                            }
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                }
-                                                                                                                match table.ellipse.get(curve_id) {
-                                                                                                                    None => {}
-                                                                                                                    Some(ellipse) => {
-                                                                                                                        found = true;
-                                                                                                                        let (loc, dir, dir_rad) = extract_position(&table, &ellipse.position,scale);
-                                                                                                                        let axe1=ellipse.semi_axis_1;
-                                                                                                                        let axe2=ellipse.semi_axis_1;
-                                                                                                                        let p1=loc.unwrap()+dir_rad.unwrap()*axe1;
-                                                                                                                        let p2=loc.unwrap()+dir_rad.unwrap()*axe2;
-                                                                                                                        points.push(p1);
-                                                                                                                        points.push(p2);
-
-                                                                                                                    }
-                                                                                                                }
-                                                                                                                match table.line.get(curve_id) {
-                                                                                                                    None => {}
-                                                                                                                    Some(line) => {
-                                                                                                                        found = true;
-                                                                                                                    }
-                                                                                                                }
-
-                                                                                                                if (!found) {
-                                                                                                                    println!("name ID {:?} ", &name_to_id(name.clone()))
-                                                                                                                }
-
-                                                                                                                //println!("name ID {:?} ", &name_to_id(name.clone()))
-                                                                                                            }
-                                                                                                            PlaceHolder::Owned(_) => {}
-                                                                                                        }
-                                                                                                        let sp = extract_vertex(&table, &c.edge_start,scale).unwrap();
-                                                                                                        let ep = extract_vertex(&table, &c.edge_end,scale).unwrap();
-                                                                                                        //points.push(sp);
-                                                                                                        //points.push(ep);
-                                                                                                    }
-                                                                                                }
-                                                                                            }
-                                                                                            PlaceHolder::Owned(_) => {}
-                                                                                        }
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            PlaceHolder::Owned(_) => {}
-                                                                        }
-
-
-                                                                    });
-                                                                }
-                                                            }
-                                                        }
-                                                        PlaceHolder::Owned(_) => {}
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        PlaceHolder::Owned(_) => {}
-                                    }
-                                });
-                            }
-                        }
-
-                    }
-                    PlaceHolder::Owned(_) => {}
-                }
-                let no_dubs=remove_circle_dublicates(&candidates);
-                /*            no_dubs.iter().for_each(|c|{
-                                points.extend(c.gen_points());
-                            });*/
-                //export_to_pt_str(&points,counter.to_string().as_str());
-                //warn!("{:?} {:?}", counter,no_dubs.len());
-                counter=counter+1;
-                let mut dist1=f64::MAX;
-                let mut dist2=f64::MAX;
-                if(no_dubs.len() ==2){
-                    let circle1_orig: &MainCircle =&no_dubs[0];
-                    let circle2_orig=&no_dubs[1];
-                    let plane_v=circle1_orig.dir.cross(circle2_orig.dir);
-                    if(plane_v.magnitude()>TOLE){
-                        //TOR THERE
-                        let mut is_1_found=false;
-                        let mut is_2_found=false;
-                        let mut circle1:MainCircle= MainCircle{
-                            id: 0,
-                            radius,
-                            loc: Point3::new(0.0,0.0,0.0),
-                            dir:  Vector3::new(0.0,0.0,0.0),
-                            radius_dir: Vector3::new(0.0,0.0,0.0),
-                        };
-                        let mut circle2:MainCircle= MainCircle{
-                            id: 0,
-                            radius,
-                            loc: Point3::new(0.0,0.0,0.0),
-                            dir:  Vector3::new(0.0,0.0,0.0),
-                            radius_dir: Vector3::new(0.0,0.0,0.0),
-                        };
-                        cyls.iter().for_each(|c|{
-                            let d11= circle1_orig.loc.distance(c.ca.loc);
-                            if(d11<dist1){dist1=d11};
-                            let d12= circle1_orig.loc.distance(c.ca.loc);
-                            if(d12<dist1){dist1=d12};
-
-                            let d21= circle2_orig.loc.distance(c.ca.loc);
-                            if(d21<dist2){dist2=d21};
-                            let d22= circle2_orig.loc.distance(c.ca.loc);
-                            if(d22<dist2){dist2=d22};
-
-                            if(circle1_orig.is_same_pos(&c.ca)){
-                                is_1_found=true;
-                                circle1=c.ca.clone();
-                            }
-                            if(circle1_orig.is_same_pos(&c.cb)){
-                                is_1_found=true;
-                                circle1=c.cb.clone();
-                            }
-
-                            if(circle2_orig.is_same_pos(&c.ca)){
-                                is_2_found=true;
-                                circle2=c.ca.clone();
-                            }
-                            if(circle2_orig.is_same_pos(&c.cb)){
-                                is_2_found=true;
-                                circle2=c.cb.clone();
-                            }
-                        });
-
-                        if(is_1_found && is_2_found){
-                            let up_v=plane_v.normalize();
-                            let catet1=circle1.dir.cross(up_v).normalize();
-                            let p90=project_point_to_vec(&catet1,&circle1.loc,&circle2.loc);
-                            let catet2=circle2.loc.sub(p90).magnitude();
-                            let catet2_dir=circle2.loc.sub(p90).normalize();
-                            let hypotenuze=circle2.dir.cross(up_v).normalize();
-                            let angle=hypotenuze.angle(catet2_dir);
-                            let hypotenuze_len=(catet2/angle.cos()).round();
-                            let bend_radius_centre=circle2.loc-hypotenuze.mul(hypotenuze_len);
-
-                            let t=BendToro{
-                                id: rand::thread_rng().gen_range(0..1024),
-                                r: circle1.radius.abs(),
-                                bend_radius: hypotenuze_len.abs(),
-                                bend_center_point: bend_radius_centre,
-                                bend_plane_norm: up_v,
-                                radius_dir: circle1.radius_dir,
-                                ca: circle1.clone(),
-                                cb:circle2.clone(),
-                                r_gr_id: (round_by_dec(circle1.radius, 5) * DIVIDER) as u64,
-                                step_vertex_buffer: StepVertexBuffer::default(),
-                                bbx: Default::default(),
-                            };
-                            toros.push(t);
-                        }else{
-                            warn!("NOTFOUND {:?} {:?}", dist1, dist2);
-                        }
-                    }
-
-
-
-                }
-
-            });
-        });*/
     toros
 }
 pub fn circum_center(pt0: Point3, pt1: Point3, pt2: Point3) -> Point3 {
@@ -3368,6 +2848,7 @@ pub fn do_cyl_1(circle: &MainCircle, points: &Vec<Point3>) -> Vec<MainCylinder> 
                 }
             }
         });
+
         if (dist_a > TOLE && dist_b > TOLE) {
             let mut c1 = circle.clone();
             let mut c2 = circle.clone();
@@ -3428,46 +2909,114 @@ pub fn do_cyl_1(circle: &MainCircle, points: &Vec<Point3>) -> Vec<MainCylinder> 
     circles
 }
 pub fn do_cyl_2(circle1: &MainCircle, circle2: &MainCircle, points: &Vec<Point3>) -> (Vec<MainCylinder>, Vec<BendToro>) {
-    let plane_v = circle1.dir.cross(circle2.dir);
     let mut toros: Vec<BendToro> = vec![];
     let mut circles: Vec<MainCylinder> = vec![];
-    if (plane_v.magnitude() > TOLE) {
-        //TOR
-        let up_v = plane_v.normalize();
-        let catet1 = circle1.dir.cross(up_v).normalize();
-        let p90 = project_point_to_vec(&catet1, &circle1.loc, &circle2.loc);
-        let catet2 = circle2.loc.sub(p90).magnitude();
-        let catet2_dir = circle2.loc.sub(p90).normalize();
-        let hypotenuze = circle2.dir.cross(up_v).normalize();
-        let angle = hypotenuze.angle(catet2_dir);
-        let hypotenuze_len = (catet2 / angle.cos()).round();
-        let bend_radius_centre = circle2.loc - hypotenuze.mul(hypotenuze_len);
+    if ((circle1.radius - circle2.radius).abs() < TOLE) {
+        let plane_v = circle1.dir.cross(circle2.dir);
+        let angle = circle1.dir.angle(circle2.dir);
+        if (Deg::from(angle) > Deg(3.0)) {
+            //TOR
+            let up_v = plane_v.normalize();
+            let catet1 = circle1.dir.cross(up_v).normalize();
+            let p90 = project_point_to_vec(&catet1, &circle1.loc, &circle2.loc);
+            let catet2 = circle2.loc.sub(p90).magnitude();
+            let catet2_dir = circle2.loc.sub(p90).normalize();
+            let hypotenuze = circle2.dir.cross(up_v).normalize();
+            let angle = hypotenuze.angle(catet2_dir);
+            let hypotenuze_len = (catet2 / angle.cos()).round();
+            let bend_radius_centre = circle2.loc - hypotenuze.mul(hypotenuze_len);
+            let plane: Vector3 = Plane::new(bend_radius_centre, circle2.loc, circle1.loc).normal().normalize();
+            if (plane.dot(up_v).abs() - 1.0 < TOLE) {
+                //warn!("hypotenuze_len {:?}",plane.dot(up_v));
+                let r = circle1.radius;
+                let dir_radius1 = circle1.loc.sub(bend_radius_centre).normalize();
+                let dir_radius2 = circle2.loc.sub(bend_radius_centre).normalize();
+                let dir1 = dir_radius1.cross(plane);
+                let dir2 = dir_radius2.cross(plane);
+                let c1: MainCircle = MainCircle {
+                    id: circle1.id,
+                    radius: r,
+                    loc: circle1.loc,
+                    dir: dir1,
+                    radius_dir: dir_radius1,
+                    r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                };
+                let c2: MainCircle = MainCircle {
+                    id: circle2.id,
+                    radius: r,
+                    loc: circle2.loc,
+                    dir: dir2,
+                    radius_dir: dir_radius2,
+                    r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                };
+                let t = BendToro {
+                    id: rand::thread_rng().gen_range(0..1024),
+                    r: c1.radius,
+                    bend_radius: hypotenuze_len.abs(),
+                    bend_center_point: bend_radius_centre,
+                    bend_plane_norm: plane,
+                    radius_dir: plane,
+                    ca: c1,
+                    cb: c2,
+                    r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                    step_vertex_buffer: StepVertexBuffer::default(),
+                    bbx: Default::default(),
+                };
+                toros.push(t);
+            }
+        } else {
+            let dir = circle2.loc.sub(circle1.loc);
+            if (dir.magnitude() > TOLE) {
+                let some_p: Point3 = Point3::new(52369.33, 4596.66, 8899.36);
+                let proj_point: Point3 = project_point_to_vec(&dir, &circle1.loc, &some_p);
+                let radius_dir = some_p.sub(proj_point).normalize();
 
-        let t = BendToro {
-            id: rand::thread_rng().gen_range(0..1024),
-            r: circle1.radius,
-            bend_radius: hypotenuze_len,
-            bend_center_point: bend_radius_centre,
-            bend_plane_norm: up_v,
-            radius_dir: circle1.radius_dir,
-            ca: circle1.clone(),
-            cb: circle2.clone(),
-            r_gr_id: (round_by_dec(circle1.radius, 5) * DIVIDER) as u64,
-            step_vertex_buffer: StepVertexBuffer::default(),
-            bbx: Default::default(),
-        };
-        toros.push(t);
-    } else {
-        let pts = circle2.gen_points_with_tol(PI / 2.0);
-        let mut in_pts = points.clone();
-        in_pts.extend_from_slice(&pts);
-        circles.extend(do_cyl_1(circle1, &in_pts));
+
+                let r = circle1.radius;
+                let ca = MainCircle {
+                    id: rand::thread_rng().gen_range(0..1024),
+                    radius: r,
+                    loc: circle1.loc.clone(),
+                    dir: dir.normalize(),
+                    radius_dir: radius_dir.clone(),
+                    r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                };
+                let cb = MainCircle {
+                    id: rand::thread_rng().gen_range(0..1024),
+                    radius: r,
+                    loc: circle2.loc.clone(),
+                    dir: dir.normalize(),
+                    radius_dir: radius_dir.clone(),
+                    r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                };
+
+                let mut cb_clone = cb.clone();
+                let mut ca_clone = ca.clone();
+                cb_clone.dir = dir.normalize();
+                ca_clone.dir = dir.normalize();
+                let nc: MainCylinder = MainCylinder {
+                    id: rand::thread_rng().gen_range(0..1024),
+                    ca: cb_clone,
+                    cb: ca_clone,
+                    h: dir.magnitude(),
+                    r: r,
+                    r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                    ca_tor: u64::MAX,
+                    cb_tor: u64::MAX,
+                    step_vertex_buffer: StepVertexBuffer::default(),
+                    bbx: Default::default(),
+                };
+                circles.push(nc);
+            } else {
+                let pts = circle2.gen_points_with_tol(PI / 2.0);
+                let mut in_pts = points.clone();
+                in_pts.extend_from_slice(&pts);
+                circles.extend(do_cyl_1(circle1, &in_pts));
+            }
+        }
     }
-
     (circles, toros)
 }
-
-
 pub fn extact_scale(stp: &String) -> f64 {
     let mut scale: f64 = 1.0;
     stp.split(";").for_each(|line| {
@@ -3637,6 +3186,7 @@ pub fn extract_circles_bounds(
                                                                                                     loc: loc.unwrap().clone(),
                                                                                                     dir: dir.unwrap().normalize(),
                                                                                                     radius_dir: dir_rad.unwrap().normalize(),
+                                                                                                    r_gr_id: (round_by_dec(circle_r, 5) * DIVIDER) as u64,
                                                                                                 };
                                                                                                 //export_to_pt(&mc.gen_points(), curve_id.clone() as i32);
                                                                                                 candidates.push(mc);
@@ -3679,7 +3229,7 @@ pub fn extract_circles_bounds(
 
                                                                                             tess_points.iter().for_each(|point| {
                                                                                                 let pp = project_point_to_vec(cyl_dir, cyl_sp, point);
-                                                                                                let dist = (point.distance(pp) - surf_radius).abs() < TOLE;
+                                                                                                let dist = (point.distance(pp) - surf_radius.abs()).abs() < TOLE;
                                                                                                 if (dist) {
                                                                                                     let mc: MainCircle = MainCircle {
                                                                                                         id: rand::thread_rng().gen_range(0..1024),
@@ -3687,6 +3237,7 @@ pub fn extract_circles_bounds(
                                                                                                         loc: pp.clone(),
                                                                                                         dir: cyl_dir.normalize(),
                                                                                                         radius_dir: point.sub(pp).normalize(),
+                                                                                                        r_gr_id: (round_by_dec(surf_radius, 5) * DIVIDER) as u64,
                                                                                                     };
                                                                                                     //export_to_pt(&mc.gen_points(), curve_id.clone() as i32);
                                                                                                     candidates.push(mc);
@@ -3712,6 +3263,7 @@ pub fn extract_circles_bounds(
                                                                                                     loc: loc.unwrap().clone(),
                                                                                                     dir: dir.unwrap().normalize(),
                                                                                                     radius_dir: dir_rad.unwrap().normalize(),
+                                                                                                    r_gr_id: (round_by_dec(circle_r, 5) * DIVIDER) as u64,
                                                                                                 };
                                                                                                 //export_to_pt(&mc.gen_points(), curve_id.clone() as i32);
                                                                                                 candidates.push(mc);
@@ -3793,8 +3345,7 @@ pub fn extract_circles_bounds_tourus(
     bend_radius: f64,
     pipe_radius: f64,
     scale: f64,
-) -> Option<BendToro>
-{
+) -> Option<BendToro> {
     let mut points: Vec<Point3> = vec![];
     let mut candidates: Vec<(MainCircle)> = vec![];
     let mut oriented_edge_ids: Vec<u64> = vec![];
@@ -3833,7 +3384,7 @@ pub fn extract_circles_bounds_tourus(
                                                                                             found = true;
                                                                                             let circle_r = circle.radius * scale;
                                                                                             let (loc, dir, dir_rad) = extract_position(table, &circle.position, scale);
-                                                                                            let is_same_radius = (circle_r - pipe_radius).abs() < TOLE;
+                                                                                            let is_same_radius = (circle_r.abs() - pipe_radius.abs()).abs() < TOLE;
                                                                                             //let dot=dir.unwrap().normalize().dot(cyl_dir.clone().normalize()).abs()-1.0;
                                                                                             //println!("cyl_id {:?} {:?}",cyl_id,is_coplanar);
                                                                                             if (is_same_radius) {
@@ -3843,6 +3394,7 @@ pub fn extract_circles_bounds_tourus(
                                                                                                     loc: loc.unwrap().clone(),
                                                                                                     dir: dir.unwrap().normalize(),
                                                                                                     radius_dir: dir_rad.unwrap().normalize(),
+                                                                                                    r_gr_id: (round_by_dec(circle_r, 5) * DIVIDER) as u64,
                                                                                                 };
                                                                                                 //export_to_pt(&mc.gen_points(), curve_id.clone() as i32);
                                                                                                 candidates.push(mc);
@@ -3885,7 +3437,7 @@ pub fn extract_circles_bounds_tourus(
                                                                                             let p_start = res.subs(0.0);
                                                                                             let p_middle = res.subs(0.5);
                                                                                             let p_end = res.subs(1.0);
-                                                                                            let is_same_rad = (p_start.distance(p_middle) / 2.0 - pipe_radius).abs() < TOLE;
+                                                                                            let is_same_rad = (p_start.distance(p_middle) / 2.0 - pipe_radius.abs()).abs() < TOLE;
 
                                                                                             if (p_start.distance(p_end).abs() < TOLE && is_same_rad) {
                                                                                                 let dir_to_center = (p_middle - p_start).normalize();
@@ -3899,6 +3451,7 @@ pub fn extract_circles_bounds_tourus(
                                                                                                     loc: cp.clone(),
                                                                                                     dir: dir.clone(),
                                                                                                     radius_dir: radius_dir.clone(),
+                                                                                                    r_gr_id: (round_by_dec(pipe_radius, 5) * DIVIDER) as u64,
                                                                                                 };
                                                                                                 //let is_same_radius = (circle_r - pipe_radius).abs() < TOLE;
                                                                                                 candidates.push(mc);
@@ -4125,7 +3678,6 @@ pub fn export_to_pt_str(points: &Vec<cgmath::Point3<f64>>, counter: &str) {
         Err(_) => {}
     }
 }
-
 pub fn nurbs_to_circle(nurbs_points: &Vec<Point3>) -> Option<MainCircle> {
     let p1 = circum_center(nurbs_points[0], nurbs_points[1], nurbs_points[2]);
     let p2 = circum_center(nurbs_points[1], nurbs_points[2], nurbs_points[3]);
@@ -4171,11 +3723,447 @@ pub fn nurbs_to_circle(nurbs_points: &Vec<Point3>) -> Option<MainCircle> {
             loc: cp,
             dir: dir,
             radius_dir: radius_dir,
+            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
         };
-        warn!("CIRCLE {:?}",circle.radius);
+        //warn!("CIRCLE {:?}",circle.radius);
         Some(circle)
     } else {
         None
     }
 }
+pub fn find_bending_surface(cyls: &Vec<MainCylinder>, tors: &Vec<(BendToro)>, table: &Table, scale: f64) -> Vec<LRACLR> {
+    let mut cc: Vec<MainCylinder> = cyls.clone();
+    let mut tt: Vec<BendToro> = tors.clone();
+
+    cc.sort_by(|a, b| a.r_gr_id.cmp(&b.r_gr_id));
+    tt.sort_by(|a, b| a.r_gr_id.cmp(&b.r_gr_id));
+
+    let mut chm: HashMap<u64, Vec<&MainCylinder>> = HashMap::new();
+    cc.iter().chunk_by(|c| c.r_gr_id).into_iter().for_each(|(k, v)| {
+        let vec = v.into_iter().collect_vec();
+        chm.insert(k, vec);
+    });
+    let mut thm: HashMap<u64, Vec<&BendToro>> = HashMap::new();
+    tt.iter().chunk_by(|c| c.r_gr_id).into_iter().for_each(|(k, v)| {
+        let vec = v.into_iter().collect_vec();
+        thm.insert(k, vec);
+    });
+    let mut radius_gr: u64 = 0;
+    let mut op_qty: usize = 0;
+
+    chm.iter().for_each(|(k, v)| {
+        match thm.get(k) {
+            None => {}
+            Some(tors_same_r) => {
+
+                if (v.len() == tors_same_r.len() + 1) {
+                    let ops= tors_same_r.len()+v.len();
+                    if(ops>op_qty){
+                            radius_gr = k.clone();
+                            op_qty=ops;
+                    }else if (ops==op_qty) {
+                        if (k.clone() > radius_gr) {
+                            radius_gr = k.clone();
+                            op_qty=ops;
+                        }
+                    }
+                    //warn!("T {:?} C {:?} GR {:?} R {:?} OP {:?}", tors_same_r.len(), v.len(),k,radius_gr,op_qty);
+                }
+
+            }
+        }
+    });
+    warn!("RADIUS GR {:?}", radius_gr);
+    let mut ncyls: Vec<MainCylinder> = vec![];
+    let mut ntors: Vec<(BendToro)> = vec![];
+    if (radius_gr > 0) {
+        //let mut allpts: Vec<Point3> = vec![];
+        match chm.get(&radius_gr) {
+            None => {}
+            Some(c) => {
+                c.iter().for_each(|nc| {
+                    //allpts.extend(nc.gen_points());
+                    //warn!("CYL R {:?}  {:?}  {:?}", nc.r, nc.ca.radius, nc.cb.radius);
+                    //export_to_pt_str(&nc.gen_points(), nc.id.to_string().as_str());
+                    ncyls.push(nc.clone().clone());
+                });
+            }
+        }
+        match thm.get(&radius_gr) {
+            None => {}
+            Some(c) => {
+                c.iter().for_each(|nc| {
+                    //allpts.extend(nc.gen_points());
+                    //warn!("TOR R {:?}  {:?}  {:?}", nc.r, nc.ca.radius, nc.cb.radius);
+                    //export_to_pt_str(&nc.gen_points(), nc.id.to_string().as_str());
+                    ntors.push(nc.clone().clone());
+                });
+            }
+        }
+        // export_to_pt_str(&allpts, "dada");
+    }
+
+
+    let lracmd: Vec<LRACLR> = find_next_tor(&ncyls, &ntors,table,scale);
+
+    //(ncyls, ntors)
+    lracmd
+}
+fn find_next_tor(_cyls: &Vec<MainCylinder>, _tors: &Vec<(BendToro)>, table: &Table, scale: f64) -> Vec<LRACLR> {
+    let mut lracmds: Vec<LRACLR> = vec![];
+    let mut cc = _cyls.clone();
+    let mut tors_bank: HashMap<u64, BendToro> = HashMap::new();
+    let mut glob_counter = 0;
+    _tors.iter().for_each(|t| {
+        let mut nt = t.clone();
+        nt.id = glob_counter;
+        tors_bank.insert(nt.id, nt);
+        glob_counter = glob_counter + 1;
+    });
+
+    //generate chain
+    cc.iter_mut().for_each(|c| {
+        c.id = glob_counter;
+        glob_counter = glob_counter + 1;
+        tors_bank.iter().for_each(|(k, t)| {
+            if (c.ca.loc.distance(t.ca.loc) < TOLE || c.ca.loc.distance(t.cb.loc) < TOLE) {
+                c.ca_tor = t.id;
+            } else if (c.cb.loc.distance(t.ca.loc) < TOLE || c.cb.loc.distance(t.cb.loc) < TOLE) {
+                c.cb_tor = t.id;
+            }
+        })
+    });
+
+    let mut ends: Vec<MainCylinder> = vec![];
+    cc.iter().for_each(|c| {
+       // warn!("ca_tor cb_tor {:?}  {:?} {:?}",c.h.round(), c.ca_tor,c.cb_tor);
+        if (c.ca_tor == u64::MAX || c.cb_tor == u64::MAX) {
+            ends.push(c.clone());
+        }
+    });
+    if (ends.len() == 2) {
+        let (s,e)=calculate_extra_len(ends[0].clone(),ends[1].clone(),table,scale,&tors_bank);
+        let mut start: MainCylinder =s.clone();//ends[0].clone();
+        let mut tor_id: u64 = { if (start.ca_tor != u64::MAX) { start.ca_tor } else { start.cb_tor } };
+        let end: MainCylinder = e.clone();//ends[0].clone();
+        //warn!("start {:?} end {:?} {:?} {:?}",start.id,end.id,end.ca_tor,end.cb_tor);
+        let mut prev_plane = P_UP;
+        let mut counter = 0;
+        let mut has_next = true;
+
+        while (has_next) {
+            match tors_bank.get(&tor_id) {
+                None => {
+                    has_next = false;
+                    let lra = LRACLR {
+                        id1: counter,
+                        id2: counter + 1,
+                        l: end.h,
+                        lt: 0.0,
+                        r: 0.0,
+                        a: 0.0,
+                        clr: 0.0,
+                        pipe_radius: start.r,
+                    };
+                    lracmds.push(lra);
+                }
+                Some(t) => {
+                    let (a, b, c) = gen_plane_points(&start, t);
+                    let frwd = b.sub(a).normalize();
+                    let bend_plane: Vector3 = Plane::new(a, b, c).normal().normalize();
+                    let ba = t.ca.loc.sub(t.bend_center_point);
+                    let bb = t.cb.loc.sub(t.bend_center_point);
+                    let mut bend_angle = ba.angle(bb);
+                    let lt = abs(bend_angle.0) * (t.bend_radius);
+                    let a = Deg::from(bend_angle).0;
+                    let r: Rad<f64> = {
+                        if (counter == 0) {
+                            prev_plane = bend_plane;
+                            Rad(0.0)
+                        } else {
+                            let a = {
+                                //https://stackoverflow.com/questions/14066933/direct-way-of-computing-the-clockwise-angle-between-two-vectors
+                                //Plane embedded in 3D
+                                let dot = prev_plane.dot(bend_plane);
+                                //let det = prev.x*t.bend_plane_norm.y*t.ca.dir.z + t.bend_plane_norm.x*t.ca.dir.y*prev.z + t.ca.dir.x*prev.y*t.bend_plane_norm.z - prev.z*t.bend_plane_norm.y*t.ca.dir.x - t.bend_plane_norm.z*t.ca.dir.y*prev.x - t.ca.dir.z*prev.y*t.bend_plane_norm.x;
+                                let det = Matrix3::from_cols(
+                                    bend_plane,
+                                    prev_plane,
+                                    frwd,
+                                ).determinant();
+                                let angle = det.atan2(dot);
+                                let d = prev_plane.dot(bend_plane);
+                                //warn!("dot {:?}  {:?} {:?}",Deg::from(Rad(angle)),Deg::from(prev.angle(t.bend_plane_norm)),d_frwd);
+                                if (d == -1.0) {
+                                    //Rad(0.0)
+                                    Rad(-angle)
+                                } else {
+                                    Rad(angle)
+                                }
+                            };
+                            prev_plane = bend_plane;
+                            a
+                        }
+                    };
+                    let lra = LRACLR {
+                        id1: counter,
+                        id2: counter + 1,
+                        l: start.h,
+                        lt: lt,
+                        r: Deg::from(r).0,
+                        a: a.abs(),
+                        clr: t.bend_radius.abs(),
+                        pipe_radius: start.r,
+                    };
+                    //warn!("ROT {:?}",lra.r);
+                    //warn!("c {:?} t {:?} L {:?}",start.id, tor_id, start.h.round());
+                    lracmds.push(lra);
+
+                    counter = counter + 2;
+                    let mut found = false;
+
+                    cc.iter().for_each(|c| {
+                        if (!found && c.id != start.id && (c.ca_tor == tor_id || c.cb_tor == tor_id)) {
+                            tor_id = { if (c.ca_tor != tor_id) { c.ca_tor } else { c.cb_tor } };
+                            start = c.clone();
+                            found = true;
+                        }
+                    });
+                }
+            }
+        }
+
+        //warn!("lra {:?}", lracmds);
+    } else {
+        warn!("ends_not_found {:?}", ends.len());
+    }
+    lracmds
+}
+fn gen_plane_points(s: &MainCylinder, b: &BendToro) -> (Point3, Point3, Point3,) {
+    if (s.ca.loc.distance(b.ca.loc) < TOLE) {
+        (s.cb.loc.clone(), s.ca.loc.clone(), b.cb.loc.clone())
+    } else if (s.ca.loc.distance(b.cb.loc) < TOLE) {
+        (s.cb.loc.clone(), s.ca.loc.clone(), b.ca.loc.clone())
+    } else if (s.cb.loc.distance(b.cb.loc) < TOLE) {
+        (s.ca.loc.clone(), s.cb.loc.clone(), b.ca.loc.clone())
+    } else {
+        (s.ca.loc.clone(), s.cb.loc.clone(), b.cb.loc.clone())
+    }
+}
+fn calculate_extra_len(a:MainCylinder, b:MainCylinder, table: &Table, scale: f64, tors_bank: &HashMap<u64, BendToro>) -> (MainCylinder, MainCylinder) {
+    let mut extra_len_pts: Vec<Point3> = vec![];
+    table.shell.iter().for_each(|(k, v)| {
+        v.cfs_faces.iter().for_each(|face_holder| {
+            match face_holder {
+                PlaceHolder::Ref(name) => {
+                    let id = name_to_id(name.clone());
+                    match table.face_surface.get(&id) {
+                        None => { println!("NOT FOUND") }
+                        Some(face_holder) => {
+                            let face_bounds: &Vec<PlaceHolder<FaceBoundHolder>> = &face_holder.bounds;
+                            match &face_holder.face_geometry {
+                                PlaceHolder::Ref(name) => {
+                                    let id = name_to_id(name.clone());
+                                    match table.plane.get(&id) {
+                                        None => {}
+                                        Some(plane) => {
+                                            face_bounds.iter().for_each(|bound_holder| {
+                                                match bound_holder {
+                                                    PlaceHolder::Ref(bound_holder_name) => {
+                                                        match table.face_bound.get(&name_to_id(bound_holder_name.clone())) {
+                                                            None => {}
+                                                            Some(face_bound_holder) => {
+                                                                match &face_bound_holder.bound {
+                                                                    PlaceHolder::Ref(name) => {
+                                                                        match table.edge_loop.get(&name_to_id(name.clone())) {
+                                                                            None => {}
+                                                                            Some(edge_loop) => {
+                                                                                edge_loop.edge_list.iter().for_each(|curve_holder| {
+                                                                                    match curve_holder {
+                                                                                        PlaceHolder::Ref(name) => {
+                                                                                            match table.oriented_edge.get(&name_to_id(name.clone())) {
+                                                                                                None => {}
+                                                                                                Some(oe_holder) => {
+                                                                                                    match &oe_holder.edge_element {
+                                                                                                        PlaceHolder::Ref(name) => {
+                                                                                                            match table.edge_curve.get(&name_to_id(name.clone())) {
+                                                                                                                None => {}
+                                                                                                                Some(c) => {
+                                                                                                                    let sp = extract_vertex(&table, &c.edge_start, scale).unwrap();
+                                                                                                                    let ep = extract_vertex(&table, &c.edge_end, scale).unwrap();
+                                                                                                                    extra_len_pts.push(sp);
+                                                                                                                    extra_len_pts.push(ep);
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                        PlaceHolder::Owned(_) => {}
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                        PlaceHolder::Owned(_) => {}
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    PlaceHolder::Owned(_) => {}
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    PlaceHolder::Owned(_) => {}
+                                                }
+                                            });
+                                        }
+                                    }
+                                }
+                                PlaceHolder::Owned(_) => {}
+                            }
+                        }
+                    }
+                }
+                PlaceHolder::Owned(_) => {}
+            }
+        })
+    });
+    let mut start=a.clone();
+    let mut end=b.clone();
+
+    let start_tor={
+        if(start.ca_tor!=u64::MAX){
+            tors_bank.get(&start.ca_tor).unwrap()
+        }else{
+            tors_bank.get(&start.cb_tor).unwrap()
+        }
+    };
+    let end_tor={
+        if(end.ca_tor!=u64::MAX){
+            tors_bank.get(&end.ca_tor).unwrap()
+        }else{
+            tors_bank.get(&end.cb_tor).unwrap()
+        }
+    };
+
+    {
+        if(start.ca.loc.distance(start_tor.ca.loc) < TOLE || start.ca.loc.distance(start_tor.cb.loc) < TOLE){
+            let dir = start.cb.loc.sub(start.ca.loc).normalize();
+            let mut new_p: Point3 = Point3::new(0.0, 0.0, 0.0);
+            let mut curr_d = 0.0;
+            let find_r = start.r * EXTRA_R_CALC;
+            let d = start.r * EXTRA_LEN_CALC;
+            let sp = start.ca.loc.clone();
+            let ep = sp.clone() + dir * d;
+            extra_len_pts.iter().for_each(|p| {
+                let projected_point = project_point_to_vec(&dir, &ep, &p);
+                let new_r = projected_point.distance(*p);
+                let new_d = sp.distance(projected_point);
+                let new_dir = projected_point.sub(sp);
+                let is_coplanar = new_dir.dot(dir);
+                if (new_r < find_r && is_coplanar > 0.0) {
+                    if (new_d > curr_d && new_d < d) {
+                        new_p = projected_point;
+                        curr_d = new_d;
+                    }
+                }
+            });
+            if curr_d != 0.0 {
+                start.cb.loc = new_p;
+                let h = start.ca.loc.distance(start.cb.loc);
+                start.h = h;
+            }
+
+
+        }
+        else if (start.cb.loc.distance(start_tor.ca.loc) < TOLE ||start.cb.loc.distance(start_tor.cb.loc) < TOLE) {
+            let dir = start.ca.loc.sub(start.cb.loc).normalize();
+            let mut new_p: Point3 = Point3::new(0.0, 0.0, 0.0);
+            let mut curr_d = 0.0;
+            let find_r = start.r * EXTRA_R_CALC;
+            let d = start.r * EXTRA_LEN_CALC;
+            let sp = start.ca.loc.clone();
+            let ep = sp.clone() + dir * d;
+            extra_len_pts.iter().for_each(|p| {
+                let projected_point = project_point_to_vec(&dir, &ep, &p);
+                let new_r = projected_point.distance(*p);
+                let new_d = sp.distance(projected_point);
+                let new_dir = projected_point.sub(sp);
+                let is_coplanar = new_dir.dot(dir);
+                if (new_r < find_r && is_coplanar > 0.0) {
+                    if (new_d > curr_d && new_d < d) {
+                        new_p = projected_point;
+                        curr_d = new_d;
+                    }
+                }
+            });
+            if curr_d != 0.0 {
+                start.ca.loc = new_p;
+                let h = start.ca.loc.distance(start.cb.loc);
+                start.h = h;
+            }
+        }
+    }
+
+    {
+        if(end.ca.loc.distance(end_tor.ca.loc) < TOLE || end.ca.loc.distance(end_tor.cb.loc) < TOLE){
+            let dir = end.cb.loc.sub(end.ca.loc).normalize();
+            let mut new_p: Point3 = Point3::new(0.0, 0.0, 0.0);
+            let mut curr_d = 0.0;
+            let find_r = end.r * EXTRA_R_CALC;
+            let d = end.r * EXTRA_LEN_CALC;
+            let sp = end.ca.loc.clone();
+            let ep = sp.clone() + dir * d;
+            extra_len_pts.iter().for_each(|p| {
+                let projected_point = project_point_to_vec(&dir, &ep, &p);
+                let new_r = projected_point.distance(*p);
+                let new_d = sp.distance(projected_point);
+                let new_dir = projected_point.sub(sp);
+                let is_coplanar = new_dir.dot(dir);
+                if (new_r < find_r && is_coplanar > 0.0) {
+                    if (new_d > curr_d && new_d < d) {
+                        new_p = projected_point;
+                        curr_d = new_d;
+                    }
+                }
+            });
+            if curr_d != 0.0 {
+                end.cb.loc = new_p;
+                let h = end.ca.loc.distance(end.cb.loc);
+                end.h = h;
+            }
+
+
+        }
+        else if (end.cb.loc.distance(end_tor.ca.loc) < TOLE ||end.cb.loc.distance(end_tor.cb.loc) < TOLE) {
+            let dir = end.ca.loc.sub(end.cb.loc).normalize();
+            let mut new_p: Point3 = Point3::new(0.0, 0.0, 0.0);
+            let mut curr_d = 0.0;
+            let find_r = end.r * EXTRA_R_CALC;
+            let d = end.r * EXTRA_LEN_CALC;
+            let sp = end.ca.loc.clone();
+            let ep = sp.clone() + dir * d;
+            extra_len_pts.iter().for_each(|p| {
+                let projected_point = project_point_to_vec(&dir, &ep, &p);
+                let new_r = projected_point.distance(*p);
+                let new_d = sp.distance(projected_point);
+                let new_dir = projected_point.sub(sp);
+                let is_coplanar = new_dir.dot(dir);
+                if (new_r < find_r && is_coplanar > 0.0) {
+                    if (new_d > curr_d && new_d < d) {
+                        new_p = projected_point;
+                        curr_d = new_d;
+                    }
+                }
+            });
+            if curr_d != 0.0 {
+                end.ca.loc = new_p;
+                let h = end.ca.loc.distance(end.cb.loc);
+                end.h = h;
+            }
+        }
+    }
+
+    (start,end)
+}
+
 

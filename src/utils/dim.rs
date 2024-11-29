@@ -1,8 +1,5 @@
 
-use crate::algo::{
-    angle_with_sign, BendToro, MainCircle, MainCylinder, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT,
-    P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE,
-};
+use crate::algo::{angle_with_sign, round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::{abs, signum};
 use cgmath::{
@@ -571,6 +568,7 @@ impl DimX {
             loc: Point3::new(0.0, -len, 0.0),
             dir: P_FORWARD,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let cb = MainCircle {
             id: random(),
@@ -578,6 +576,7 @@ impl DimX {
             loc: Point3::new(x, -len, 0.0),
             dir: P_FORWARD,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -609,6 +608,7 @@ impl DimX {
             loc: Point3::new(x, 0.0, 0.0),
             dir: P_RIGHT_REVERSE,
             radius_dir: P_FORWARD,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let cb = MainCircle {
             id: random(),
@@ -616,6 +616,7 @@ impl DimX {
             loc: Point3::new(x, -len, 0.0),
             dir: P_RIGHT_REVERSE,
             radius_dir: P_FORWARD,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -888,6 +889,7 @@ impl DimZ {
                 loc: pa,
                 dir: a_dir,
                 radius_dir: P_FORWARD,
+                r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
             };
             let cb = MainCircle {
                 id: random(),
@@ -895,6 +897,7 @@ impl DimZ {
                 loc: pb,
                 dir: b_dir,
                 radius_dir: P_FORWARD,
+                r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
             };
 
             let arr_a: Vec<Point3<f64>> = ca.gen_points_with_tol(PI / 8.0);
@@ -1023,6 +1026,7 @@ impl DimZ {
             loc: Point3::new(0.0, 0.0, 0.0),
             dir: P_UP,
             radius_dir: P_FORWARD,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let cb = MainCircle {
             id: random(),
@@ -1030,6 +1034,7 @@ impl DimZ {
             loc: pe,
             dir: P_UP,
             radius_dir: P_FORWARD,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -1862,6 +1867,7 @@ impl DimB {
             loc: cp,
             dir: dir_y,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let cb = MainCircle {
             id: random(),
@@ -1869,6 +1875,7 @@ impl DimB {
             loc: pe,
             dir: dir_y,
             radius_dir: P_UP,
+            r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
         };
         let mut mc = MainCylinder {
             id: id as u64,
@@ -2202,6 +2209,7 @@ impl DimB {
                 loc: pa,
                 dir: a_dir,
                 radius_dir: P_UP,
+                r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
             };
             let cb = MainCircle {
                 id: random(),
@@ -2209,6 +2217,7 @@ impl DimB {
                 loc: pb,
                 dir: b_dir,
                 radius_dir: P_UP,
+                r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
             };
 
             let arr_a: Vec<Point3<f64>> = ca.gen_points_with_tol(PI / 8.0);

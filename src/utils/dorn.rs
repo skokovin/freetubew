@@ -6,7 +6,7 @@ use shipyard::{Unique};
 use truck_base::bounding_box::BoundingBox;
 use wgpu::{BindingResource, Buffer, Device};
 use wgpu::util::DeviceExt;
-use crate::algo::{MainCircle, MainCylinder, P_FORWARD, P_RIGHT, P_UP_REVERSE};
+use crate::algo::{round_by_dec, MainCircle, MainCylinder, DIVIDER, P_FORWARD, P_RIGHT, P_UP_REVERSE};
 use crate::algo::cnc::LRACLR;
 use crate::device::{StepVertexBuffer};
 use crate::device::graphics::AnimState;
@@ -56,6 +56,7 @@ impl Dorn {
             loc: Point3::new(0.0, 0.0, 0.5),
             dir: P_UP_REVERSE,
             radius_dir: P_FORWARD,
+            r_gr_id: (round_by_dec(1.0, 5) * DIVIDER) as u64,
         };
         let cb = MainCircle {
             id: random(),
@@ -63,6 +64,7 @@ impl Dorn {
             loc: Point3::new(0.0, 0.0, -0.5),
             dir: P_UP_REVERSE,
             radius_dir: P_FORWARD,
+            r_gr_id: (round_by_dec(1.0, 5) * DIVIDER) as u64,
         };
         let mut mc = MainCylinder {
             id: DORN_ID,

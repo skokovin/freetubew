@@ -6,7 +6,7 @@ use log::{info, warn, Level};
 use once_cell::sync::Lazy;
 use shipyard::Unique;
 use web_sys::js_sys::{Float32Array, Uint8Array};
-use crate::algo::{analyze_bin, P_UP_REVERSE};
+use crate::algo::{analyze_stp, P_UP_REVERSE};
 use crate::algo::cnc::{all_to_stp, cnc_to_poly, LRACLR};
 use crate::device::graphics::{Graphics, States};
 use crate::device::graphics::States::{ChangeDornDir, FullAnimate, LoadLRA, ReadyToLoad, ReverseLRACLR, Dismiss, NewBendParams, SelectFromWeb};
@@ -65,11 +65,12 @@ impl InCmd {
                     Some(command) => {
                         match command {
                             RemoteCommand::OnLoadSTPfile(stp) => {
-                                match analyze_bin(&stp) {
-                                    None => { Dismiss }
-                                    Some(mut ops) => {
-                                        ReadyToLoad( (ops.calculate_lraclr(),true))
-                                    }
+
+                                let lracmds= analyze_stp(&stp);
+                                if(lracmds.is_empty()){
+                                    Dismiss
+                                }else{
+                                    ReadyToLoad( (lracmds,true))
                                 }
                             }
                             RemoteCommand::OnSelectById(id) => {

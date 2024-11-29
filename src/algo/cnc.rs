@@ -1,4 +1,4 @@
-use crate::algo::{project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE};
+use crate::algo::{export_to_pt_str, project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE};
 use crate::device::graphics::{AnimState, BendParameters};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::{abs, signum};
@@ -79,407 +79,42 @@ impl LRACLR {
         (tl, outd)
     }
 }
-
 impl Display for LRACLR {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "L {} R {} A {} CLR {}", self.l, self.r, self.a, self.clr)
     }
 }
 
-#[derive(Clone)]
-pub enum OpElem {
-    CYL((MainCylinder)),
-    TOR((BendToro)),
-    Nothing,
-}
-#[derive(Clone)]
-pub struct CncOps {
-    pub ops: Vec<OpElem>,
-    pub current_step: usize,
-}
-impl CncOps {
-    pub fn new(cyls: &Vec<MainCylinder>, bends: &Vec<BendToro>) -> Self {
-        let mut tot_ops: Vec<OpElem> = vec![];
-        if (!cyls.is_empty() && !bends.is_empty()) {
-            let mut tot_ops_cyls: Vec<OpElem> = vec![];
-            let mut bends_db: HashMap<u64, BendToro> = HashMap::new();
-            bends.iter().for_each(|b| {
-                bends_db.insert(b.id, b.clone());
-            });
-            let mut cyls_path = cyls.clone();
-            MainCylinder::init_tors(&mut cyls_path, bends);
-            let mut cyls_path_cleared: Vec<MainCylinder> = vec![];
-            cyls_path.iter().for_each(|c| {
-                if (c.ca_tor != u64::MAX || c.cb_tor != u64::MAX) {
-                    cyls_path_cleared.push(c.clone());
-                }else{
-                    warn!("HAS GAP")
-                }
-            });
-            if (cyls.len() == 2 && bends.len() == 1) {
-                tot_ops_cyls.push(OpElem::CYL(cyls[0].clone()));
-                tot_ops_cyls.push(OpElem::TOR(bends[0].clone()));
-                tot_ops_cyls.push(OpElem::CYL(cyls[1].clone()));
-            } else {
-                match MainCylinder::find_ends(&cyls_path_cleared) {
-                    None => {
-                        panic!("CANT FIND ENDS");
-                    }
-                    Some(ends) => {
-                        let mut curr = ends[0].clone();
-                        tot_ops_cyls.push(OpElem::CYL(ends[0].clone()));
-                        let mut hashids: HashSet<u64> = HashSet::new();
-                        hashids.insert(curr.id);
-                        let mut inserted = true;
-                        while (inserted) {
-                            match curr.get_next(&hashids, &cyls_path_cleared) {
-                                None => {
-                                    inserted = false;
-                                }
-                                Some(next) => {
-                                    //println!("NEXT curr {:?} next {:?} {:?} {:?}", curr.id, next.id, next.ca_tor, next.cb_tor);
-                                    tot_ops_cyls.push(OpElem::CYL(next.clone()));
-                                    hashids.insert(next.id);
-                                    curr = next;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            tot_ops.push(tot_ops_cyls[0].clone());
-            for i in 0..tot_ops_cyls.len() - 1 {
-                let mut vec: Vec<u64> = vec![];
-                let mut tor_indx: u64 = u64::MAX;
-                match &tot_ops_cyls[i] {
-                    OpElem::CYL(c) => {
-                        vec.push(c.ca_tor);
-                        vec.push(c.cb_tor);
-                    }
-                    OpElem::TOR(_) => {}
-                    OpElem::Nothing => {}
-                }
-                match &tot_ops_cyls[i + 1] {
-                    OpElem::CYL(c) => {
-                        vec.push(c.ca_tor);
-                        vec.push(c.cb_tor);
-                    }
-                    OpElem::TOR(_) => {}
-                    OpElem::Nothing => {}
-                }
-
-                let mut hashids: HashMap<u64, i64> = HashMap::new();
-                vec.iter().for_each(|a| match hashids.get_mut(a) {
-                    None => {
-                        if (*a != u64::MAX) {
-                            hashids.insert(a.clone(), 1);
-                        }
-                    }
-                    Some(v) => {
-                        if (*a != u64::MAX) {
-                            *v = *v + 1;
-                        }
-                    }
-                });
-
-                hashids.iter().for_each(|(k, v)| {
-                    if (*v == 2) {
-                        tor_indx = k.clone();
-                    }
-                });
-                match bends_db.get(&tor_indx) {
-                    None => {
-                        tot_ops.push(tot_ops_cyls[i + 1].clone());
-                    }
-                    Some(t) => {
-                        tot_ops.push(OpElem::TOR(t.clone()));
-                        tot_ops.push(tot_ops_cyls[i + 1].clone());
-                    }
-                }
-            }
-            CncOps::fix_dirs(&mut tot_ops);
-        }
-        Self {
-            ops: tot_ops,
-            current_step: 0,
-        }
-    }
-    fn fix_dirs(opers: &mut Vec<OpElem>) {
-        let ops1 = opers[1].clone();
-        let ops0 = &mut opers[0];
-        match ops0 {
-            OpElem::CYL(cyl) => {
-                if (cyl.ca_tor != u64::MAX) {
-                    cyl.reverse_my_ends();
-                    match ops1 {
-                        OpElem::CYL(_) => {}
-                        OpElem::TOR(t) => {
-                            if (!(cyl.cb.loc.distance(t.ca.loc).abs() < TOLE) && !(cyl.cb.loc.distance(t.cb.loc).abs() < TOLE))
-                            {
-                                cyl.reverse_my_points();
-                            }
-                        }
-                        OpElem::Nothing => {}
-                    }
-                }
-                cyl.recalculate_h();
-            }
-            OpElem::TOR(_) => {}
-            OpElem::Nothing => {}
-        }
-        let mut lastop = opers[0].clone();
-        for i in 1..opers.len() {
-            let ops0 = &mut opers[i];
-            match ops0 {
-                OpElem::CYL(c_op) => {
-                    match lastop {
-                        OpElem::CYL(_) => {}
-                        OpElem::TOR(t) => {
-                            if (!(c_op.ca.loc.distance(t.cb.loc).abs() < TOLE)) {
-                                c_op.reverse_my_points();
-                            }
-                            if (c_op.ca_tor != t.id) {
-                                c_op.reverse_my_ends();
-                            }
-                        }
-                        OpElem::Nothing => {}
-                    }
-                    c_op.recalculate_h();
-                    lastop = ops0.clone();
-                }
-                OpElem::TOR(t) => match &lastop {
-                    OpElem::CYL(cyl) => {
-                        if (!(cyl.cb.loc.distance(t.ca.loc).abs() < TOLE)) {
-                            t.reverse_my_points();
-                        }
-                        lastop = ops0.clone();
-                    }
-                    OpElem::TOR(_) => {}
-                    OpElem::Nothing => {}
-                },
-                OpElem::Nothing => {}
-            }
-        }
-    }
-    pub fn calculate_extra_len(&self, extra_len_pts: &Vec<Point3>) -> CncOps {
-        let mut new_ops = self.ops.clone();
-        let last_index = new_ops.len() - 1;
-        let first = self.ops.first().unwrap();
-        let last = self.ops.last().unwrap();
-        let mut new_first: Option<MainCylinder> = None;
-        let mut new_last: Option<MainCylinder> = None;
-        match first {
-            OpElem::CYL(c) => {
-                let mut new_p: Point3 = Point3::new(0.0, 0.0, 0.0);
-                let mut curr_d = 0.0;
-                let dir = c.ca.loc.sub(c.cb.loc).normalize();
-                let find_r = c.r * EXTRA_R_CALC;
-                let d = c.r * EXTRA_LEN_CALC;
-                let sp = c.ca.loc.clone();
-                let ep = sp.clone() + dir * d;
-                extra_len_pts.iter().for_each(|p| {
-                    let projected_point = project_point_to_vec(&dir, &ep, &p);
-                    let new_r = projected_point.distance(*p);
-                    let new_d = sp.distance(projected_point);
-                    let new_dir = projected_point.sub(sp);
-                    let is_coplanar = new_dir.dot(dir);
-                    if (new_r < find_r && is_coplanar > 0.0) {
-                        if (new_d > curr_d && new_d < d) {
-                            new_p = projected_point;
-                            curr_d = new_d;
-                        }
-                    }
-                });
-                if curr_d != 0.0 {
-                    let mut new_c = c.clone();
-                    new_c.ca.loc = new_p;
-                    let h = new_c.ca.loc.distance(new_c.cb.loc);
-                    new_c.h = h;
-                    new_first = Some(new_c);
-                }
-            }
-            OpElem::TOR(_) => {}
-            OpElem::Nothing => {}
-        }
-        match last {
-            OpElem::CYL(c) => {
-                let mut new_p: Point3 = Point3::new(0.0, 0.0, 0.0);
-                let mut curr_d = 0.0;
-                let dir = c.cb.loc.sub(c.ca.loc).normalize();
-                let find_r = c.r * EXTRA_R_CALC;
-                let d = c.r * EXTRA_LEN_CALC;
-                let sp = c.cb.loc.clone();
-                let ep = sp.clone() + dir * d;
-                extra_len_pts.iter().for_each(|p| {
-                    let projected_point = project_point_to_vec(&dir, &ep, &p);
-                    let new_r = projected_point.distance(*p);
-                    let new_d = sp.distance(projected_point);
-                    let new_dir = projected_point.sub(sp);
-                    let is_coplanar = new_dir.dot(dir);
-                    if (new_r < find_r && is_coplanar > 0.0) {
-                        if (new_d > curr_d && new_d < d) {
-                            new_p = projected_point;
-                            curr_d = new_d;
-                        }
-                    }
-                });
-                if curr_d != 0.0 {
-                    let mut new_c = c.clone();
-                    new_c.cb.loc = new_p;
-                    let h = new_c.ca.loc.distance(new_c.cb.loc);
-                    //new_c.cb.to_pts_file();
-                    new_c.h = h;
-                    new_last = Some(new_c);
-                }
-            }
-            OpElem::TOR(_) => {}
-            OpElem::Nothing => {}
-        }
-        match new_first {
-            None => {}
-            Some(mc) => {
-                new_ops[0] = OpElem::CYL(mc);
-            }
-        }
-        match new_last {
-            None => {}
-            Some(mc) => {
-                new_ops[last_index] = OpElem::CYL(mc);
-            }
-        }
-        let mut ret = CncOps {
-            ops: new_ops,
-            current_step: 0,
-        };
-        ret
-    }
-    pub fn calculate_lraclr(&mut self) -> Vec<LRACLR> {
-        let mut cncs: Vec<LRACLR> = vec![];
-        if (self.ops.len() > 1 && self.ops.len().is_odd()) {
-            let last_op: OpElem = self.ops.last().unwrap().clone();
-            let mut pair_arr: Vec<OpElem> = vec![];
-            for i in 0..self.ops.len() - 1 {
-                pair_arr.push(self.ops[i].clone());
-            }
-            let mut it_first = true;
-            let mut outd: f64 = 0.0;
-            let mut counter = 0;
-            let mut prev: Vector3 = P_UP;
-            let mut prev_fwd: Vector3 = P_FORWARD;
-            pair_arr.chunks(2).for_each(|ops| {
-                let op1 = &ops[0];
-                let op2 = &ops[1];
-                let mut cnc: LRACLR = LRACLR::default();
-                match op1 {
-                    OpElem::CYL(c) => {
-                        cnc.id1 = counter;
-                        counter = counter + 1;
-                        cnc.l = c.h;
-                        outd = c.r;
-                        cnc.pipe_radius = outd;
-
-                        match op2 {
-                            OpElem::TOR(t) => {
-                                let r: Rad<f64> = {
-                                    if (it_first) {
-                                        prev = t.bend_plane_norm;
-                                        prev_fwd = t.ca.dir;
-                                        it_first = false;
-                                        Rad(0.0)
-                                    } else {
-                                        let a = {
-                                            //https://stackoverflow.com/questions/14066933/direct-way-of-computing-the-clockwise-angle-between-two-vectors
-                                            //Plane embedded in 3D
-                                            let dot = prev.dot(t.bend_plane_norm);
-                                            //let det = prev.x*t.bend_plane_norm.y*t.ca.dir.z + t.bend_plane_norm.x*t.ca.dir.y*prev.z + t.ca.dir.x*prev.y*t.bend_plane_norm.z - prev.z*t.bend_plane_norm.y*t.ca.dir.x - t.bend_plane_norm.z*t.ca.dir.y*prev.x - t.ca.dir.z*prev.y*t.bend_plane_norm.x;
-                                            let det = Matrix3::from_cols(
-                                                t.bend_plane_norm,
-                                                t.ca.dir,
-                                                prev,
-                                            ).determinant();
-                                            let angle = det.atan2(dot);
-                                            let d = prev.dot(t.bend_plane_norm);
-                                            let d_frwd = prev_fwd.dot(t.cb.dir);
-                                            //warn!("dot {:?}  {:?} {:?}",Deg::from(Rad(angle)),Deg::from(prev.angle(t.bend_plane_norm)),d_frwd);
-                                            if (d == -1.0 && d_frwd < 0.0) {
-                                                Rad(0.0)
-                                            } else {
-                                                Rad(angle)
-                                            }
-                                        };
-
-                                        //warn!("a {:?} {:?}",Deg::from(a), prev.angle(t.bend_plane_norm));
-                                        prev = t.bend_plane_norm;
-                                        prev_fwd = t.ca.dir;
-                                        a
-                                    }
-                                };
-                                cnc.r = Deg::from(r).0;
-                                cnc.clr = t.bend_radius;
-                                cnc.id2 = counter;
-                                counter = counter + 1;
-                                let ba = t.ca.loc.sub(t.bend_center_point);
-                                let bb = t.cb.loc.sub(t.bend_center_point);
-                                let mut bend_angle = ba.angle(bb);
-                                cnc.lt = abs(bend_angle.0) * (t.bend_radius);
-                                cnc.a = Deg::from(bend_angle).0;
-                            }
-                            _ => {}
-                        }
-
-                        cnc.pipe_radius = outd;
-                        cncs.push(cnc);
-                    }
-                    _ => {}
-                }
-            });
-            match last_op {
-                OpElem::CYL(c) => {
-                    let mut cnc: LRACLR = LRACLR::default();
-                    cnc.id1 = counter;
-                    cnc.id2 = counter + 1;
-                    cnc.l = c.h;
-                    cnc.pipe_radius = outd;
-                    cncs.push(cnc);
-                }
-                OpElem::TOR(_) => {}
-                OpElem::Nothing => {}
-            }
-        }
-
-        optimize_lraclr(&mut cncs);
-        cncs
-    }
-    pub fn generate_cyl(h: f64, radius: f64) -> MainCylinder {
-        let mut mc: MainCylinder = MainCylinder {
-            id: rand::thread_rng().gen_range(0..1024),
-            ca: MainCircle {
-                id: random(),
-                radius: radius,
-                loc: Point3::new(0.0, 0.0, 0.0),
-                dir: P_FORWARD,
-                radius_dir: P_UP,
-            },
-            cb: MainCircle {
-                id: random(),
-                radius: radius,
-                loc: Point3::new(h, 0.0, 0.0),
-                dir: P_FORWARD,
-                radius_dir: P_UP,
-            },
-            h: h,
-            r: radius,
+fn generate_cyl(h: f64, radius: f64) -> MainCylinder {
+    let mut mc: MainCylinder = MainCylinder {
+        id: rand::thread_rng().gen_range(0..1024),
+        ca: MainCircle {
+            id: random(),
+            radius: radius,
+            loc: Point3::new(0.0, 0.0, 0.0),
+            dir: P_FORWARD,
+            radius_dir: P_UP,
             r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
-            ca_tor: u64::MAX,
-            cb_tor: u64::MAX,
-            step_vertex_buffer: StepVertexBuffer::default(),
-            bbx: BoundingBox::default(),
-        };
-        mc.triangulate();
-        mc
-    }
+        },
+        cb: MainCircle {
+            id: random(),
+            radius: radius,
+            loc: Point3::new(h, 0.0, 0.0),
+            dir: P_FORWARD,
+            radius_dir: P_UP,
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
+        },
+        h: h,
+        r: radius,
+        r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
+        ca_tor: u64::MAX,
+        cb_tor: u64::MAX,
+        step_vertex_buffer: StepVertexBuffer::default(),
+        bbx: BoundingBox::default(),
+    };
+    mc.triangulate();
+    mc
 }
-
 fn generate_dummy_cyl(id: u64, stright_len: f64, radius: f64) -> MainCylinder {
     generate_cyl_by_2pts(
         id,
@@ -500,6 +135,7 @@ fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: V
             loc: sp,
             dir: fwd_dir,
             radius_dir: up_dir,
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         },
         cb: MainCircle {
             id: random(),
@@ -507,6 +143,7 @@ fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: V
             loc: ep,
             dir: fwd_dir,
             radius_dir: up_dir,
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         },
         h: h,
         r: radius,
@@ -519,7 +156,6 @@ fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: V
     mc.triangulate();
     mc
 }
-
 fn tot_pipe_len(lraclr_arr: &Vec<LRACLR>) -> f64 {
     let mut ret = 0.0;
     lraclr_arr.iter().for_each(|lracl| {
@@ -527,7 +163,6 @@ fn tot_pipe_len(lraclr_arr: &Vec<LRACLR>) -> f64 {
     });
     ret
 }
-
 pub fn reverse_lraclr(lraclr: &Vec<LRACLR>) -> Vec<LRACLR> {
     let mut ret: Vec<LRACLR> = vec![];
     let mut ops: Vec<LRACLR> = lraclr.clone();
@@ -581,10 +216,7 @@ pub fn reverse_lraclr(lraclr: &Vec<LRACLR>) -> Vec<LRACLR> {
     optimize_lraclr(&mut ret);
     ret
 }
-pub fn cnc_to_poly(
-    lraclr_arr: &Vec<LRACLR>,
-    v_up_orign: &Vector3,
-) -> (Vec<MainCylinder>, Vec<BendToro>) {
+pub fn cnc_to_poly(lraclr_arr: &Vec<LRACLR>, v_up_orign: &Vector3, ) -> (Vec<MainCylinder>, Vec<BendToro>) {
     let mut current_step = 0;
     let mut sp: Point3 = Point3::new(0.0, 0.0, 0.0);
     let mut v_up: Vector3 = v_up_orign.clone();
@@ -646,7 +278,8 @@ fn generate_tor_by_2pts(
     fwd_dir_e: Vector3,
     up_dir: Vector3,
     bend_r: f64,
-) -> BendToro {
+) -> BendToro
+{
     let bend_center_point = sp + up_dir.cross(fwd_dir_s).mul(bend_r);
     let mut tor: BendToro = BendToro {
         id: id,
@@ -661,6 +294,7 @@ fn generate_tor_by_2pts(
             loc: sp,
             dir: fwd_dir_s,
             radius_dir: up_dir,
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         },
         cb: MainCircle {
             id: random(),
@@ -668,6 +302,7 @@ fn generate_tor_by_2pts(
             loc: ep,
             dir: fwd_dir_e,
             radius_dir: up_dir,
+            r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         },
         r_gr_id: (round_by_dec(radius, 5) * DIVIDER) as u64,
         step_vertex_buffer: StepVertexBuffer::default(),
@@ -687,13 +322,7 @@ pub fn optimize_lraclr(lraclrs: &mut Vec<LRACLR>) {
         }
     });
 }
-pub fn cnc_to_poly_animate(
-    lraclr_arr: &Vec<LRACLR>,
-    anim_state: &AnimState,
-    v_up_orign: &Vector3,
-    dt: f64,
-    bend_params: &BendParameters,
-) -> (Vec<MainCylinder>, Vec<BendToro>, AnimState) {
+pub fn cnc_to_poly_animate(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_up_orign: &Vector3, dt: f64, bend_params: &BendParameters, ) -> (Vec<MainCylinder>, Vec<BendToro>, AnimState) {
     let mut out_cyls: Vec<MainCylinder> = vec![];
     let mut out_tors: Vec<BendToro> = vec![];
 
@@ -741,7 +370,7 @@ pub fn cnc_to_poly_animate(
                             anim_lra.push(lr.clone());
                         });
                         if (anim_lra.len() == 1) {
-                            let cyl = CncOps::generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
+                            let cyl = generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
                             out_cyls.push(cyl);
                         } else {
                             let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
@@ -774,7 +403,7 @@ pub fn cnc_to_poly_animate(
                         anim_lra[indx].l = next_stage.value;
 
                         if (anim_lra.len() == 1) {
-                            let cyl = CncOps::generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
+                            let cyl = generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
                             out_cyls.push(cyl);
                         } else {
                             let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
