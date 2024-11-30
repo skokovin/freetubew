@@ -7,7 +7,7 @@ use encoding_rs::WINDOWS_1251;
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use itertools::{ChunkBy, Itertools};
 use rand::{random, Rng};
-use ruststep::ast::Name;
+use ruststep::ast::{Exchange, Name};
 use ruststep::tables::PlaceHolder;
 use ruststep::tables::PlaceHolder::Ref;
 use serde::{Deserialize, Serialize};
@@ -21,14 +21,14 @@ use std::vec::IntoIter;
 use cgmath::num_traits::abs;
 use cgmath::num_traits::float::FloatCore;
 use log::warn;
-
+use ruststep::parser;
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::{Point3, Vector3};
 use truck_geometry::nurbs::NurbsCurve;
 use truck_geometry::prelude::{BSplineCurve, Plane};
 use truck_meshalgo::prelude::*;
 use truck_stepio::r#in::{Axis2Placement3dHolder, Axis2PlacementHolder, BSplineCurveWithKnots, CartesianPoint, CartesianPointHolder, CurveAnyHolder, DirectionHolder, FaceBoundHolder, NonRationalBSplineCurveHolder, NonRationalBSplineSurfaceHolder, Table, VertexPointHolder};
-
+use nom::Finish;
 pub const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 pub const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
 pub const P_RIGHT: Vector3 = Vector3::new(0.0, 1.0, 0.0);
@@ -1971,8 +1971,8 @@ pub fn extract_plane_points(table: &Table, scale: f64) -> Vec<Point3> {
     });
     points
 }
-pub fn analyze_stp(stp: &Vec<u8>) -> Vec<LRACLR> {
-    let mut transcoded = DecodeReaderBytesBuilder::new().encoding(Some(WINDOWS_1251)).build(stp.as_slice());
+pub fn analyze_stp(_stp: &Vec<u8>) -> Vec<LRACLR> {
+    let mut transcoded = DecodeReaderBytesBuilder::new().encoding(Some(WINDOWS_1251)).build(_stp.as_slice());
     let mut buf: Vec<u8> = vec![];
     let mut stp: String = String::new();
     match transcoded.read_to_end(&mut buf) {
@@ -1989,17 +1989,30 @@ pub fn analyze_stp(stp: &Vec<u8>) -> Vec<LRACLR> {
         }
     }
     let scale = extact_scale(&stp);
-    let exchange = ruststep::parser::parse(&stp).unwrap();
+
+    let fixed_stp: String =stp.replace(",(),", ",'',");
+
+    let exchange = ruststep::parser::parse(&fixed_stp).unwrap();
     let table: Table = Table::from_data_section(&exchange.data[0]);
 
     let (cyls, tors) = extract_cyls(&table, scale);
 
-    let cyls_no_dubs = MainCylinder::remove_dublicates(&cyls);
+    tors_to_cyls(&tors);
 
-    let mut cyls_merged = MainCylinder::merge(&cyls_no_dubs);
+
+
+    let cyls_no_dubs = MainCylinder::remove_dublicates(&cyls);
+    let cyls_merged = MainCylinder::merge(&cyls_no_dubs);
+
 
     let bend_toros_no_dublicates: Vec<BendToro> = BendToro::remove_dublicates(&tors);
     let merged_tors = BendToro::merge(&bend_toros_no_dublicates);
+    let mut pts:Vec<Point3> = vec![];
+    merged_tors.iter().for_each(|t|{
+        pts.extend_from_slice(t.gen_points().as_slice())
+    });
+    export_to_pt_str(&pts,"77");
+
 
     let racalculated_tors: Vec<BendToro> = recalc_tors_tole(&cyls_merged, &merged_tors);
 
@@ -2018,6 +2031,13 @@ pub fn analyze_stp(stp: &Vec<u8>) -> Vec<LRACLR> {
             None
         }*/
 }
+
+fn tors_to_cyls( tors:&Vec<BendToro>){
+    tors.iter().for_each(|t|{
+        warn!("RAD {:?}", t.bend_radius)
+    })
+}
+
 pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendToro>) {
     let mut toros: Vec<BendToro> = vec![];
     let mut cilinders: Vec<MainCylinder> = vec![];
@@ -2261,9 +2281,9 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
 
             counter = counter + 1;
 
-            no_dubs.iter().chunk_by(|c| c.r_gr_id).into_iter().for_each(|(k, v)| {
+   /*         no_dubs.iter().chunk_by(|c| c.r_gr_id).into_iter().for_each(|(k, v)| {
                 //warn!("counter {:?} K {:?} V {:?}",counter, k,  v.into_iter().collect_vec().len());
-            });
+            });*/
 
             no_dubs.iter().chunk_by(|c| c.r_gr_id).into_iter().for_each(|(k, v)| {
                  let vec = v.into_iter().collect_vec();
@@ -2927,7 +2947,6 @@ pub fn do_cyl_2(circle1: &MainCircle, circle2: &MainCircle, points: &Vec<Point3>
             let bend_radius_centre = circle2.loc - hypotenuze.mul(hypotenuze_len);
             let plane: Vector3 = Plane::new(bend_radius_centre, circle2.loc, circle1.loc).normal().normalize();
             if (plane.dot(up_v).abs() - 1.0 < TOLE) {
-                //warn!("hypotenuze_len {:?}",plane.dot(up_v));
                 let r = circle1.radius;
                 let dir_radius1 = circle1.loc.sub(bend_radius_centre).normalize();
                 let dir_radius2 = circle2.loc.sub(bend_radius_centre).normalize();
@@ -2949,20 +2968,72 @@ pub fn do_cyl_2(circle1: &MainCircle, circle2: &MainCircle, points: &Vec<Point3>
                     radius_dir: dir_radius2,
                     r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
                 };
-                let t = BendToro {
-                    id: rand::thread_rng().gen_range(0..1024),
-                    r: c1.radius,
-                    bend_radius: hypotenuze_len.abs(),
-                    bend_center_point: bend_radius_centre,
-                    bend_plane_norm: plane,
-                    radius_dir: plane,
-                    ca: c1,
-                    cb: c2,
-                    r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
-                    step_vertex_buffer: StepVertexBuffer::default(),
-                    bbx: Default::default(),
-                };
-                toros.push(t);
+                if( hypotenuze_len.abs()<MAX_BEND_RADIUS){
+                    let t = BendToro {
+                        id: rand::thread_rng().gen_range(0..1024),
+                        r: c1.radius,
+                        bend_radius: hypotenuze_len.abs(),
+                        bend_center_point: bend_radius_centre,
+                        bend_plane_norm: plane,
+                        radius_dir: plane,
+                        ca: c1,
+                        cb: c2,
+                        r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                        step_vertex_buffer: StepVertexBuffer::default(),
+                        bbx: Default::default(),
+                    };
+                    toros.push(t);
+                }else{
+                    let dir = circle2.loc.sub(circle1.loc);
+                    if (dir.magnitude() > TOLE) {
+                        let some_p: Point3 = Point3::new(52369.33, 4596.66, 8899.36);
+                        let proj_point: Point3 = project_point_to_vec(&dir, &circle1.loc, &some_p);
+                        let radius_dir = some_p.sub(proj_point).normalize();
+
+
+                        let r = circle1.radius;
+                        let ca = MainCircle {
+                            id: rand::thread_rng().gen_range(0..1024),
+                            radius: r,
+                            loc: circle1.loc.clone(),
+                            dir: dir.normalize(),
+                            radius_dir: radius_dir.clone(),
+                            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                        };
+                        let cb = MainCircle {
+                            id: rand::thread_rng().gen_range(0..1024),
+                            radius: r,
+                            loc: circle2.loc.clone(),
+                            dir: dir.normalize(),
+                            radius_dir: radius_dir.clone(),
+                            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                        };
+
+                        let mut cb_clone = cb.clone();
+                        let mut ca_clone = ca.clone();
+                        cb_clone.dir = dir.normalize();
+                        ca_clone.dir = dir.normalize();
+                        let nc: MainCylinder = MainCylinder {
+                            id: rand::thread_rng().gen_range(0..1024),
+                            ca: cb_clone,
+                            cb: ca_clone,
+                            h: dir.magnitude(),
+                            r: r,
+                            r_gr_id: (round_by_dec(r, 5) * DIVIDER) as u64,
+                            ca_tor: u64::MAX,
+                            cb_tor: u64::MAX,
+                            step_vertex_buffer: StepVertexBuffer::default(),
+                            bbx: Default::default(),
+                        };
+                        circles.push(nc);
+                    } else {
+                        let pts = circle2.gen_points_with_tol(PI / 2.0);
+                        let mut in_pts = points.clone();
+                        in_pts.extend_from_slice(&pts);
+                        circles.extend(do_cyl_1(circle1, &in_pts));
+                    }
+                }
+
             }
         } else {
             let dir = circle2.loc.sub(circle1.loc);

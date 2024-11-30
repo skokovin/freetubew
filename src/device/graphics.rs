@@ -1,4 +1,4 @@
-use crate::algo::cnc::{all_to_one, cnc_to_poly, LRACLR};
+use crate::algo::cnc::{all_to_one, all_to_stp, cnc_to_poly, LRACLR};
 use crate::algo::{analyze_stp, cnc, BendToro, MainCylinder, P_UP, P_UP_REVERSE};
 use crate::device::background_pipleine::BackGroundPipeLine;
 use crate::device::camera::Camera;
@@ -27,6 +27,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{iter, mem};
 use std::f64::consts::PI;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use is_odd::IsOdd;
 use truck_base::bounding_box::BoundingBox;
 use truck_base::cgmath64::Vector3;
@@ -1718,11 +1720,39 @@ pub fn on_keyboard(
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/3.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
                 let stp: Vec<u8> = Vec::from((include_bytes!("../files/16.stp")).as_slice());
-
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/a.step")).as_slice());
                 let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
                 let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
                 gs.state = ReadyToLoad((lraclr_arr, true));
                 gs.v_up_orign = P_UP_REVERSE;
+            }
+        },
+        PhysicalKey::Code(KeyCode::F7) => match event.state {
+            ElementState::Pressed => {}
+            ElementState::Released => {
+                g_scene.bend_step = 1;
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/1.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/13.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/12.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/10.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/9.stp")).as_slice());
+                let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/D3.step")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/a.step")).as_slice());
+                let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                let (cyls, tors) = cnc_to_poly(&lraclr_arr, &gs.v_up_orign);
+                let file_stp=all_to_stp(&cyls,&tors);
+                let path = format!("d:\\pipe_project\\teat.stp");
+                match File::create(path) {
+                    Ok(file) => {
+                        let mut writer = BufWriter::new(file);
+                        writer.write_all(&file_stp);
+                        writer.flush();
+                        warn!("FILE STORED")
+                    }
+                    Err(_) => {}
+                }
             }
         },
         _ => {}
