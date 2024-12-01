@@ -1,5 +1,5 @@
 
-use crate::algo::{angle_with_sign, round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE};
+use crate::algo::{ round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_RIGHT_REVERSE, P_UP, P_UP_REVERSE, ROT_DIR_CCW, TESS_TOL_ANGLE};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::{abs, signum};
 use cgmath::{
@@ -900,8 +900,8 @@ impl DimZ {
                 r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
             };
 
-            let arr_a: Vec<Point3<f64>> = ca.gen_points_with_tol(PI / 8.0);
-            let arr_b: Vec<Point3<f64>> = cb.gen_points_with_tol(PI / 8.0);
+            let arr_a: Vec<Point3<f64>> = ca.gen_points();
+            let arr_b: Vec<Point3<f64>> = cb.gen_points();
 
             for i in 0..arr_a.iter().len() - 1 {
                 let p0 = arr_a[i];
@@ -2220,8 +2220,8 @@ impl DimB {
                 r_gr_id: (round_by_dec(DIM_REF_L_RADIUS, 5) * DIVIDER) as u64,
             };
 
-            let arr_a: Vec<Point3<f64>> = ca.gen_points_with_tol(PI / 8.0);
-            let arr_b: Vec<Point3<f64>> = cb.gen_points_with_tol(PI / 8.0);
+            let arr_a: Vec<Point3<f64>> = ca.gen_points();
+            let arr_b: Vec<Point3<f64>> = cb.gen_points();
 
             for i in 0..arr_a.iter().len() - 1 {
                 let p0 = arr_a[i];

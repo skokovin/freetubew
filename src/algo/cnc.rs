@@ -1,4 +1,4 @@
-use crate::algo::{export_to_pt_str, project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE};
+use crate::algo::{export_to_pt_str, perpendicular_rand_dir, project_point_to_vec, round_by_dec, BendToro, BorderLine, MainCircle, MainCylinder, DIVIDER, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE};
 use crate::device::graphics::{AnimState, BendParameters};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::{abs, signum};
@@ -156,6 +156,12 @@ fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: V
     mc.triangulate();
     mc
 }
+
+fn gen_cyl(sp: Point3, ep: Point3, radius: f64) -> MainCylinder {
+    let dir=ep.sub(sp).normalize();
+    let radius_dir=perpendicular_rand_dir(&dir).normalize();
+    generate_cyl_by_2pts(random(),sp: Point3, ep: Point3,radius,dir,radius_dir)
+}
 fn tot_pipe_len(lraclr_arr: &Vec<LRACLR>) -> f64 {
     let mut ret = 0.0;
     lraclr_arr.iter().for_each(|lracl| {
@@ -269,16 +275,7 @@ pub fn cnc_to_poly(lraclr_arr: &Vec<LRACLR>, v_up_orign: &Vector3, ) -> (Vec<Mai
     all_to_one(&cyls, &tors);
     (cyls, tors)
 }
-fn generate_tor_by_2pts(
-    id: u64,
-    sp: Point3,
-    ep: Point3,
-    radius: f64,
-    fwd_dir_s: Vector3,
-    fwd_dir_e: Vector3,
-    up_dir: Vector3,
-    bend_r: f64,
-) -> BendToro
+fn generate_tor_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir_s: Vector3, fwd_dir_e: Vector3, up_dir: Vector3, bend_r: f64, ) -> BendToro
 {
     let bend_center_point = sp + up_dir.cross(fwd_dir_s).mul(bend_r);
     let mut tor: BendToro = BendToro {
@@ -572,6 +569,15 @@ pub fn all_to_one(c: &Vec<MainCylinder>, t: &Vec<BendToro>) -> (Vec<MeshVertex>,
     });
     let i: Vec<i32> = (0..v.len() as i32).collect();
     (v, i)
+}
+pub fn border_to_buffer(bl: &Vec<BorderLine>) -> (Vec<MeshVertex>, Vec<i32>){
+    let mut cc: Vec<MainCylinder> = vec![];
+    let mut tt: Vec<BendToro> = vec![];
+    bl.iter().for_each(|b|{
+        let c=gen_cyl(b.pa,b.pb,0.5);
+        cc.push(c);
+    });
+    all_to_one(&cc,&tt)
 }
 pub fn all_to_stp(cyls: &Vec<MainCylinder>, tors: &Vec<BendToro>) -> Vec<u8> {
     use truck_modeling::*;
