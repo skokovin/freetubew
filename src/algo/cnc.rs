@@ -160,7 +160,7 @@ fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: V
 fn gen_cyl(sp: Point3, ep: Point3, radius: f64) -> MainCylinder {
     let dir=ep.sub(sp).normalize();
     let radius_dir=perpendicular_rand_dir(&dir).normalize();
-    generate_cyl_by_2pts(random(),sp: Point3, ep: Point3,radius,dir,radius_dir)
+    generate_cyl_by_2pts(random(),sp, ep,radius,dir,radius_dir)
 }
 fn tot_pipe_len(lraclr_arr: &Vec<LRACLR>) -> f64 {
     let mut ret = 0.0;
