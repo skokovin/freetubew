@@ -2155,9 +2155,10 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                                                         //points.push(tess_point);
                                                                                                                                     }
                                                                                                                                     tess_points.chunks(2).for_each(|pp|{
-                                                                                                                                        let bl:BorderLine=BorderLine::new(pp[0].clone(), pp[1].clone());
-                                                                                                                                        borderlines.push(bl);
-
+                                                                                                                                        if(pp.len()==2){
+                                                                                                                                            let bl:BorderLine=BorderLine::new(pp[0].clone(), pp[1].clone());
+                                                                                                                                            borderlines.push(bl);
+                                                                                                                                        }
                                                                                                                                     });
                                                                                                                                     match nurbs_to_circle(&tess_points) {
                                                                                                                                         None => {
@@ -2211,9 +2212,10 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                                     let res: BSplineCurve<Point3> = (&sspl).try_into().unwrap();
                                                                                                                     let mut tess_points: Vec<Point3> = vec![];
                                                                                                                     tess_points.chunks(2).for_each(|pp|{
-                                                                                                                        let bl:BorderLine=BorderLine::new(pp[0].clone(), pp[1].clone());
-                                                                                                                        borderlines.push(bl);
-
+                                                                                                                        if(pp.len()==2){
+                                                                                                                            let bl:BorderLine=BorderLine::new(pp[0].clone(), pp[1].clone());
+                                                                                                                            borderlines.push(bl);
+                                                                                                                        }
                                                                                                                     });
                                                                                                                     for t in (0..=10) {
                                                                                                                         let tess_point = res.subs(t as f64 / 10.0);

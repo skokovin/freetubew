@@ -1713,13 +1713,13 @@ pub fn on_keyboard(
             ElementState::Released => {
                 g_scene.bend_step = 1;
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/1.stp")).as_slice());
-                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/13.stp")).as_slice());
+                let stp: Vec<u8> = Vec::from((include_bytes!("../files/13.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/12.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/10.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/9.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/3.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
-                let stp: Vec<u8> = Vec::from((include_bytes!("../files/16.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/16.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/a.step")).as_slice());
                 let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
                 let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
