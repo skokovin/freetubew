@@ -82,12 +82,15 @@ impl Camera {
     pub fn set_tot_bbx(&mut self, bbxs_in: BoundingBox<truck_base::cgmath64::Point3>) {
         self.tot_bbx = Default::default();
         self.tot_bbx += (bbxs_in.clone());
+        self.center_p= bbxs_in.center();
+
         let center: Point3<f32> = Point3::new(
             self.center_p.x as f32,
             self.center_p.y as f32,
             self.center_p.z as f32,
         );
         let dist = center.distance(self.eye);
+        warn!("BBX dist {:?}", dist);
         self.eye = center - self.head_forward * dist;
         //self.calculate_focus();
         //self.update();
@@ -98,7 +101,7 @@ impl Camera {
     }
     pub fn move_camera_to_bbx_limits(&mut self) {
         //self.center_p = self.tot_bbx.center();
-        self.center_p = Point3::new(0.0, 0.0, 0.0);
+        //self.center_p = Point3::new(0.0, 0.0, 0.0);
 
         self.reset_pos();
         let cp = self.center_p;
@@ -163,11 +166,11 @@ impl Camera {
         }
         self.rotate();
     }
-    pub fn reset_cp_to_bbx_center(&mut self) {
+/*    pub fn reset_cp_to_bbx_center(&mut self) {
         self.center_p = self.tot_bbx.center();
         self.update();
-    }
-    pub fn move_to_anim_pos(&mut self, pipe_len: f64, up_dir: &Vector3<f64>) {
+    }*/
+/*    pub fn move_to_anim_pos(&mut self, pipe_len: f64, up_dir: &Vector3<f64>) {
         self.center_p = Point3::new(0.0, 0.0, 0.0);
         let center: Point3<f32> = Point3::new(
             self.center_p.x as f32,
@@ -181,19 +184,8 @@ impl Camera {
         self.head_forward= center.sub(self.eye);
         
         self.update();
-    }
-    pub fn move_to_anim_pos_old(&mut self, pipe_len: f64, up_dir: &Vector3<f64>) {
-        self.center_p = Point3::new(0.0, 0.0, 0.0);
-        let dist = pipe_len * 2.0; //* ZOOM_SENSITIVITY as f64;
-        let center: Point3<f32> = Point3::new(
-            self.center_p.x as f32,
-            self.center_p.y as f32,
-            self.center_p.z as f32,
-        );
-        warn!("magnitude {:?}",self.head_forward.magnitude());
-        self.eye = center + self.head_forward * -dist as f32;
-        self.update();
-    }
+    }*/
+
     
     pub fn zoom(&mut self, delta: f32) {
         let incr = self.tot_bbx.diameter() as f32 * 0.3 * delta;

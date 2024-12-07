@@ -64,9 +64,9 @@ checksum = "4aa90d7ce82d4be67b64039a3d588d38dbcc6736577de4a847025ce5b0c468d1"
 
 [[package]]
 name = "allocator-api2"
-version = "0.2.20"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45862d1c77f2228b9e10bc609d5bc203d86ebc9b87ad8d5d5167a6c9abf739d9"
+checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "android-activity"
@@ -161,9 +161,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.93"
+version = "1.0.94"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c95c10ba0b00a02636238b814946408b1322d5ac4760326e6fb8ec956d85775"
+checksum = "c1fd03a028ef38ba2276dce7e33fcd6369c158a1bca17946c4b1b701891c1ff7"
 
 [[package]]
 name = "approx"
@@ -785,9 +785,9 @@ checksum = "dd2e7510819d6fbf51a5545c8f922716ecfb14df168a3242f7d33e0239efe6a1"
 
 [[package]]
 name = "fdeflate"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07c6f4c64c1d33a3111c4466f7365ebdcc37c5bd1ea0d62aae2e3d722aacbedb"
+checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
 ]
@@ -2808,7 +2808,7 @@ checksum = "e672c95779cf947c5311f83787af4fa8fffd12fb27e4993211a84bdfd9610f9c"
 [[package]]
 name = "truck-base"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "cgmath",
  "matext4cgmath",
@@ -2819,7 +2819,7 @@ dependencies = [
 [[package]]
 name = "truck-derivers"
 version = "0.1.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -2830,7 +2830,7 @@ dependencies = [
 [[package]]
 name = "truck-geometry"
 version = "0.5.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "serde",
  "thiserror",
@@ -2841,7 +2841,7 @@ dependencies = [
 [[package]]
 name = "truck-geotrait"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "getrandom",
  "rand",
@@ -2853,7 +2853,7 @@ dependencies = [
 [[package]]
 name = "truck-meshalgo"
 version = "0.4.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "array-macro",
  "derive_more",
@@ -2871,7 +2871,7 @@ dependencies = [
 [[package]]
 name = "truck-modeling"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "derive_more",
  "rustc-hash 2.1.0",
@@ -2887,7 +2887,7 @@ dependencies = [
 [[package]]
 name = "truck-polymesh"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "array-macro",
  "bytemuck",
@@ -2902,7 +2902,7 @@ dependencies = [
 [[package]]
 name = "truck-stepio"
 version = "0.3.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "chrono",
  "derive_more",
@@ -2919,7 +2919,7 @@ dependencies = [
 [[package]]
 name = "truck-topology"
 version = "0.6.0"
-source = "git+https://github.com/ricosjp/truck.git#7be2e4c198691f4a04eaec39c0113316b7741a2b"
+source = "git+https://github.com/ricosjp/truck.git#23b098cb18367f264be00c73231710fb9f175919"
 dependencies = [
  "parking_lot",
  "rayon",
@@ -3756,9 +3756,9 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xml-rs"
-version = "0.8.23"
+version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af310deaae937e48a26602b730250b4949e125f468f11e6990be3e5304ddd96f"
+checksum = "ea8b391c9a790b496184c29f7f93b9ed5b16abb306c05415b68bcc16e4d06432"
 
 [[package]]
 name = "xz2"

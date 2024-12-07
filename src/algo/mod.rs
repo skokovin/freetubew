@@ -1,5 +1,5 @@
 pub mod cnc;
-use crate::algo::cnc::{LRACLR};
+use crate::algo::cnc::{gen_cyl, LRACLR};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::real::Real;
 use cgmath::{Basis3, Deg, InnerSpace, MetricSpace, Rad, Rotation, Rotation3};
@@ -43,7 +43,6 @@ pub const PI36_FLOAT_RANGE: [f64; 36] = {
     }
     v
 };
-
 pub const HALF_PI18_FLOAT_RANGE: [f64; 18] = {
     let mut v: [f64; 18] = [0.0; 18];
     let mut i = 0;
@@ -57,7 +56,19 @@ pub const HALF_PI18_FLOAT_RANGE: [f64; 18] = {
     }
     v
 };
-
+pub const HALF_PI4_FLOAT_RANGE: [f64; 4] = {
+    let mut v: [f64; 4] = [0.0; 4];
+    let mut i = 0;
+    loop{
+        if i >= 3 {
+            v[i]=PI;
+            break;
+        }
+        v[i]=PI/4.0 * i as f64;
+        i += 1;
+    }
+    v
+};
 pub const P_FORWARD: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 pub const P_FORWARD_REVERSE: Vector3 = Vector3::new(-1.0, 0.0, 0.0);
 pub const P_RIGHT: Vector3 = Vector3::new(0.0, 1.0, 0.0);
@@ -148,21 +159,6 @@ impl Default for RawMesh {
 }
 
 #[derive(Clone)]
-pub struct BorderLine{
-    pub pa:Point3,
-    pub pb:Point3
-}
-
-impl BorderLine{
-    pub fn new(pa:Point3,pb:Point3) -> Self {
-        Self{
-            pa,
-            pb,
-        }
-    }
-}
-
-#[derive(Clone)]
 pub struct MainCircle {
     pub id: u64,
     pub radius: f64,
@@ -189,23 +185,24 @@ impl MainCircle {
         pts_a.push(first);
         pts_a
     }
-    pub fn gen_lines(&self) -> Vec<BorderLine> {
-        let mut lines:Vec<BorderLine>=vec![];
-        PI36_FLOAT_RANGE.chunks(2).for_each(|angle| {
-            let a1=angle[0];
-            let a2=angle[1];
-
-            let rotation1: Basis3<f64> = Rotation3::from_axis_angle(self.dir, Rad(a1));
-            let nv1 = rotation1.rotate_vector(self.radius_dir);
-            let p1 = self.loc + nv1 * self.radius;
-
-            let rotation2: Basis3<f64> = Rotation3::from_axis_angle(self.dir, Rad(a2));
-            let nv2 = rotation2.rotate_vector(self.radius_dir);
-            let p2 = self.loc + nv2 * self.radius;
-            lines.push(BorderLine::new(p1, p2));
+    pub fn gen_points_low_res(&self) -> Vec<Point3> {
+        let mut pts_a: Vec<Point3> = vec![];
+        let mut pts_b: Vec<Point3> = vec![];
+        HALF_PI4_FLOAT_RANGE.iter().for_each(|angle| {
+            let rotation: Basis3<f64> = Rotation3::from_axis_angle(self.dir, Rad(*angle));
+            let nv = rotation.rotate_vector(self.radius_dir);
+            let p_a = self.loc + nv * self.radius;
+            pts_a.push(p_a);
+            let p_b = self.loc + nv * -self.radius;
+            pts_b.push(p_b);
         });
-        lines
+        let first = pts_a[0].clone();
+        pts_b.remove(0);
+        pts_a.extend(pts_b);
+        pts_a.push(first);
+        pts_a
     }
+
     fn find_next(&self, others: &Vec<MainCircle>) -> Option<MainCircle> {
         let mut candidates: Vec<(f64, MainCircle)> = vec![];
         others.iter().for_each(|other| {
@@ -445,11 +442,7 @@ impl MainCylinder {
             None
         }
     }
-    pub fn get_next(
-        &self,
-        hashids: &HashSet<u64>,
-        cyls: &Vec<MainCylinder>,
-    ) -> Option<MainCylinder> {
+    pub fn get_next(&self, hashids: &HashSet<u64>, cyls: &Vec<MainCylinder>, ) -> Option<MainCylinder> {
         let mut ret: Option<MainCylinder> = None;
         cyls.iter().for_each(|c| {
             if (self.id != c.id && !((c.ca_tor == u64::MAX || c.cb_tor == u64::MAX) && (self.ca_tor == u64::MAX || self.cb_tor == u64::MAX)))
@@ -900,6 +893,252 @@ impl MainCylinder {
         }
 
         self.step_vertex_buffer = StepVertexBuffer { buffer, indxes };
+    }
+    pub fn triangulate_low_res(&mut self) -> Vec<Point3> {
+        let mut index: u32 = 0;
+        let mut indxes: Vec<u32> = vec![];
+        let mut buffer: Vec<MeshVertex> = vec![];
+        let main_dir = self.cb.loc.sub(self.ca.loc).normalize();
+        let h = self.h;
+        let tesspoints: Vec<Point3> = self.ca.gen_points_low_res();
+
+        for i in 0..tesspoints.iter().len() - 2 {
+            let p0 = tesspoints[i];
+            let p1 = tesspoints[i + 1];
+            let p2 = p0.clone() + main_dir * h;
+            let p3 = p1.clone() + main_dir * h;
+
+            self.bbx.push(p0);
+            self.bbx.push(p1);
+            self.bbx.push(p2);
+            self.bbx.push(p3);
+
+            let plane = Plane::new(p0.clone(), p1.clone(), p3.clone());
+            let n = plane.normal().normalize();
+            let n_arr = [n.x as f32, n.y as f32, n.z as f32, 0.0];
+            let r_dir = p0.sub(self.ca.loc);
+            let is_coplanar = n.dot(r_dir);
+            if (is_coplanar < 0.0) {
+                {
+                    let mv0 = MeshVertex {
+                        position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv0);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv1 = MeshVertex {
+                        position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv1);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv2 = MeshVertex {
+                        position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv2);
+                    indxes.push(index);
+                    index = index + 1;
+                }
+                {
+                    let mv0 = MeshVertex {
+                        position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv0);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv1 = MeshVertex {
+                        position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv1);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv2 = MeshVertex {
+                        position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv2);
+                    indxes.push(index);
+                    index = index + 1;
+                }
+            } else {
+                {
+                    let mv0 = MeshVertex {
+                        position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv0);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv1 = MeshVertex {
+                        position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv1);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv2 = MeshVertex {
+                        position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv2);
+                    indxes.push(index);
+                    index = index + 1;
+                }
+                {
+                    let mv0 = MeshVertex {
+                        position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv0);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv1 = MeshVertex {
+                        position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv1);
+                    indxes.push(index);
+                    index = index + 1;
+
+                    let mv2 = MeshVertex {
+                        position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
+                        normal: n_arr,
+                        id: self.id as i32,
+                        tex_coords: [0.0, 0.0],
+                    };
+                    buffer.push(mv2);
+                    indxes.push(index);
+                    index = index + 1;
+                }
+            }
+
+            let inv_normal = self.ca.dir.mul(-1.0);
+            let inv_normal_arr = [
+                inv_normal.x as f32,
+                inv_normal.y as f32,
+                inv_normal.z as f32,
+                0.0,
+            ];
+
+            {
+                let cap0 = MeshVertex {
+                    position: [p0.x as f32, p0.y as f32, p0.z as f32, 1.0],
+                    normal: inv_normal_arr,
+                    id: self.id as i32,
+                    tex_coords: [0.0, 0.0],
+                };
+                buffer.push(cap0);
+                indxes.push(index);
+                index = index + 1;
+
+                let cap1 = MeshVertex {
+                    position: [p1.x as f32, p1.y as f32, p1.z as f32, 1.0],
+                    normal: inv_normal_arr,
+                    id: self.id as i32,
+                    tex_coords: [0.0, 0.0],
+                };
+                buffer.push(cap1);
+                indxes.push(index);
+                index = index + 1;
+
+                let cap2 = MeshVertex {
+                    position: [
+                        self.ca.loc.x as f32,
+                        self.ca.loc.y as f32,
+                        self.ca.loc.z as f32,
+                        1.0,
+                    ],
+                    normal: inv_normal_arr,
+                    id: self.id as i32,
+                    tex_coords: [0.0, 0.0],
+                };
+                buffer.push(cap2);
+                indxes.push(index);
+                index = index + 1;
+            }
+
+            let cap_normal = self.ca.dir;
+            let cap_normal_arr = [
+                cap_normal.x as f32,
+                cap_normal.y as f32,
+                cap_normal.z as f32,
+                0.0,
+            ];
+
+            {
+                let cap0 = MeshVertex {
+                    position: [p2.x as f32, p2.y as f32, p2.z as f32, 1.0],
+                    normal: cap_normal_arr,
+                    id: self.id as i32,
+                    tex_coords: [0.0, 0.0],
+                };
+                buffer.push(cap0);
+                indxes.push(index);
+                index = index + 1;
+
+                let cap1 = MeshVertex {
+                    position: [p3.x as f32, p3.y as f32, p3.z as f32, 1.0],
+                    normal: cap_normal_arr,
+                    id: self.id as i32,
+                    tex_coords: [0.0, 0.0],
+                };
+                buffer.push(cap1);
+                indxes.push(index);
+                index = index + 1;
+
+                let cap2 = MeshVertex {
+                    position: [
+                        self.cb.loc.x as f32,
+                        self.cb.loc.y as f32,
+                        self.cb.loc.z as f32,
+                        1.0,
+                    ],
+                    normal: cap_normal_arr,
+                    id: self.id as i32,
+                    tex_coords: [0.0, 0.0],
+                };
+                buffer.push(cap2);
+                indxes.push(index);
+                index = index + 1;
+            }
+        }
+
+        self.step_vertex_buffer = StepVertexBuffer { buffer, indxes };
+        tesspoints
     }
     pub fn triangulate_with_start_index(&mut self, index: u32) -> u32 {
         let mut index: u32 = index;
@@ -1880,13 +2119,7 @@ impl BendToro {
         }
     }
 }
-pub fn intersect_line_by_plane(
-    cylinder_dir_vec: &Vector3,
-    radius_vec: &Vector3,
-    plane_point: &Point3,
-    line_p0: &Point3,
-    line_p1: &Point3,
-) -> Point3 {
+pub fn intersect_line_by_plane(cylinder_dir_vec: &Vector3, radius_vec: &Vector3, plane_point: &Point3, line_p0: &Point3, line_p1: &Point3, ) -> Point3 {
     //https://stackoverflow.com/questions/5666222/3d-line-plane-intersection
     //n: normal vector of the Plane
     // V0: any point that belongs to the Plane
@@ -2034,7 +2267,7 @@ pub fn analyze_stp(_stp: &Vec<u8>) -> Vec<LRACLR> {
     let exchange = ruststep::parser::parse(&fixed_stp).unwrap();
     let table: Table = Table::from_data_section(&exchange.data[0]);
 
-    let (cyls, tors,borders) = extract_cyls(&table, scale);
+    let (cyls, tors) = extract_cyls(&table, scale);
 
     let cyls_no_dubs = MainCylinder::remove_dublicates(&cyls);
     let cyls_merged = MainCylinder::merge(&cyls_no_dubs);
@@ -2046,10 +2279,10 @@ pub fn analyze_stp(_stp: &Vec<u8>) -> Vec<LRACLR> {
     lracmd
 
 }
-pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendToro>, Vec<BorderLine>) {
+pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendToro>) {
     let mut toros: Vec<BendToro> = vec![];
     let mut cilinders: Vec<MainCylinder> = vec![];
-    let mut borderlines: Vec<BorderLine> = vec![];
+
     table.shell.iter().for_each(|(k, v)| {
         let mut counter = 0;
         v.cfs_faces.iter().for_each(|face_holder| {
@@ -2061,6 +2294,7 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                     match table.face_surface.get(&id) {
                         None => {}
                         Some(face_holder) => {
+
                             let face_bounds: &Vec<PlaceHolder<FaceBoundHolder>> = &face_holder.bounds;
                             //warn!("{:?}",face_bounds.len());
                             let mut oriented_edge_ids: Vec<u64> = vec![];
@@ -2089,6 +2323,12 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                             match table.edge_curve.get(&name_to_id(name.clone())) {
                                                                                                 None => {}
                                                                                                 Some(c) => {
+                                                                                                    let sp = extract_vertex(&table, &c.edge_start, scale).unwrap();
+                                                                                                    let ep = extract_vertex(&table, &c.edge_end, scale).unwrap();
+                                                                                                    points.push(sp.clone());
+                                                                                                    points.push(ep.clone());
+
+
                                                                                                     let curve_geom: &PlaceHolder<CurveAnyHolder> = &c.edge_geometry;
                                                                                                     match curve_geom {
                                                                                                         PlaceHolder::Ref(name) => {
@@ -2109,7 +2349,7 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                                         radius_dir: dir_rad.unwrap().normalize(),
                                                                                                                         r_gr_id: (round_by_dec(circle_r, 5) * DIVIDER) as u64,
                                                                                                                     };
-                                                                                                                    borderlines.extend_from_slice(mc.gen_lines().as_slice());
+                                                                                                                   // borderlines.extend_from_slice(mc.gen_lines(&sp,&ep,otientation).as_slice());
                                                                                                                     candidates.push(mc);
                                                                                                                 }
                                                                                                             }
@@ -2154,13 +2394,12 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                                                         tess_points.push(tess_point);
                                                                                                                                         //points.push(tess_point);
                                                                                                                                     }
-                                                                                                                                    tess_points.chunks(2).for_each(|pp|{
-                                                                                                                                        if(pp.len()==2){
-                                                                                                                                            let bl:BorderLine=BorderLine::new(pp[0].clone(), pp[1].clone());
-                                                                                                                                            borderlines.push(bl);
-                                                                                                                                        }
-                                                                                                                                    });
-                                                                                                                                    match nurbs_to_circle(&tess_points) {
+                                                                                                                              /*      for i in 0..tess_points.len()-1 {
+                                                                                                                                        let bl:BorderLine=BorderLine::new(tess_points[i].clone(), tess_points[i+1].clone());
+                                                                                                                                        borderlines.push(bl);
+                                                                                                                                    }*/
+
+                                                                                                                                                                                                                                                      match nurbs_to_circle(&tess_points) {
                                                                                                                                         None => {
                                                                                                                                             points.extend(tess_points)
                                                                                                                                         }
@@ -2211,17 +2450,17 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
 
                                                                                                                     let res: BSplineCurve<Point3> = (&sspl).try_into().unwrap();
                                                                                                                     let mut tess_points: Vec<Point3> = vec![];
-                                                                                                                    tess_points.chunks(2).for_each(|pp|{
-                                                                                                                        if(pp.len()==2){
-                                                                                                                            let bl:BorderLine=BorderLine::new(pp[0].clone(), pp[1].clone());
-                                                                                                                            borderlines.push(bl);
-                                                                                                                        }
-                                                                                                                    });
+
+
                                                                                                                     for t in (0..=10) {
                                                                                                                         let tess_point = res.subs(t as f64 / 10.0);
                                                                                                                         tess_points.push(tess_point);
                                                                                                                         //points.push(tess_point);
                                                                                                                     }
+                                                                                                    /*                for i in 0..tess_points.len()-1 {
+                                                                                                                        let bl:BorderLine=BorderLine::new(tess_points[i].clone(), tess_points[i+1].clone());
+                                                                                                                        borderlines.push(bl);
+                                                                                                                    }*/
                                                                                                                     match nurbs_to_circle(&tess_points) {
                                                                                                                         None => {
                                                                                                                             points.extend(tess_points)
@@ -2251,11 +2490,10 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                                 None => {}
                                                                                                                 Some(line) => {
                                                                                                                     found = true;
-                                                                                                                    let ptn=extract_cartesian_point(&table,&line.pnt,scale).unwrap();
-                                                                                                                    //let d: PlaceHolder<VectorHolder> =line.dir;
+                                                                                                     /*               let ptn=extract_cartesian_point(&table,&line.pnt,scale).unwrap();
                                                                                                                     let dir=extract_vector(&table,&line.dir,scale).unwrap();
                                                                                                                     let ptn2=ptn+dir;
-                                                                                                                    borderlines.push(BorderLine::new(ptn,ptn2));
+                                                                                                                    borderlines.push(BorderLine::new(ptn,ptn2));*/
 
                                                                                                                 }
                                                                                                             }
@@ -2268,10 +2506,7 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                                                                                                         }
                                                                                                         PlaceHolder::Owned(_) => {}
                                                                                                     }
-                                                                                                    let sp = extract_vertex(&table, &c.edge_start, scale).unwrap();
-                                                                                                    let ep = extract_vertex(&table, &c.edge_end, scale).unwrap();
-                                                                                                    points.push(sp);
-                                                                                                    points.push(ep);
+
                                                                                                 }
                                                                                             }
                                                                                         }
@@ -2322,21 +2557,7 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
                          cilinders.extend(cyls);
                          toros.extend(tors);
                      }
-                   /*  3 => {
-                         if ((nv[0].radius - nv[1].radius).abs() < TOLE) {
-                             let (cyls, tors) = do_cyl_2(&nv[0], &nv[1], &points);
-                             cilinders.extend(cyls);
-                             toros.extend(tors);
-                         } else if ((nv[0].radius - nv[2].radius).abs() < TOLE) {
-                             let (cyls, tors) = do_cyl_2(&nv[0], &nv[2], &points);
-                             cilinders.extend(cyls);
-                             toros.extend(tors);
-                         } else if ((nv[1].radius - nv[2].radius).abs() < TOLE) {
-                             let (cyls, tors) = do_cyl_2(&nv[1], &nv[2], &points);
-                             cilinders.extend(cyls);
-                             toros.extend(tors);
-                         }
-                     }*/
+
                      0 => {}
                      _ => {
                          nv.iter().for_each(|c| {
@@ -2390,7 +2611,7 @@ pub fn extract_cyls(table: &Table, scale: f64) -> (Vec<MainCylinder>, Vec<BendTo
         });
     });
 
-    (cilinders, toros,borderlines)
+    (cilinders, toros)
 }
 pub fn extract_tors(table: &Table, scale: f64, cyls: &Vec<MainCylinder>, radius: f64) -> Vec<BendToro> {
     let mut toros: Vec<BendToro> = vec![];
@@ -3118,11 +3339,7 @@ pub fn extact_scale(stp: &String) -> f64 {
     });
     scale
 }
-pub fn extract_cartesian_point(
-    t: &Table,
-    point: &PlaceHolder<CartesianPointHolder>,
-    scale: f64,
-) -> Option<Point3> {
+pub fn extract_cartesian_point(t: &Table, point: &PlaceHolder<CartesianPointHolder>, scale: f64, ) -> Option<Point3> {
     match point {
         Ref(name) => match t.cartesian_point.get(&name_to_id(name.clone())) {
             None => None,
@@ -3136,12 +3353,7 @@ pub fn extract_cartesian_point(
         PlaceHolder::Owned(_) => None,
     }
 }
-
-pub fn extract_vector(
-    t: &Table,
-    vector: &PlaceHolder<VectorHolder>,
-    scale: f64,
-) -> Option<Vector3> {
+pub fn extract_vector(t: &Table, vector: &PlaceHolder<VectorHolder>, scale: f64, ) -> Option<Vector3> {
     match vector {
         Ref(name) => match t.vector.get(&name_to_id(name.clone())) {
             None => None,
@@ -3154,11 +3366,7 @@ pub fn extract_vector(
         PlaceHolder::Owned(_) => None,
     }
 }
-pub fn extract_position(
-    t: &Table,
-    pos: &PlaceHolder<Axis2PlacementHolder>,
-    scale: f64,
-) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
+pub fn extract_position(t: &Table, pos: &PlaceHolder<Axis2PlacementHolder>, scale: f64, ) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
     match pos {
         Ref(name) => match t.axis2_placement_3d.get(&name_to_id(name.clone())) {
             None => (None, None, None),
@@ -3172,11 +3380,7 @@ pub fn extract_position(
         PlaceHolder::Owned(_) => (None, None, None),
     }
 }
-pub fn extract_position3d(
-    t: &Table,
-    pos: &PlaceHolder<Axis2Placement3dHolder>,
-    scale: f64,
-) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
+pub fn extract_position3d(t: &Table, pos: &PlaceHolder<Axis2Placement3dHolder>, scale: f64, ) -> (Option<Point3>, Option<Vector3>, Option<Vector3>) {
     match pos {
         Ref(name) => match t.axis2_placement_3d.get(&name_to_id(name.clone())) {
             None => (None, None, None),
@@ -3190,11 +3394,7 @@ pub fn extract_position3d(
         PlaceHolder::Owned(_) => (None, None, None),
     }
 }
-pub fn extract_direction(
-    t: &Table,
-    _pos: &Option<PlaceHolder<DirectionHolder>>,
-    scale: f64,
-) -> Option<Vector3> {
+pub fn extract_direction(t: &Table, _pos: &Option<PlaceHolder<DirectionHolder>>, scale: f64, ) -> Option<Vector3> {
     match _pos {
         None => None,
         Some(pos) => match pos {

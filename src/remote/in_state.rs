@@ -65,8 +65,7 @@ impl InCmd {
                     Some(command) => {
                         match command {
                             RemoteCommand::OnLoadSTPfile(stp) => {
-
-                                let lracmds= analyze_stp(&stp);
+                                let  lracmds= analyze_stp(&stp);
                                 if(lracmds.is_empty()){
                                     Dismiss
                                 }else{

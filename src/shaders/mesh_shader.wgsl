@@ -101,10 +101,9 @@ fn vs_main(@builtin(vertex_index) vertex_index : u32,in:VertexInput) -> Output {
 fn fs_main(in:Output) ->  @location(0) vec4<f32> {
       var metadata:vec4<i32>=vertex_meta_data0[in.mat_id];
 
-
-
-
       var material:LightUniforms=light_uniformsArray[metadata.x];
+
+
       if(metadata.y!=0){
         material=light_uniformsArray[metadata.y];
       }
@@ -134,6 +133,7 @@ fn fs_main(in:Output) ->  @location(0) vec4<f32> {
                return vec4<f32>(head_light_contribution.xyz,1.0);
            }else{
                return vec4<f32>(head_light_contribution);
+
            }
 
 

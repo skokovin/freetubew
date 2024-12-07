@@ -1,4 +1,4 @@
-use crate::algo::{export_to_pt_str, perpendicular_rand_dir, project_point_to_vec, round_by_dec, BendToro, BorderLine, MainCircle, MainCylinder, DIVIDER, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE};
+use crate::algo::{export_to_pt_str, perpendicular_rand_dir, project_point_to_vec, round_by_dec, BendToro, MainCircle, MainCylinder, DIVIDER, EXTRA_LEN_CALC, EXTRA_R_CALC, P_FORWARD, P_FORWARD_REVERSE, P_RIGHT, P_UP, ROT_DIR_CCW, TOLE};
 use crate::device::graphics::{AnimState, BendParameters};
 use crate::device::{MeshVertex, StepVertexBuffer};
 use cgmath::num_traits::{abs, signum};
@@ -85,9 +85,9 @@ impl Display for LRACLR {
     }
 }
 
-fn generate_cyl(h: f64, radius: f64) -> MainCylinder {
+fn generate_cyl(id:u64,h: f64, radius: f64) -> MainCylinder {
     let mut mc: MainCylinder = MainCylinder {
-        id: rand::thread_rng().gen_range(0..1024),
+        id: id,
         ca: MainCircle {
             id: random(),
             radius: radius,
@@ -157,7 +157,7 @@ fn generate_cyl_by_2pts(id: u64, sp: Point3, ep: Point3, radius: f64, fwd_dir: V
     mc
 }
 
-fn gen_cyl(sp: Point3, ep: Point3, radius: f64) -> MainCylinder {
+pub fn gen_cyl(sp: Point3, ep: Point3, radius: f64) -> MainCylinder {
     let dir=ep.sub(sp).normalize();
     let radius_dir=perpendicular_rand_dir(&dir).normalize();
     generate_cyl_by_2pts(random(),sp, ep,radius,dir,radius_dir)
@@ -340,13 +340,8 @@ pub fn cnc_to_poly_animate(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_u
     let mut anim_lra: Vec<LRACLR> = vec![];
     if (!id.is_odd()) {
         let indx = (id / 2) as usize;
-        if (indx > last_index) {
-            (
-                out_cyls,
-                out_tors,
-                AnimState::new(0, 4, 0.0, 0.0, LRACLR::default(), op_counter),
-            )
-        } else {
+        if (indx > last_index) { (out_cyls, out_tors, AnimState::new(0, 4, 0.0, 0.0, LRACLR::default(), op_counter),) }
+        else {
             let curr: &LRACLR = &lraclr_arr[indx as usize];
             let curr_l = curr.l;
             let curr_r = curr.r;
@@ -355,19 +350,10 @@ pub fn cnc_to_poly_animate(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_u
                 0 => {
                     let next_val = anim_state.value + incr_l;
                     if (next_val >= curr_l) {
-                        let mut next_stage: AnimState = AnimState::new(
-                            id,
-                            1,
-                            0.0,
-                            stright_len - (next_val - curr_l),
-                            curr.clone(),
-                            op_counter + 1,
-                        );
-                        lraclr_arr.iter().take(indx + 1).for_each(|lr| {
-                            anim_lra.push(lr.clone());
-                        });
+                        let mut next_stage: AnimState = AnimState::new(id, 1, 0.0, stright_len - (next_val - curr_l), curr.clone(), op_counter + 1, );
+                        lraclr_arr.iter().take(indx + 1).for_each(|lr| { anim_lra.push(lr.clone()); });
                         if (anim_lra.len() == 1) {
-                            let cyl = generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
+                            let cyl = generate_cyl(0,anim_lra[0].l, anim_lra[0].pipe_radius);
                             out_cyls.push(cyl);
                         } else {
                             let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
@@ -376,7 +362,7 @@ pub fn cnc_to_poly_animate(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_u
                             out_tors = tors;
                         }
                         //warn!("last len stage id {:?}  {:?} of {:?}",id, next_stage,curr_l);
-                        if (next_stage.stright_len > 0.0) {
+                     if (next_stage.stright_len > 0.0) {
                             out_cyls.push(generate_dummy_cyl(
                                 out_cyls.last().unwrap().id + 1,
                                 next_stage.stright_len,
@@ -384,23 +370,15 @@ pub fn cnc_to_poly_animate(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_u
                             ));
                         }
                         (out_cyls, out_tors, next_stage)
-                    } else {
+                    }
+                    else {
                         let mut anim_lra: Vec<LRACLR> = vec![];
-                        let next_stage: AnimState = AnimState::new(
-                            id,
-                            0,
-                            next_val,
-                            stright_len - incr_l,
-                            curr.clone(),
-                            op_counter,
-                        );
-                        lraclr_arr.iter().take(indx + 1).for_each(|lr| {
-                            anim_lra.push(lr.clone());
-                        });
+                        let next_stage: AnimState = AnimState::new(id, 0, next_val, stright_len - incr_l, curr.clone(), op_counter, );
+                        lraclr_arr.iter().take(indx + 1).for_each(|lr| { anim_lra.push(lr.clone()); });
                         anim_lra[indx].l = next_stage.value;
 
                         if (anim_lra.len() == 1) {
-                            let cyl = generate_cyl(anim_lra[0].l, anim_lra[0].pipe_radius);
+                            let cyl = generate_cyl(0,anim_lra[0].l, anim_lra[0].pipe_radius);
                             out_cyls.push(cyl);
                         } else {
                             let reversed: Vec<LRACLR> = reverse_lraclr(&anim_lra);
@@ -484,7 +462,9 @@ pub fn cnc_to_poly_animate(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_u
                 ),
             }
         }
-    } else {
+    }
+
+    else {
         let indx = ((id - 1) / 2) as usize;
 
         let curr = &lraclr_arr[indx];
@@ -559,6 +539,9 @@ pub fn cnc_to_poly_animate(lraclr_arr: &Vec<LRACLR>, anim_state: &AnimState, v_u
         }
     }
 }
+
+
+
 pub fn all_to_one(c: &Vec<MainCylinder>, t: &Vec<BendToro>) -> (Vec<MeshVertex>, Vec<i32>) {
     let mut v: Vec<MeshVertex> = vec![];
     c.iter().for_each(|c| {
@@ -570,15 +553,7 @@ pub fn all_to_one(c: &Vec<MainCylinder>, t: &Vec<BendToro>) -> (Vec<MeshVertex>,
     let i: Vec<i32> = (0..v.len() as i32).collect();
     (v, i)
 }
-pub fn border_to_buffer(bl: &Vec<BorderLine>) -> (Vec<MeshVertex>, Vec<i32>){
-    let mut cc: Vec<MainCylinder> = vec![];
-    let mut tt: Vec<BendToro> = vec![];
-    bl.iter().for_each(|b|{
-        let c=gen_cyl(b.pa,b.pb,0.5);
-        cc.push(c);
-    });
-    all_to_one(&cc,&tt)
-}
+
 pub fn all_to_stp(cyls: &Vec<MainCylinder>, tors: &Vec<BendToro>) -> Vec<u8> {
     use truck_modeling::*;
     let mut shells: Vec<truck_topology::Shell<Point3, Curve, Surface>> = vec![];

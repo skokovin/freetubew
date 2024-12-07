@@ -294,6 +294,8 @@ impl GlobalScene {
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+
+
         let offscreen_width: u32 = GlobalScene::calculate_offset_pad(w as u32);
         let mut offscreen_data: Vec<i32> = Vec::<i32>::with_capacity((offscreen_width * h * OFFSCREEN_TEXEL_SIZE) as usize);
         let offscreen_buffer: Buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -460,12 +462,7 @@ pub fn mouse_move(pos: PhysicalPosition<f64>, mut gs: UniqueViewMut<GlobalScene>
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn resize_window(
-    new_size: PhysicalSize<u32>,
-    mut graphics: UniqueViewMut<Graphics>,
-    mut gs: UniqueViewMut<GlobalState>,
-    mut g_scene: UniqueViewMut<GlobalScene>,
-) {
+pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>, mut g_scene: UniqueViewMut<GlobalScene>) {
     if new_size.width > 0 && new_size.height > 0 {
         graphics.camera.resize(new_size.width, new_size.height);
         graphics.surface_config.width = new_size.width;
@@ -482,12 +479,7 @@ pub fn resize_window(
     }
 }
 #[cfg(target_arch = "wasm32")]
-pub fn resize_window(
-    new_size: PhysicalSize<u32>,
-    mut graphics: UniqueViewMut<Graphics>,
-    mut gs: UniqueViewMut<GlobalState>,
-    mut g_scene: UniqueViewMut<GlobalScene>,
-) {
+pub fn resize_window(new_size: PhysicalSize<u32>, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>, mut g_scene: UniqueViewMut<GlobalScene>) {
     use winit::platform::web::WindowExtWebSys;
     match graphics.window.canvas() {
         None => {}
@@ -522,11 +514,7 @@ pub fn resize_window(
     }
 }
 #[inline]
-pub fn key_frame(
-    mut graphics: UniqueViewMut<Graphics>,
-    mut gs: UniqueViewMut<GlobalState>,
-    mut g_scene: UniqueViewMut<GlobalScene>,
-) {
+pub fn key_frame(mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>, mut g_scene: UniqueViewMut<GlobalScene>) {
     gs.check_framerate();
     let next_state: States = {
         match &mut gs.state {
@@ -613,29 +601,20 @@ pub fn key_frame(
             FullAnimate => {
                 let (cyls, tors, next_stage) = {
                     if (gs.is_reversed) {
-                        cnc::cnc_to_poly_animate(
-                            &gs.lraclr_arr_reversed,
-                            &gs.anim_state,
-                            &gs.v_up_orign,
-                            gs.dt,
-                            &g_scene.bend_params,
-                        )
+                        cnc::cnc_to_poly_animate(&gs.lraclr_arr_reversed, &gs.anim_state, &gs.v_up_orign, gs.dt, &g_scene.bend_params,)
                     } else {
-                        cnc::cnc_to_poly_animate(
-                            &gs.lraclr_arr,
-                            &gs.anim_state,
-                            &gs.v_up_orign,
-                            gs.dt,
-                            &g_scene.bend_params,
-                        )
+                        cnc::cnc_to_poly_animate(&gs.lraclr_arr, &gs.anim_state, &gs.v_up_orign, gs.dt, &g_scene.bend_params, )
                     }
                 };
+               // if(!tors.is_empty()){
+                    let (v, i) = all_to_one(&cyls, &tors);
+                    g_scene.mesh_size = i.len();
+                    graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&MESH_ZEROS_I));
+                    graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
+                    graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+              // }
 
-                let (v, i) = all_to_one(&cyls, &tors);
-                g_scene.mesh_size = i.len();
-                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&MESH_ZEROS_I));
-                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
-                graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
+
 
                 #[cfg(target_arch = "wasm32")]
                 if (gs.anim_state.op_counter != next_stage.op_counter) {
@@ -698,28 +677,26 @@ pub fn key_frame(
                             0,
                             bytemuck::cast_slice(&i),
                         );
-                        graphics.queue.write_buffer(
-                            &g_scene.v_buffer_mesh,
-                            0,
-                            bytemuck::cast_slice(&v),
+                        graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0,
+                                                    bytemuck::cast_slice(&v),
                         );
 
-                        let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
-                        cyls.iter().for_each(|cyl| {
-                            bbx += (cyl.bbx.clone());
-                        });
-                        tors.iter().for_each(|tor| {
-                            bbx += (tor.bbx.clone());
-                        });
-                        graphics.camera.set_tot_bbx(bbx);
-                        graphics.camera.set_up_dir(&gs.v_up_orign);
-                        graphics.camera.move_camera_to_bbx_limits();
+                        /*                        let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
+                                                cyls.iter().for_each(|cyl| {
+                                                    bbx += (cyl.bbx.clone());
+                                                });
+                                                tors.iter().for_each(|tor| {
+                                                    bbx += (tor.bbx.clone());
+                                                });
+                                                graphics.camera.set_tot_bbx(bbx);
+                                                graphics.camera.set_up_dir(&gs.v_up_orign);
+                                                graphics.camera.move_camera_to_bbx_limits();*/
 
                         gs.change_state(States::Dismiss)
                     }
                     5 => {
                         gs.anim_state.opcode = 0;
-                        graphics.camera.move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
+                        //graphics.camera.move_to_anim_pos(gs.calculate_total_len(), &gs.v_up_orign);
                         #[cfg(target_arch = "wasm32")]
                         change_bend_step(0);
                         gs.change_state(States::FullAnimate)
@@ -730,6 +707,7 @@ pub fn key_frame(
                         gs.change_state(States::FullAnimate)
                     }
                 }
+
             }
             ChangeDornDir => {
                 if (signum(gs.v_up_orign.z) < 0.0) {
@@ -761,27 +739,24 @@ pub fn key_frame(
                 };
                 let (v, i) = all_to_one(&cyls, &tors);
                 g_scene.mesh_size = i.len();
-                graphics.queue.write_buffer(
-                    &g_scene.i_buffer_mesh,
-                    0,
-                    bytemuck::cast_slice(&MESH_ZEROS_I),
-                );
+                graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&MESH_ZEROS_I), );
                 graphics.queue.write_buffer(&g_scene.i_buffer_mesh, 0, bytemuck::cast_slice(&i));
                 graphics.queue.write_buffer(&g_scene.v_buffer_mesh, 0, bytemuck::cast_slice(&v));
 
-                let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
-                cyls.iter().for_each(|cyl| {
-                    bbx += (cyl.bbx.clone());
-                });
-                tors.iter().for_each(|tor| {
-                    let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
-                    bbx += (tor.bbx.clone());
-                });
-                graphics.camera.set_up_dir(&gs.v_up_orign);
+                /*                let mut bbx: BoundingBox<cgmath::Point3<f64>> = Default::default();
+                                cyls.iter().for_each(|cyl| {
+                                    bbx += (cyl.bbx.clone());
+                                });
+                                tors.iter().for_each(|tor| {
+                                    let (v_buff, i_buff) = tor.step_vertex_buffer.to_buffers(&graphics.device);
+                                    bbx += (tor.bbx.clone());
+                                });
+                                graphics.camera.set_up_dir(&gs.v_up_orign);*/
                 gs.change_state(States::Dismiss)
             }
             LoadLRA(v) => {
                 let mut lra_cmds: Vec<LRACLR> = vec![];
+
                 if (v.len() % 8 == 0 && !v.is_empty()) {
                     v.chunks(8).for_each(|cmd| {
                         let id1 = cmd[0];
@@ -826,11 +801,7 @@ pub fn key_frame(
     gs.state = next_state;
 }
 #[inline]
-pub fn render(
-    mut graphics: UniqueViewMut<Graphics>,
-    mut g_scene: UniqueViewMut<GlobalScene>,
-    mut gs: UniqueViewMut<GlobalState>,
-) {
+pub fn render(mut graphics: UniqueViewMut<Graphics>, mut g_scene: UniqueViewMut<GlobalScene>, mut gs: UniqueViewMut<GlobalState>) {
     match graphics.surface.get_current_texture() {
         Ok(out) => {
             g_scene.dorn.update(&graphics.device);
@@ -839,42 +810,18 @@ pub fn render(
             g_scene.dim_b.update(&graphics.device, &graphics.queue, &gs.v_up_orign);
 
             let mvp = graphics.camera.get_mvp_buffer().clone();
-            graphics.queue.write_buffer(
-                &g_scene.camera_buffer,
-                0,
-                bytemuck::cast_slice(&mvp),
-            );
-            graphics.queue.write_buffer(
-                &g_scene.camera_buffer,
-                64,
-                bytemuck::cast_slice(graphics.camera.get_norm_buffer()),
-            );
-            graphics.queue.write_buffer(
-                &g_scene.camera_buffer,
-                128,
-                bytemuck::cast_slice(graphics.camera.get_forward_dir_buffer()),
-            );
+            graphics.queue.write_buffer(&g_scene.camera_buffer, 0, bytemuck::cast_slice(&mvp));
+            graphics.queue.write_buffer(&g_scene.camera_buffer, 64, bytemuck::cast_slice(graphics.camera.get_norm_buffer()));
+            graphics.queue.write_buffer(&g_scene.camera_buffer, 128, bytemuck::cast_slice(graphics.camera.get_forward_dir_buffer()));
             let gw = graphics.surface_config.width;
             let gh = graphics.surface_config.height;
 
             let resolution: [f32; 4] = [gw as f32, gh as f32, 0.0, 0.0];
             let light_position: &[f32; 3] = graphics.camera.eye.as_ref();
             let eye_position: &[f32; 3] = graphics.camera.eye.as_ref();
-            graphics.queue.write_buffer(
-                &g_scene.light_buffer,
-                0,
-                bytemuck::cast_slice(light_position),
-            );
-            graphics.queue.write_buffer(
-                &g_scene.light_buffer,
-                16,
-                bytemuck::cast_slice(eye_position),
-            );
-            graphics.queue.write_buffer(
-                &g_scene.light_buffer,
-                32,
-                bytemuck::cast_slice(&resolution),
-            );
+            graphics.queue.write_buffer(&g_scene.light_buffer, 0, bytemuck::cast_slice(light_position));
+            graphics.queue.write_buffer(&g_scene.light_buffer, 16, bytemuck::cast_slice(eye_position));
+            graphics.queue.write_buffer(&g_scene.light_buffer, 32, bytemuck::cast_slice(&resolution));
 
             let texture_view_descriptor = TextureViewDescriptor::default();
             let view: TextureView = out.texture.create_view(&texture_view_descriptor);
@@ -1006,18 +953,8 @@ pub fn render(
                     render_pass.set_pipeline(&graphics.mesh_pipe_line.mesh_render_pipeline);
                     render_pass.set_bind_group(0, &bg, &[]);
                     render_pass.set_vertex_buffer(0, g_scene.v_buffer_mesh.slice(..));
-                    render_pass.set_index_buffer(
-                        g_scene.i_buffer_mesh.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(
-                        Range {
-                            start: 0,
-                            end: count as u32,
-                        },
-                        0,
-                        Range { start: 0, end: 1 },
-                    );
+                    render_pass.set_index_buffer(g_scene.i_buffer_mesh.slice(..), wgpu::IndexFormat::Uint32, );
+                    render_pass.draw_indexed(Range { start: 0, end: count as u32, }, 0, Range { start: 0, end: 1 }, );
                 }
             }
             //DORN MESHES
@@ -1445,10 +1382,7 @@ pub fn render(
     }
 }
 
-pub fn render_selection(
-    mut graphics: UniqueViewMut<Graphics>,
-    mut g_scene: UniqueViewMut<GlobalScene>,
-) {
+pub fn render_selection(mut graphics: UniqueViewMut<Graphics>, mut g_scene: UniqueViewMut<GlobalScene>) {
     if (!g_scene.is_offscreen_requested) {
         let sel_texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
@@ -1612,11 +1546,7 @@ pub fn render_selection(
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn check_remote(
-    mut g_scene: UniqueViewMut<GlobalScene>,
-    mut gs: UniqueViewMut<GlobalState>,
-    mut cmd: UniqueViewMut<InCmd>,
-) {
+pub fn check_remote(mut g_scene: UniqueViewMut<GlobalScene>, mut gs: UniqueViewMut<GlobalState>, mut cmd: UniqueViewMut<InCmd>) {
     match cmd.check_curr_command() {
         States::Dismiss => {}
         ReadyToLoad((v, is_reset_camera)) => {
@@ -1651,12 +1581,7 @@ pub fn check_remote(
         }
     }
 }
-pub fn on_keyboard(
-    event: KeyEvent,
-    mut graphics: UniqueViewMut<Graphics>,
-    mut gs: UniqueViewMut<GlobalState>,
-    mut g_scene: UniqueViewMut<GlobalScene>,
-) {
+pub fn on_keyboard(event: KeyEvent, mut graphics: UniqueViewMut<Graphics>, mut gs: UniqueViewMut<GlobalState>, mut g_scene: UniqueViewMut<GlobalScene>) {
     match event.physical_key {
         PhysicalKey::Code(KeyCode::F2) => match event.state {
             ElementState::Pressed => {}
@@ -1670,7 +1595,7 @@ pub fn on_keyboard(
                     {
                         let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
                         g_scene.bend_step = 1;
-                        let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                        let (lraclr_arr) = analyze_stp(&stp);
                         //let lraclr_arr_i32 = LRACLR::to_array(&lraclr_arr);
                         gs.state = ReadyToLoad((lraclr_arr, true));
                         gs.v_up_orign = P_UP_REVERSE;
@@ -1689,7 +1614,7 @@ pub fn on_keyboard(
                     {
                         g_scene.bend_step = 1;
                         let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
-                        let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                        let lraclr_arr = analyze_stp(&stp);
                         let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
                         gs.state = ReadyToLoad((lraclr_arr, true));
                         gs.v_up_orign = P_UP_REVERSE;
@@ -1713,15 +1638,16 @@ pub fn on_keyboard(
             ElementState::Released => {
                 g_scene.bend_step = 1;
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/1.stp")).as_slice());
-                let stp: Vec<u8> = Vec::from((include_bytes!("../files/13.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/13.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/12.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/10.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/9.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/3.stp")).as_slice());
-                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
+                let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
+                //let stp: Vec<u8> = Vec::from((include_bytes!("../files/1.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/16.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/a.step")).as_slice());
-                let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                let lraclr_arr = analyze_stp(&stp);
                 let lraclr_arr_reversed: Vec<LRACLR> = cnc::reverse_lraclr(&lraclr_arr);
                 gs.state = ReadyToLoad((lraclr_arr, true));
                 gs.v_up_orign = P_UP_REVERSE;
@@ -1740,9 +1666,9 @@ pub fn on_keyboard(
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/2.stp")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/D3.step")).as_slice());
                 //let stp: Vec<u8> = Vec::from((include_bytes!("../files/a.step")).as_slice());
-                let lraclr_arr: Vec<LRACLR> = analyze_stp(&stp);
+                let lraclr_arr = analyze_stp(&stp);
                 let (cyls, tors) = cnc_to_poly(&lraclr_arr, &gs.v_up_orign);
-                let file_stp=all_to_stp(&cyls,&tors);
+                let file_stp = all_to_stp(&cyls, &tors);
                 let path = format!("d:\\pipe_project\\teat.stp");
                 match File::create(path) {
                     Ok(file) => {
