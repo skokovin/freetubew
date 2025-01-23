@@ -19,7 +19,7 @@ use cgmath::{Deg, Point3, Rad};
 use log::warn;
 //use once_cell::sync::Lazy;
 use shipyard::{EntitiesViewMut, EntityId, Unique, UniqueViewMut, ViewMut, World};
-use smaa::{SmaaFrame, SmaaMode, SmaaTarget};
+use smaa23::{SmaaFrame, SmaaMode, SmaaTarget};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Mul, Range};
@@ -247,6 +247,7 @@ pub struct GlobalScene {
     pub light_buffer: Buffer,
     pub metadata: Vec<[i32; 4]>,
     pub metadata_buffer: Buffer,
+
 }
 impl GlobalScene {
     pub fn new(device: &Device, queue: &Queue, v_up_orign: &cgmath::Vector3<f64>, w: u32, h: u32) -> Self {

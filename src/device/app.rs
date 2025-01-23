@@ -262,12 +262,12 @@ fn create_graphics(event_loop: &ActiveEventLoop) -> impl Future<Output = Graphic
 }
 #[cfg(not(target_arch = "wasm32"))]
 async fn create_primary() -> Option<(Instance, Adapter)> {
-    let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let inst_descr=wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         flags: Default::default(),
-        dx12_shader_compiler: Default::default(),
-        gles_minor_version: Default::default(),
-    });
+        backend_options: Default::default(),
+    };
+    let instance: Instance = wgpu::Instance::new(&inst_descr);
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: None, // Some(&surface)
@@ -284,14 +284,14 @@ async fn create_primary() -> Option<(Instance, Adapter)> {
 #[cfg(target_arch = "wasm32")]
 async fn create_primary() -> Option<(Instance, Adapter)> {
     warn!("CREATE PRIMARY");
-    use winit::platform::web::WindowAttributesExtWebSys;
-    use winit::platform::web::WindowExtWebSys;
-    let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let inst_descr=wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         flags: Default::default(),
-        dx12_shader_compiler: Default::default(),
-        gles_minor_version: Default::default(),
-    });
+        backend_options: Default::default(),
+    };
+    use winit::platform::web::WindowAttributesExtWebSys;
+    use winit::platform::web::WindowExtWebSys;
+    let instance: Instance = wgpu::Instance::new(&inst_descr);
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: None, // Some(&surface)
@@ -307,14 +307,14 @@ async fn create_primary() -> Option<(Instance, Adapter)> {
 #[cfg(target_arch = "wasm32")]
 async fn create_secondary() -> Option<(Instance, Adapter)> {
     warn!("CREATE secondary");
-    use winit::platform::web::WindowAttributesExtWebSys;
-    use winit::platform::web::WindowExtWebSys;
-    let instance: Instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let inst_descr=wgpu::InstanceDescriptor {
         backends: wgpu::Backends::SECONDARY,
         flags: Default::default(),
-        dx12_shader_compiler: Default::default(),
-        gles_minor_version: Default::default(),
-    });
+        backend_options: Default::default(),
+    };
+    use winit::platform::web::WindowAttributesExtWebSys;
+    use winit::platform::web::WindowExtWebSys;
+    let instance: Instance = wgpu::Instance::new(&inst_descr);
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: None, // Some(&surface)
