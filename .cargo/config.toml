@@ -26,3 +26,5 @@
 #[package.metadata.wasm-pack.profile.release]
 #wasm-opt = false
 
+#wasm-pack build --target web
+

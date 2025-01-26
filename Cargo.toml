@@ -12,7 +12,9 @@ crate_type = ["cdylib", "rlib"]
 name = "freetubew"
 path = "src/main.rs"
 
+
 [dependencies]
+smaa = {  path = "crates/smaa" }
 web-time = "1.1.0"
 #instant = "0.1.13"
 #nanoid = "0.4.0"
@@ -40,7 +42,7 @@ truck-stepio = { git = "https://github.com/ricosjp/truck.git" }
 #bvh = { version = "0.8.0",features = ["serde"] }
 #triangle = "0.2.0"
 #smaa = "0.15.0"
-smaa23 = { path = "../smaa23" }
+#smaa = { path = "../../crates/smaa" }
 #bitflags = "2.6.0"
 log = "0.4.25"
 pollster = "0.4.0"

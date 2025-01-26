@@ -19,7 +19,7 @@ use cgmath::{Deg, Point3, Rad};
 use log::warn;
 //use once_cell::sync::Lazy;
 use shipyard::{EntitiesViewMut, EntityId, Unique, UniqueViewMut, ViewMut, World};
-use smaa23::{SmaaFrame, SmaaMode, SmaaTarget};
+use smaa::{SmaaFrame, SmaaMode, SmaaTarget};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Mul, Range};
