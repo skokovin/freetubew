@@ -14,7 +14,8 @@ path = "src/main.rs"
 
 
 [dependencies]
-smaa = {  path = "crates/smaa" }
+smaa = "0.16.0"
+#smaa = {  path = "crates/smaa" }
 web-time = "1.1.0"
 #instant = "0.1.13"
 #nanoid = "0.4.0"
