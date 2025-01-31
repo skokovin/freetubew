@@ -35,3 +35,5 @@ Contributions to Software are made under the
 ## Contacts
 
 s.kokovin@gmail.com
+[CV](https://skokovin.github.io/).
+
